@@ -1,16 +1,22 @@
-name: Admin Portal Build
+name: Deploy Admin Portal
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: admin-pages
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Admin Portal
     runs-on: ubuntu-latest
 
     env:
@@ -20,7 +26,7 @@ jobs:
       VITE_RENTMECT_ADDRESS: ${{ secrets.VITE_RENTMECT_ADDRESS }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -32,11 +38,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build admin portal
+      - name: Build
         run: npm run build
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: admin-portal-dist
           path: dist
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
