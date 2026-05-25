@@ -45,6 +45,7 @@ function App() {
   const [notice, setNotice] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [search, setSearch] = useState('');
+  const [rentalFilter, setRentalFilter] = useState('needs_action');
 
   const [profiles, setProfiles] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -180,13 +181,15 @@ function App() {
 
   const filteredRentals = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return paidRentals;
     return paidRentals.filter((r) =>
+      rentalMatchesFilter(r, rentalFilter, { documents, extensionRequests, vehicles }) &&
+      (!q ||
       [r.vehicles?.name, r.profiles?.full_name, r.profiles?.phone, r.user_email, r.status]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q))
+      )
     );
-  }, [paidRentals, search]);
+  }, [paidRentals, search, rentalFilter, documents, extensionRequests, vehicles]);
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -377,6 +380,67 @@ function App() {
     notify(`Rental set to ${prettyStatus(status)}.`, 'success');
   }
 
+  async function completeRentalReturn(rental, inspection = {}) {
+    if (!rental?.id) return;
+
+    if (inspection.damageFound) {
+      const photoPaths = [];
+      for (const file of inspection.files || []) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+        const path = `${rental.user_id || 'admin'}/return-damage/${rental.id}/${Date.now()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage
+          .from(DOCUMENT_BUCKET)
+          .upload(path, file, { upsert: false });
+        if (uploadError) return notify(uploadError.message);
+        photoPaths.push(path);
+      }
+
+      const reportPayload = {
+        rental_id: rental.id,
+        user_id: rental.user_id,
+        status: 'open',
+        description: inspection.damageNote || 'Damage found during admin return inspection.',
+        report_type: 'admin_return_damage',
+        photo_paths: photoPaths,
+      };
+      const { data: report, error: reportError } = await supabase
+        .from('vehicle_reports')
+        .insert(reportPayload)
+        .select('*, profiles(*), rentals(*, vehicles(*))')
+        .single();
+      if (reportError) return notify(reportError.message);
+      if (report) setReports((current) => [report, ...current]);
+    }
+
+    if (inspection.depositDecision === 'hold') {
+      const { error: depositError } = await supabase
+        .from('rentals')
+        .update({
+          deposit_status: 'held',
+          deposit_held_amount: Math.max(Number(rental.deposit_held_amount || 0), Number(rental.security_deposit || 0)),
+        })
+        .eq('id', rental.id);
+      if (depositError) return notify(depositError.message);
+    }
+
+    const { error: inspectionError } = await supabase
+      .from('rental_return_inspections')
+      .insert({
+        rental_id: rental.id,
+        user_id: rental.user_id,
+        mileage_checked: Boolean(inspection.mileageChecked || inspection.skipChecklist),
+        fuel_checked: Boolean(inspection.fuelChecked || inspection.skipChecklist),
+        damage_checked: Boolean(inspection.damageChecked || inspection.skipChecklist),
+        damage_found: Boolean(inspection.damageFound),
+        deposit_decision: inspection.depositDecision || 'release',
+        notes: inspection.skipChecklist ? 'Admin skipped return checklist.' : inspection.damageNote || null,
+        skipped: Boolean(inspection.skipChecklist),
+      });
+    if (inspectionError) return notify(inspectionError.message);
+
+    await updateRentalStatus(rental.id, 'completed');
+  }
+
   async function recordTestPayment(id) {
     const { data, error } = await supabase.rpc('record_admin_local_rental_payment', {
       p_rental_id: id,
@@ -505,10 +569,63 @@ function App() {
   async function markDocument(id, status) {
     const { error } = await supabase.from('rental_documents').update({ status }).eq('id', id);
     if (error) return notify(error.message);
+    const changedDocument = documents.find((document) => document.id === id);
+    const updatedDocuments = documents.map((document) =>
+      document.id === id ? { ...document, status } : document
+    );
     setDocuments((current) => current.map((document) =>
       document.id === id ? { ...document, status } : document
     ));
+    if (status === 'approved' && changedDocument) {
+      await autoMarkReadyForPickup(changedDocument, updatedDocuments);
+    }
     notify(`${prettyStatus(status)} ${docLabel(documents.find((document) => document.id === id)?.document_type || 'document')}.`, 'success');
+  }
+
+  async function autoMarkReadyForPickup(changedDocument, updatedDocuments) {
+    const candidateRentals = rentals.filter((rental) =>
+      rental.user_id === changedDocument.user_id &&
+      ['documents_needed', 'document_review', 'approved'].includes(rental.status)
+    );
+
+    for (const rental of candidateRentals) {
+      const rentalDocuments = updatedDocuments.filter((document) => document.rental_id === rental.id);
+      const reusableLicense = latestCustomerDocument(updatedDocuments, rental.user_id, 'license');
+      const documentsForProgress = reusableLicense && !rentalDocuments.some((document) => document.id === reusableLicense.id)
+        ? [reusableLicense, ...rentalDocuments]
+        : rentalDocuments;
+      const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
+      if (!releaseChecklist.ready) continue;
+
+      const { error } = await supabase
+        .from('rentals')
+        .update({ status: 'ready_for_pickup' })
+        .eq('id', rental.id);
+      if (error) {
+        notify(error.message);
+        continue;
+      }
+
+      const nextVehicleStatus = vehicleStatusForRentalStatus('ready_for_pickup');
+      if (rental.vehicle_id && nextVehicleStatus) {
+        await supabase.from('vehicles').update({ status: nextVehicleStatus }).eq('id', rental.vehicle_id);
+      }
+
+      setRentals((current) => current.map((item) =>
+        item.id === rental.id
+          ? {
+              ...item,
+              status: 'ready_for_pickup',
+              vehicles: item.vehicles ? { ...item.vehicles, status: nextVehicleStatus } : item.vehicles,
+            }
+          : item
+      ));
+      if (rental.vehicle_id && nextVehicleStatus) {
+        setVehicles((current) => current.map((vehicle) =>
+          vehicle.id === rental.vehicle_id ? { ...vehicle, status: nextVehicleStatus } : vehicle
+        ));
+      }
+    }
   }
   async function deleteDocument(document) {
   const confirmed = window.confirm(`Delete ${docLabel(document.document_type)} upload?`);
@@ -683,7 +800,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
+        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
@@ -796,8 +913,8 @@ function FleetCalendar({ vehicles, rentals }) {
               const rentalTitle = rental
                 ? `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`
                 : '';
-              return <div className={unavailable ? 'calendar-cell booked' : 'calendar-cell open'} key={`${vehicle.id}-${day.iso}`} title={rental ? rentalTitle : vehicleBlocked ? prettyVehicleStatus(vehicle.status) : 'Available'}>
-                {rental ? <span>{calendarBlockLabel(rental, day.iso)}</span> : vehicleBlocked ? <span>{prettyVehicleStatus(vehicle.status)}</span> : ''}
+              return <div className={calendarCellClass({ unavailable, vehicleBlocked, rental, dayIso: day.iso })} key={`${vehicle.id}-${day.iso}`} title={rental ? rentalTitle : vehicleBlocked ? prettyVehicleStatus(vehicle.status) : 'Available'}>
+                {rental ? <span>{calendarBlockLabel(rental, day.iso)}</span> : vehicleBlocked ? <span>Maintenance</span> : <span>Available</span>}
               </div>;
             })}
           </React.Fragment>;
@@ -807,7 +924,7 @@ function FleetCalendar({ vehicles, rentals }) {
   </Panel>;
 }
 
-function Rentals({ rentals, search, setSearch, updateRentalStatus, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
+function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
 
@@ -840,8 +957,16 @@ function Rentals({ rentals, search, setSearch, updateRentalStatus, recordTestPay
       </div>
     </Panel>
     <Panel title="All Rentals" eyebrow="Reservations">
+      <div className="filter-pills" role="group" aria-label="Rental filters">
+        {rentalFilterOptions().map((filter) => (
+          <button type="button" key={filter.key} className={rentalFilter === filter.key ? 'active' : ''} onClick={() => setRentalFilter(filter.key)}>
+            {filter.label}
+          </button>
+        ))}
+      </div>
       <div className="search-row"><Search size={18}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search customer, car, phone, status..." /></div>
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
+      {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
+      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
     </Panel>
   </>;
 }
@@ -1018,7 +1143,8 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
+  const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -1029,12 +1155,13 @@ function RentalRow({ rental, updateRentalStatus, recordTestPayment, recordExtens
   const documentsForDisplay = detailed && license && !rentalDocuments.some((document) => document.id === license.id)
     ? [license, ...rentalDocuments]
     : rentalDocuments;
-  const canCompleteReturn = rental.status === 'return_initiated';
+  const canCompleteReturn = Boolean(completeRentalReturn) && rental.status === 'return_initiated';
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
   const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
+  const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, releaseChecklist);
 
   return <div className="data-row rental-row">
@@ -1049,12 +1176,14 @@ function RentalRow({ rental, updateRentalStatus, recordTestPayment, recordExtens
       </div>}
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
+      {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
+      {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
     </div>
     <div className="row-actions">
       <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
       {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
       {canMarkActive && <button className="approve primary-action" onClick={()=>updateRentalStatus(rental.id, 'active')}><Car size={15}/> Mark Vehicle Picked Up</button>}
-      {canCompleteReturn && <button className="approve primary-action" onClick={()=>updateRentalStatus(rental.id, 'completed')}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
+      {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
       {canCancel && <button className="reject" onClick={()=>updateRentalStatus(rental.id, 'cancelled')}><XCircle size={15}/> Cancel</button>}
       <button onClick={()=>sendManualReminder(rental, 'SMS')}><MessageCircle size={15}/> SMS</button>
       <button onClick={()=>sendManualReminder(rental, 'Email')}><Mail size={15}/> Email</button>
@@ -1093,6 +1222,69 @@ function RentalExtensionActions({ requests = [], vehicles = [], decideExtension,
       </div>;
     })}
   </div>;
+}
+
+function DamageReportList({ reports = [] }) {
+  return <div className="damage-report-list">
+    <strong>Damage / Incident Reports</strong>
+    {reports.map((report) => (
+      <div className="damage-report-row" key={report.id}>
+        <span>{prettyStatus(report.status || 'open')}</span>
+        <small>{report.description || 'Damage report open for this rental.'}</small>
+      </div>
+    ))}
+  </div>;
+}
+
+function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
+  const [inspection, setInspection] = useState({
+    mileageChecked: false,
+    fuelChecked: false,
+    damageChecked: false,
+    damageFound: false,
+    depositDecision: 'release',
+    damageNote: '',
+    skipChecklist: false,
+    files: [],
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    await onComplete(inspection);
+    setSaving(false);
+  }
+
+  const update = (key, value) => setInspection((current) => ({ ...current, [key]: value }));
+
+  return <form className="return-completion-panel" onSubmit={submit}>
+    <div>
+      <strong>Return Completion</strong>
+      <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
+    </div>
+    <label><input type="checkbox" checked={inspection.skipChecklist} onChange={(event) => update('skipChecklist', event.target.checked)} /> Skip checklist and close rental</label>
+    {!inspection.skipChecklist && <>
+      <label><input type="checkbox" checked={inspection.mileageChecked} onChange={(event) => update('mileageChecked', event.target.checked)} /> Mileage checked</label>
+      <label><input type="checkbox" checked={inspection.fuelChecked} onChange={(event) => update('fuelChecked', event.target.checked)} /> Fuel checked</label>
+      <label><input type="checkbox" checked={inspection.damageChecked} onChange={(event) => update('damageChecked', event.target.checked)} /> Damage checked</label>
+      <label className="field-label">Deposit decision
+        <select value={inspection.depositDecision} onChange={(event) => update('depositDecision', event.target.value)}>
+          <option value="release">Release deposit after normal review</option>
+          <option value="hold">Hold deposit for review</option>
+        </select>
+      </label>
+      <label><input type="checkbox" checked={inspection.damageFound} onChange={(event) => setInspection((current) => ({ ...current, damageFound: event.target.checked, depositDecision: event.target.checked ? 'hold' : current.depositDecision }))} /> Damage or incident found</label>
+      {inspection.damageFound && <>
+        <textarea value={inspection.damageNote} onChange={(event) => update('damageNote', event.target.value)} placeholder="Describe damage, incident, mileage/fuel issue, cleaning issue, or deposit reason..." />
+        <input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} />
+      </>}
+    </>}
+    <div className="mini-actions">
+      <button type="button" onClick={onCancel}>Cancel</button>
+      <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={14}/> {saving ? 'Closing...' : 'Close Rental'}</button>
+    </div>
+  </form>;
 }
 
 function RentalProgressTracker({ steps }) {
@@ -1175,11 +1367,17 @@ function rentalBlocksCalendarDay(rental, dayStart, dayEnd) {
 }
 function calendarBlockLabel(rental, dayIso) {
   if (dayIso === rental.pickup_date && dayIso === rental.return_date) {
-    return `${rental.pickup_time || '9:00 AM'}-${formatTimeOnly(getRentalBlockedUntil(rental))}`;
+    return `Booked ${rental.pickup_time || '9:00 AM'} - buffer until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
   }
   if (dayIso === rental.pickup_date) return `From ${rental.pickup_time || '9:00 AM'}`;
-  if (dayIso === rental.return_date) return `Until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
-  return prettyStatus(rental.status);
+  if (dayIso === rental.return_date) return `Buffer until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
+  return 'Booked';
+}
+function calendarCellClass({ unavailable, vehicleBlocked, rental, dayIso }) {
+  if (!unavailable) return 'calendar-cell open';
+  if (vehicleBlocked) return 'calendar-cell maintenance';
+  if (rental && dayIso === rental.return_date) return 'calendar-cell buffer';
+  return 'calendar-cell booked';
 }
 function formatTimeOnly(date) {
   if (!date) return 'Blocked';
@@ -1370,6 +1568,47 @@ function getAdminRentalState(rental, releaseChecklist) {
   if (!releaseChecklist.license || !releaseChecklist.insurance) return { label: 'Documents Needed', tone: 'warning', next: 'Approve license and insurance before pickup.' };
   if (!releaseChecklist.phone) return { label: 'Phone Needed', tone: 'warning', next: 'Customer needs phone verification.' };
   return { label: prettyStatus(rental.status || 'Pending'), tone: 'info', next: 'Review the checklist for the next missing step.' };
+}
+
+function rentalFilterOptions() {
+  return [
+    { key: 'needs_action', label: 'Needs Action' },
+    { key: 'ready_pickup', label: 'Ready For Pickup' },
+    { key: 'cars_out', label: 'Cars Out' },
+    { key: 'returns_today', label: 'Returns Today' },
+    { key: 'extensions', label: 'Extensions Pending' },
+    { key: 'maintenance', label: 'Maintenance' },
+    { key: 'all', label: 'All' },
+  ];
+}
+
+function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests = [], vehicles = [] } = {}) {
+  if (filter === 'all') return true;
+  const rentalDocuments = documents.filter((document) => document.rental_id === rental.id);
+  const reusableLicense = latestCustomerDocument(documents, rental.user_id, 'license');
+  const documentsForProgress = reusableLicense && !rentalDocuments.some((document) => document.id === reusableLicense.id)
+    ? [reusableLicense, ...rentalDocuments]
+    : rentalDocuments;
+  const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
+  const hasOpenExtension = extensionRequests.some((request) =>
+    (request.rental_id === rental.id || request.rentals?.id === rental.id) &&
+    ['pending', 'approved_pending_payment'].includes(request.status)
+  );
+  const vehicle = vehicles.find((item) => item.id === rental.vehicle_id) || rental.vehicles;
+  const vehicleStatus = String(vehicle?.status || '').toLowerCase();
+
+  if (filter === 'ready_pickup') return releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
+  if (filter === 'cars_out') return ['active', 'overdue', 'return_initiated'].includes(rental.status);
+  if (filter === 'returns_today') return ['active', 'overdue', 'return_initiated'].includes(rental.status) && isToday(rental.return_date);
+  if (filter === 'extensions') return hasOpenExtension;
+  if (filter === 'maintenance') return ['maintenance', 'unavailable', 'inactive'].includes(vehicleStatus);
+  return (
+    hasOpenExtension ||
+    rental.status === 'return_initiated' ||
+    isOverdue(rental.return_date, rental.status) ||
+    (rental.payment_status || 'pending') !== 'paid' ||
+    !releaseChecklist.ready
+  ) && !['completed', 'cancelled'].includes(rental.status);
 }
 
 function latestCustomerDocument(documents = [], userId, type) {
