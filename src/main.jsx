@@ -30,7 +30,7 @@ const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Cir
 const CT_TAX_RATE = 0.0635;
 const DOCUMENT_BUCKET = 'rental-documents';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'];
-const BLOCKING_VEHICLE_STATUSES = ['reserved', 'rented', 'maintenance', 'unavailable', 'inactive'];
+const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
 
 const statusOptions = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'completed', 'cancelled'];
@@ -358,10 +358,28 @@ function App() {
   }
 
   async function recordTestPayment(id) {
-    const { error } = await supabase.rpc('record_admin_local_rental_payment', {
+    const { data, error } = await supabase.rpc('record_admin_local_rental_payment', {
       p_rental_id: id,
     });
     if (error) return notify(error.message);
+
+    const paidRental = data || rentals.find((rental) => rental.id === id);
+    if (paidRental?.vehicle_id) {
+      setRentals((current) => current.map((rental) =>
+        rental.id === id
+          ? {
+              ...rental,
+              ...paidRental,
+              payment_status: 'paid',
+              deposit_status: 'held',
+              vehicles: rental.vehicles ? { ...rental.vehicles, status: 'reserved' } : rental.vehicles,
+            }
+          : rental
+      ));
+      setVehicles((current) => current.map((vehicle) =>
+        vehicle.id === paidRental.vehicle_id ? { ...vehicle, status: 'reserved' } : vehicle
+      ));
+    }
 
     const { data: alertData, error: alertError } = await supabase.functions.invoke('send-rental-due-reminders', {
       body: { adminApprovalRentalId: id },
@@ -372,8 +390,6 @@ function App() {
     } else {
       notify('Local payment recorded. Admin approval SMS sent.', 'success');
     }
-
-    loadAllData();
   }
 
   async function decideExtension(id, approve) {
@@ -739,14 +755,16 @@ function FleetCalendar({ vehicles, rentals }) {
               <span>{prettyVehicleStatus(vehicle.status)}</span>
             </div>
             {days.map((day) => {
-              const rental = vehicleRentals.find((r) => datesOverlap(day.iso, day.iso, r.pickup_date, r.return_date));
-              const unavailable = vehicleBlocked || rental;
+              const dayStart = parseRentMeCtDateTime(day.iso, '12:00 AM');
+              const dayEnd = parseRentMeCtDateTime(day.iso, '11:59 PM');
+              const rental = vehicleRentals.find((r) => rentalBlocksCalendarDay(r, dayStart, dayEnd));
+              const unavailable = vehicleBlocked || Boolean(rental);
               const blockedUntil = rental ? getRentalBlockedUntil(rental) : null;
               const rentalTitle = rental
-                ? `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Blocked until ${formatTimeOnly(blockedUntil)} with buffer.`
+                ? `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`
                 : '';
               return <div className={unavailable ? 'calendar-cell booked' : 'calendar-cell open'} key={`${vehicle.id}-${day.iso}`} title={rental ? rentalTitle : vehicleBlocked ? prettyVehicleStatus(vehicle.status) : 'Available'}>
-                {rental ? <span>{formatTimeOnly(blockedUntil)}</span> : vehicleBlocked ? <span>{prettyVehicleStatus(vehicle.status)}</span> : ''}
+                {rental ? <span>{calendarBlockLabel(rental, day.iso)}</span> : vehicleBlocked ? <span>{prettyVehicleStatus(vehicle.status)}</span> : ''}
               </div>;
             })}
           </React.Fragment>;
@@ -1111,9 +1129,27 @@ function getRentalBlockedUntil(rental) {
   if (!bookedEnd) return null;
   return new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000);
 }
+function rentalBlocksCalendarDay(rental, dayStart, dayEnd) {
+  const bookedStart = parseRentMeCtDateTime(rental?.pickup_date, rental?.pickup_time);
+  const blockedUntil = getRentalBlockedUntil(rental);
+  if (!bookedStart || !blockedUntil) return false;
+  return dayStart < blockedUntil && dayEnd > bookedStart;
+}
+function calendarBlockLabel(rental, dayIso) {
+  if (dayIso === rental.pickup_date && dayIso === rental.return_date) {
+    return `${rental.pickup_time || '9:00 AM'}-${formatTimeOnly(getRentalBlockedUntil(rental))}`;
+  }
+  if (dayIso === rental.pickup_date) return `From ${rental.pickup_time || '9:00 AM'}`;
+  if (dayIso === rental.return_date) return `Until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
+  return prettyStatus(rental.status);
+}
 function formatTimeOnly(date) {
   if (!date) return 'Blocked';
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function formatDateTime(date) {
+  if (!date) return 'blocked';
+  return `${date.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} ${formatTimeOnly(date)}`;
 }
 function calendarDays(count) {
   return Array.from({ length: count }, (_, index) => {
