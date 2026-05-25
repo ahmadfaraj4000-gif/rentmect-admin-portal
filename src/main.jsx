@@ -302,33 +302,59 @@ function App() {
   }
 
   async function updateRentalStatus(id, status) {
+    const rental = rentals.find((item) => item.id === id);
+    const nextVehicleStatus = vehicleStatusForRentalStatus(status);
+    const applyLocalStatus = () => {
+      setRentals((current) => current.map((item) => {
+        if (item.id !== id) return item;
+        return {
+          ...item,
+          status,
+          vehicles: item.vehicles ? { ...item.vehicles, status: nextVehicleStatus || item.vehicles.status } : item.vehicles,
+        };
+      }));
+      if (rental?.vehicle_id && nextVehicleStatus) {
+        setVehicles((current) => current.map((vehicle) =>
+          vehicle.id === rental.vehicle_id ? { ...vehicle, status: nextVehicleStatus } : vehicle
+        ));
+      }
+    };
+
     if (status === 'active') {
       const { error } = await supabase.rpc('admin_mark_rental_active', { p_rental_id: id });
       if (error) return notify(error.message);
+      applyLocalStatus();
       notify('Rental marked active.', 'success');
-      loadAllData();
       return;
     }
 
     if (status === 'completed') {
       const { error } = await supabase.rpc('admin_complete_rental_return', { p_rental_id: id });
       if (error) return notify(error.message);
+      applyLocalStatus();
       notify('Rental completed.', 'success');
-      loadAllData();
       return;
     }
 
     if (status === 'cancelled') {
       const { error } = await supabase.rpc('admin_cancel_rental', { p_rental_id: id });
       if (error) return notify(error.message);
+      applyLocalStatus();
       notify('Rental cancelled.', 'success');
-      loadAllData();
       return;
     }
 
     const { error } = await supabase.from('rentals').update({ status }).eq('id', id);
     if (error) return notify(error.message);
-    loadAllData();
+    if (rental?.vehicle_id && nextVehicleStatus) {
+      const { error: vehicleError } = await supabase
+        .from('vehicles')
+        .update({ status: nextVehicleStatus })
+        .eq('id', rental.vehicle_id);
+      if (vehicleError) return notify(vehicleError.message);
+    }
+    applyLocalStatus();
+    notify(`Rental set to ${prettyStatus(status)}.`, 'success');
   }
 
   async function recordTestPayment(id) {
@@ -608,7 +634,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} updateRentalStatus={updateRentalStatus} updateVehicleStatus={updateVehicleStatus} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
+        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
@@ -730,7 +756,7 @@ function FleetCalendar({ vehicles, rentals }) {
   </Panel>;
 }
 
-function Rentals({ rentals, search, setSearch, updateRentalStatus, updateVehicleStatus, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
+function Rentals({ rentals, search, setSearch, updateRentalStatus, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
 
@@ -764,7 +790,7 @@ function Rentals({ rentals, search, setSearch, updateRentalStatus, updateVehicle
     </Panel>
     <Panel title="All Rentals" eyebrow="Reservations">
       <div className="search-row"><Search size={18}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search customer, car, phone, status..." /></div>
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} updateVehicleStatus={updateVehicleStatus} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
+      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
     </Panel>
   </>;
 }
@@ -933,7 +959,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, updateVehicleStatus, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
+function RentalRow({ rental, updateRentalStatus, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -966,17 +992,11 @@ function RentalRow({ rental, updateRentalStatus, updateVehicleStatus, recordTest
     <div className="row-actions">
       <em>{prettyStatus(rental.status)}</em>
       <label className="status-control">
-        <span>Rental Status</span>
+        <span>Workflow Status</span>
         <select className="status-select" value={rental.status || 'pending'} onChange={(e)=>updateRentalStatus(rental.id, e.target.value)}>
           {statusOptions.map((status)=><option key={status} value={status}>{prettyStatus(status)}</option>)}
         </select>
       </label>
-      {updateVehicleStatus && rental.vehicle_id && <label className="status-control">
-        <span>Vehicle Status</span>
-        <select className="status-select" value={rental.vehicles?.status || 'available'} onChange={(e)=>updateVehicleStatus(rental.vehicle_id, e.target.value)}>
-          {vehicleStatuses.map((status)=><option key={status} value={status}>{prettyVehicleStatus(status)}</option>)}
-        </select>
-      </label>}
       {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
       {canMarkActive && <button className="approve" onClick={()=>updateRentalStatus(rental.id, 'active')}><Car size={15}/> Mark Active</button>}
       {canCompleteReturn && <button className="approve" onClick={()=>updateRentalStatus(rental.id, 'completed')}><CheckCircle2 size={15}/> Complete Return</button>}
@@ -1250,6 +1270,13 @@ function latestDocument(documents = [], type) {
   return documents
     .filter((document) => document.document_type === type)
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
+}
+
+function vehicleStatusForRentalStatus(status) {
+  if (['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(status)) return 'reserved';
+  if (['active', 'overdue', 'return_initiated'].includes(status)) return 'rented';
+  if (['completed', 'cancelled'].includes(status)) return 'available';
+  return null;
 }
 
 function customerRiskProfile(profile, rentals, documents, reports) {
