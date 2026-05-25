@@ -33,8 +33,8 @@ const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_revie
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
 
-const statusOptions = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'completed', 'cancelled'];
-const vehicleStatuses = ['available', 'reserved', 'rented', 'maintenance', 'unavailable', 'inactive'];
+const vehicleStatuses = ['available', 'maintenance', 'unavailable', 'inactive'];
+const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented'];
 
 function App() {
   const [session, setSession] = useState(null);
@@ -321,9 +321,29 @@ function App() {
     };
 
     if (status === 'active') {
-      const { error } = await supabase.rpc('admin_mark_rental_active', { p_rental_id: id });
+      if (rental && !['document_review', 'approved', 'ready_for_pickup'].includes(rental.status)) {
+        const { error: readyError } = await supabase
+          .from('rentals')
+          .update({ status: 'ready_for_pickup' })
+          .eq('id', id);
+        if (readyError) return notify(readyError.message);
+      }
+      const { data, error } = await supabase.rpc('admin_mark_rental_active', { p_rental_id: id });
       if (error) return notify(error.message);
-      applyLocalStatus();
+      if (data) {
+        setRentals((current) => current.map((item) =>
+          item.id === id
+            ? { ...item, ...data, vehicles: item.vehicles ? { ...item.vehicles, status: 'rented' } : item.vehicles }
+            : item
+        ));
+        if (data.vehicle_id) {
+          setVehicles((current) => current.map((vehicle) =>
+            vehicle.id === data.vehicle_id ? { ...vehicle, status: 'rented' } : vehicle
+          ));
+        }
+      } else {
+        applyLocalStatus();
+      }
       notify('Rental marked active.', 'success');
       return;
     }
@@ -393,13 +413,15 @@ function App() {
   }
 
   async function decideExtension(id, approve) {
-    const { error } = await supabase.rpc('decide_admin_rental_extension', {
+    const { data, error } = await supabase.rpc('decide_admin_rental_extension', {
       p_extension_request_id: id,
       p_approve: approve,
     });
     if (error) return notify(error.message);
+    setExtensionRequests((current) => current.map((request) =>
+      request.id === id ? { ...request, ...(data || {}), status: approve ? 'approved_pending_payment' : 'rejected' } : request
+    ));
     notify(approve ? 'Extension approved.' : 'Extension rejected.', 'success');
-    loadAllData();
   }
 
   async function recordExtensionPayment(id) {
@@ -414,7 +436,13 @@ function App() {
   async function updateVehicleStatus(id, status) {
     const { error } = await supabase.from('vehicles').update({ status }).eq('id', id);
     if (error) return notify(error.message);
-    loadAllData();
+    setVehicles((current) => current.map((vehicle) =>
+      vehicle.id === id ? { ...vehicle, status } : vehicle
+    ));
+    setRentals((current) => current.map((rental) =>
+      rental.vehicle_id === id && rental.vehicles ? { ...rental, vehicles: { ...rental.vehicles, status } } : rental
+    ));
+    notify(`Vehicle set to ${prettyVehicleStatus(status)}.`, 'success');
   }
 
   function startEditVehicle(vehicle) {
@@ -428,7 +456,7 @@ function App() {
       vin: vehicle.vin || '',
       daily_rate: vehicle.daily_rate || '',
       security_deposit: vehicle.security_deposit || '',
-      status: vehicle.status || 'available',
+      status: SYSTEM_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? '' : vehicle.status || 'available',
     });
   }
 
@@ -440,10 +468,12 @@ function App() {
   async function saveVehicleEdit(id) {
     if (!editVehicleForm) return;
 
+    const { status, ...vehicleFields } = editVehicleForm;
     const { error } = await supabase
       .from('vehicles')
       .update({
-        ...editVehicleForm,
+        ...vehicleFields,
+        ...(status ? { status } : {}),
         daily_rate: Number(editVehicleForm.daily_rate || 0),
         security_deposit: Number(editVehicleForm.security_deposit || 0),
       })
@@ -475,7 +505,10 @@ function App() {
   async function markDocument(id, status) {
     const { error } = await supabase.from('rental_documents').update({ status }).eq('id', id);
     if (error) return notify(error.message);
-    loadAllData();
+    setDocuments((current) => current.map((document) =>
+      document.id === id ? { ...document, status } : document
+    ));
+    notify(`${prettyStatus(status)} ${docLabel(documents.find((document) => document.id === id)?.document_type || 'document')}.`, 'success');
   }
   async function deleteDocument(document) {
   const confirmed = window.confirm(`Delete ${docLabel(document.document_type)} upload?`);
@@ -504,8 +537,8 @@ function App() {
     return;
   }
 
+  setDocuments((current) => current.filter((item) => item.id !== document.id));
   notify('Document deleted.');
-  loadAllData();
 }
 
   async function openDocument(document) {
@@ -863,7 +896,10 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
               <input placeholder="VIN" value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
               <input type="number" step="0.01" placeholder="Daily Rate" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
               <input type="number" step="0.01" placeholder="Security Deposit" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} />
-              <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>{vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}</select>
+              <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
+                <option value="">Keep system status ({prettyVehicleStatus(v.status)})</option>
+                {vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}
+              </select>
             </div>
             <div className="row-actions">
               <button className="approve" onClick={()=>saveVehicleEdit(v.id)}><CheckCircle2 size={16}/> Save</button>
@@ -880,7 +916,12 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           </div>
           <div className="row-actions">
             <em>{money(v.daily_rate)}/day</em>
-            <select value={v.status || 'available'} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}</select>
+            <span className={`fleet-status-badge ${String(v.status || 'available').toLowerCase()}`}>{prettyVehicleStatus(v.status)}</span>
+            {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) ? (
+              <span className="system-owned-status">System controlled</span>
+            ) : (
+              <select value={v.status || 'available'} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}</select>
+            )}
             <button onClick={()=>startEditVehicle(v)}>Edit</button>
             <button className="reject" onClick={()=>deleteVehicle(v.id)}><XCircle size={16}/> Delete</button>
           </div>
@@ -988,11 +1029,13 @@ function RentalRow({ rental, updateRentalStatus, recordTestPayment, recordExtens
   const documentsForDisplay = detailed && license && !rentalDocuments.some((document) => document.id === license.id)
     ? [license, ...rentalDocuments]
     : rentalDocuments;
-  const canCompleteReturn = ['active', 'overdue', 'return_initiated'].includes(rental.status);
-  const canMarkActive = ['document_review', 'approved', 'ready_for_pickup'].includes(rental.status);
+  const canCompleteReturn = rental.status === 'return_initiated';
+  const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
+  const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
+  const adminState = getAdminRentalState(rental, releaseChecklist);
 
   return <div className="data-row rental-row">
     <div>
@@ -1008,19 +1051,14 @@ function RentalRow({ rental, updateRentalStatus, recordTestPayment, recordExtens
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
     </div>
     <div className="row-actions">
-      <em>{prettyStatus(rental.status)}</em>
-      <label className="status-control">
-        <span>Workflow Status</span>
-        <select className="status-select" value={rental.status || 'pending'} onChange={(e)=>updateRentalStatus(rental.id, e.target.value)}>
-          {statusOptions.map((status)=><option key={status} value={status}>{prettyStatus(status)}</option>)}
-        </select>
-      </label>
+      <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
       {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
-      {canMarkActive && <button className="approve" onClick={()=>updateRentalStatus(rental.id, 'active')}><Car size={15}/> Mark Active</button>}
-      {canCompleteReturn && <button className="approve" onClick={()=>updateRentalStatus(rental.id, 'completed')}><CheckCircle2 size={15}/> Complete Return</button>}
+      {canMarkActive && <button className="approve primary-action" onClick={()=>updateRentalStatus(rental.id, 'active')}><Car size={15}/> Mark Vehicle Picked Up</button>}
+      {canCompleteReturn && <button className="approve primary-action" onClick={()=>updateRentalStatus(rental.id, 'completed')}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
       {canCancel && <button className="reject" onClick={()=>updateRentalStatus(rental.id, 'cancelled')}><XCircle size={15}/> Cancel</button>}
       <button onClick={()=>sendManualReminder(rental, 'SMS')}><MessageCircle size={15}/> SMS</button>
       <button onClick={()=>sendManualReminder(rental, 'Email')}><Mail size={15}/> Email</button>
+      {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
     </div>
   </div>;
 }
@@ -1212,7 +1250,8 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
     if ((rental.payment_status || 'pending') !== 'paid' && ['pending', 'documents_needed', 'document_review', 'approved'].includes(rental.status)) {
       items.push({ id: `payment-${rental.id}`, bucket: 'payment_needed', severity: 'warning', title: 'Payment pending', subtitle: `${customer} • ${vehicle}`, detail: `Payment status: ${prettyStatus(rental.payment_status || 'pending')}`, rental, localPaymentAction: true });
     }
-    if (['document_review', 'approved', 'ready_for_pickup'].includes(rental.status) && rental.agreement_signed && paymentPaid && releaseDocsApproved) {
+    const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at);
+    if (['document_review', 'approved', 'ready_for_pickup'].includes(rental.status) && phoneVerified && rental.agreement_signed && paymentPaid && releaseDocsApproved) {
       items.push({ id: `pickup-${rental.id}`, bucket: 'pickup_today', severity: 'info', title: 'Release ready', subtitle: `${customer} • ${vehicle}`, detail: `Approved documents. Pickup ${formatRentalDate(rental.pickup_date, rental.pickup_time)}`, rental, nextStatus: 'active' });
     }
     if (rental.status === 'return_initiated') {
@@ -1294,6 +1333,43 @@ function getRentalProgressSteps(rental, rentalDocuments = []) {
     ...step,
     state: step.complete ? 'complete' : index === firstMissingIndex ? 'current' : 'missing',
   }));
+}
+
+function getReleaseChecklist(rental, rentalDocuments = []) {
+  const license = latestDocument(rentalDocuments, 'license');
+  const insurance = latestDocument(rentalDocuments, 'insurance');
+  return {
+    phone: Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at),
+    vehicle: Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date),
+    agreement: Boolean(rental.agreement_signed),
+    payment: (rental.payment_status || 'pending') === 'paid',
+    license: license?.status === 'approved',
+    insurance: insurance?.status === 'approved',
+    ready: Boolean(
+      (rental.profiles?.phone_verified || rental.profiles?.phone_verified_at) &&
+      rental.vehicle_id &&
+      rental.pickup_date &&
+      rental.return_date &&
+      rental.agreement_signed &&
+      (rental.payment_status || 'pending') === 'paid' &&
+      license?.status === 'approved' &&
+      insurance?.status === 'approved'
+    ),
+  };
+}
+
+function getAdminRentalState(rental, releaseChecklist) {
+  if (rental.status === 'completed') return { label: 'Completed', tone: 'success', next: 'This rental is closed.' };
+  if (rental.status === 'cancelled') return { label: 'Cancelled', tone: 'danger', next: 'This rental is cancelled.' };
+  if (rental.status === 'return_initiated') return { label: 'Return Pending', tone: 'danger', next: 'Inspect the car, then confirm return complete.' };
+  if (rental.status === 'overdue') return { label: 'Overdue', tone: 'danger', next: 'Contact customer or wait for return confirmation.' };
+  if (rental.status === 'active') return { label: 'Car Out', tone: 'info', next: 'Customer has the vehicle. Watch return and extension requests.' };
+  if (releaseChecklist.ready) return { label: 'Ready For Pickup', tone: 'success', next: 'Mark vehicle picked up when the customer gets the keys.' };
+  if (!releaseChecklist.payment) return { label: 'Payment Needed', tone: 'warning', next: 'Record payment or wait for online payment.' };
+  if (!releaseChecklist.agreement) return { label: 'Agreement Needed', tone: 'warning', next: 'Customer needs to sign the rental agreement.' };
+  if (!releaseChecklist.license || !releaseChecklist.insurance) return { label: 'Documents Needed', tone: 'warning', next: 'Approve license and insurance before pickup.' };
+  if (!releaseChecklist.phone) return { label: 'Phone Needed', tone: 'warning', next: 'Customer needs phone verification.' };
+  return { label: prettyStatus(rental.status || 'Pending'), tone: 'info', next: 'Review the checklist for the next missing step.' };
 }
 
 function latestCustomerDocument(documents = [], userId, type) {
