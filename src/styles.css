@@ -441,6 +441,22 @@ button{
     padding:11px 16px;
     box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 14px 30px rgba(0,0,0,.2)
 }
+.status-control{
+    display:grid;
+    gap:5px;
+    min-width:210px
+}
+.status-control span{
+    color:var(--muted);
+    font-size:11px;
+    font-weight:950;
+    text-transform:uppercase;
+    letter-spacing:.08em
+}
+.status-control .status-select{
+    min-width:100%;
+    max-width:none
+}
 .search-row input{
     margin:0;
     background-color:rgba(255,255,255,.08)
@@ -636,6 +652,44 @@ button{
     border:1px dashed var(--line);
     border-radius:14px;
     padding:10px
+}
+.rental-extension-actions{
+    display:grid;
+    gap:8px;
+    margin-top:12px;
+    padding:12px;
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:16px;
+    background:rgba(255,255,255,.04)
+}
+.rental-extension-actions > strong{
+    font-size:14px;
+    color:#fff
+}
+.extension-action-row{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    padding:10px;
+    border:1px solid rgba(255,255,255,.1);
+    border-radius:14px;
+    background:rgba(255,255,255,.045)
+}
+.extension-action-row > div:first-child{
+    display:grid;
+    gap:3px
+}
+.extension-action-row.pending{
+    border-color:rgba(255,220,120,.28);
+    background:rgba(255,220,120,.07)
+}
+.extension-action-row.approved_pending_payment{
+    border-color:rgba(82,214,107,.24);
+    background:rgba(82,214,107,.07)
+}
+.extension-action-row.rejected{
+    border-color:rgba(229,9,20,.28);
+    background:rgba(229,9,20,.08)
 }
 .document-mini-row{
     display:grid;
