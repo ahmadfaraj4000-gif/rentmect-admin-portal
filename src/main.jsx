@@ -414,6 +414,27 @@ function App() {
         .single();
       if (reportError) return notify(reportError.message);
       if (report) setReports((current) => [report, ...current]);
+
+      const issueLabel = prettyStatus(inspection.issueType || 'damage').toLowerCase();
+      const customerMessage = [
+        `RETURN REVIEW OPENED: Rent Me CT opened a ${issueLabel} review for your returned rental.`,
+        'Your security deposit is being held while the review is completed.',
+        inspection.damageNote ? `Admin note: ${inspection.damageNote}` : 'We will update you when the case is resolved.',
+      ].join(' ');
+
+      const { data: messageData, error: messageError } = await supabase
+        .from('rental_messages')
+        .insert({
+          rental_id: rental.id,
+          user_id: rental.user_id,
+          sender_role: 'admin',
+          message: customerMessage,
+          read_by_admin: true,
+        })
+        .select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))')
+        .single();
+      if (messageError) return notify(messageError.message);
+      if (messageData) setMessages((current) => [...current, messageData]);
     }
 
     if (inspection.depositDecision === 'hold' || inspection.damageFound) {
