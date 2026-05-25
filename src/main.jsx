@@ -398,10 +398,14 @@ function App() {
       const reportPayload = {
         rental_id: rental.id,
         user_id: rental.user_id,
+        vehicle_id: rental.vehicle_id,
         status: 'open',
         description: inspection.damageNote || 'Damage found during admin return inspection.',
         report_type: 'admin_return_damage',
+        issue_type: inspection.issueType || 'damage',
         photo_paths: photoPaths,
+        deposit_held_amount: Number(rental.security_deposit || 0),
+        admin_notes: inspection.damageNote || '',
       };
       const { data: report, error: reportError } = await supabase
         .from('vehicle_reports')
@@ -412,7 +416,7 @@ function App() {
       if (report) setReports((current) => [report, ...current]);
     }
 
-    if (inspection.depositDecision === 'hold') {
+    if (inspection.depositDecision === 'hold' || inspection.damageFound) {
       const { error: depositError } = await supabase
         .from('rentals')
         .update({
@@ -421,6 +425,22 @@ function App() {
         })
         .eq('id', rental.id);
       if (depositError) return notify(depositError.message);
+    }
+
+    if (inspection.customerAction && inspection.customerAction !== 'none') {
+      const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
+      const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
+        p_user_id: rental.user_id,
+        p_customer_status: customerStatus,
+        p_block_reason: inspection.damageNote || `${prettyStatus(inspection.issueType || 'damage')} case opened from return inspection.`,
+      });
+      if (profileError) return notify(profileError.message);
+      if (updatedProfile) {
+        setProfiles((current) => current.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile));
+        setRentals((current) => current.map((item) =>
+          item.user_id === updatedProfile.id ? { ...item, profiles: { ...(item.profiles || {}), ...updatedProfile } } : item
+        ));
+      }
     }
 
     const { error: inspectionError } = await supabase
@@ -432,7 +452,7 @@ function App() {
         fuel_checked: Boolean(inspection.fuelChecked || inspection.skipChecklist),
         damage_checked: Boolean(inspection.damageChecked || inspection.skipChecklist),
         damage_found: Boolean(inspection.damageFound),
-        deposit_decision: inspection.depositDecision || 'release',
+        deposit_decision: inspection.damageFound ? 'hold' : inspection.depositDecision || 'release',
         notes: inspection.skipChecklist ? 'Admin skipped return checklist.' : inspection.damageNote || null,
         skipped: Boolean(inspection.skipChecklist),
       });
@@ -507,6 +527,37 @@ function App() {
       rental.vehicle_id === id && rental.vehicles ? { ...rental, vehicles: { ...rental.vehicles, status } } : rental
     ));
     notify(`Vehicle set to ${prettyVehicleStatus(status)}.`, 'success');
+  }
+
+  async function updateDamageCase(id, updates) {
+    const payload = { ...updates };
+    if (payload.status === 'resolved') payload.resolved_at = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('vehicle_reports')
+      .update(payload)
+      .eq('id', id)
+      .select('*, profiles(*), rentals(*, vehicles(*))')
+      .single();
+    if (error) return notify(error.message);
+    setReports((current) => current.map((report) => report.id === id ? data : report));
+    notify('Damage case updated.', 'success');
+  }
+
+  async function setCustomerStatus(userId, customerStatus, reason = '') {
+    const { data, error } = await supabase.rpc('admin_set_customer_status', {
+      p_user_id: userId,
+      p_customer_status: customerStatus,
+      p_block_reason: reason,
+    });
+    if (error) return notify(error.message);
+    setProfiles((current) => current.map((profile) => profile.id === userId ? data : profile));
+    setRentals((current) => current.map((rental) =>
+      rental.user_id === userId ? { ...rental, profiles: { ...(rental.profiles || {}), ...data } } : rental
+    ));
+    setReports((current) => current.map((report) =>
+      report.user_id === userId ? { ...report, profiles: { ...(report.profiles || {}), ...data } } : report
+    ));
+    notify(customerStatus === 'blocked' ? 'Customer blocked.' : customerStatus === 'good' ? 'Customer unblocked.' : 'Customer marked for review.', 'success');
   }
 
   function startEditVehicle(vehicle) {
@@ -783,6 +834,7 @@ function App() {
           <button className={activeTab === 'rentals' ? 'active' : ''} onClick={() => setActiveTab('rentals')}><CalendarClock size={18}/> Rentals</button>
           <button className={activeTab === 'customers' ? 'active' : ''} onClick={() => setActiveTab('customers')}><UserRound size={18}/> Customers</button>
           <button className={activeTab === 'vehicles' ? 'active' : ''} onClick={() => setActiveTab('vehicles')}><Car size={18}/> Vehicles</button>
+          <button className={activeTab === 'damage' ? 'active' : ''} onClick={() => setActiveTab('damage')}><Wrench size={18}/> Damage</button>
           <button className={activeTab === 'documents' ? 'active' : ''} onClick={() => setActiveTab('documents')}><FileText size={18}/> Documents</button>
           <button className={activeTab === 'messages' ? 'active' : ''} onClick={() => setActiveTab('messages')}><MessageCircle size={18}/> Messages</button>
           <button className={activeTab === 'mock' ? 'active' : ''} onClick={() => setActiveTab('mock')}><Plus size={18}/> Mock Reservation</button>
@@ -803,6 +855,7 @@ function App() {
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} />}
+        {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
         {activeTab === 'mock' && <MockReservation mockForm={mockForm} setMockForm={setMockForm} profiles={profiles} vehicles={vehicles} createMockReservation={createMockReservation} />}
@@ -1236,14 +1289,84 @@ function DamageReportList({ reports = [] }) {
   </div>;
 }
 
+function DamageCases({ reports = [], updateDamageCase, setCustomerStatus }) {
+  const [filter, setFilter] = useState('open');
+  const cases = reports.filter((report) => {
+    if (filter === 'all') return true;
+    if (filter === 'blocked') return report.profiles?.blocked_customer || report.profiles?.customer_status === 'blocked';
+    if (filter === 'deposit_held') return Number(report.deposit_held_amount || 0) > 0 || report.rentals?.deposit_status === 'held';
+    return String(report.status || 'open').toLowerCase() === filter;
+  });
+
+  return <Panel title="Damage & Incident Cases" eyebrow="Fleet Protection">
+    <div className="filter-pills">
+      {[
+        ['open', 'Open'],
+        ['deposit_held', 'Deposit Held'],
+        ['resolved', 'Resolved'],
+        ['blocked', 'Blocked Customers'],
+        ['all', 'All'],
+      ].map(([key, label]) => <button type="button" key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}</button>)}
+    </div>
+    <div className="table-list">
+      {cases.length === 0 && <p className="muted">No damage cases in this view.</p>}
+      {cases.map((report) => <DamageCaseRow key={report.id} report={report} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />)}
+    </div>
+  </Panel>;
+}
+
+function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
+  const [form, setForm] = useState({
+    description: report.description || '',
+    admin_notes: report.admin_notes || '',
+    estimated_cost: report.estimated_cost || '',
+    final_charge_amount: report.final_charge_amount || '',
+    deposit_held_amount: report.deposit_held_amount || '',
+  });
+  const blocked = report.profiles?.blocked_customer || report.profiles?.customer_status === 'blocked';
+
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  return <div className="data-row damage-case-card">
+    <div>
+      <strong>{report.rentals?.vehicles?.name || 'Vehicle'} • {prettyStatus(report.issue_type || report.report_type || 'Damage')}</strong>
+      <span>{report.profiles?.full_name || report.user_id || 'Customer'} • {prettyStatus(report.status || 'open')}</span>
+      <small>{report.rentals ? `${formatRentalDate(report.rentals.pickup_date, report.rentals.pickup_time)} → ${formatRentalDate(report.rentals.return_date, report.rentals.return_time)}` : 'No rental attached'}</small>
+      <div className="damage-case-form">
+        <textarea value={form.description} onChange={(event) => update('description', event.target.value)} placeholder="Damage description" />
+        <textarea value={form.admin_notes} onChange={(event) => update('admin_notes', event.target.value)} placeholder="Admin notes, estimate details, customer communication..." />
+        <input type="number" step="0.01" value={form.estimated_cost} onChange={(event) => update('estimated_cost', event.target.value)} placeholder="Estimated cost" />
+        <input type="number" step="0.01" value={form.final_charge_amount} onChange={(event) => update('final_charge_amount', event.target.value)} placeholder="Final charge" />
+        <input type="number" step="0.01" value={form.deposit_held_amount} onChange={(event) => update('deposit_held_amount', event.target.value)} placeholder="Deposit held" />
+      </div>
+    </div>
+    <div className="row-actions">
+      <span className={`workflow-badge ${report.status === 'resolved' ? 'success' : 'danger'}`}>{prettyStatus(report.status || 'open')}</span>
+      {blocked && <span className="workflow-badge danger">Blocked</span>}
+      <button className="approve" onClick={() => updateDamageCase(report.id, {
+        description: form.description,
+        admin_notes: form.admin_notes,
+        estimated_cost: Number(form.estimated_cost || 0),
+        final_charge_amount: Number(form.final_charge_amount || 0),
+        deposit_held_amount: Number(form.deposit_held_amount || 0),
+      })}><CheckCircle2 size={15}/> Save Case</button>
+      <button onClick={() => updateDamageCase(report.id, { status: 'resolved' })}><CheckCircle2 size={15}/> Mark Resolved</button>
+      {report.user_id && <button className="reject" onClick={() => setCustomerStatus(report.user_id, 'blocked', form.admin_notes || form.description || 'Damage case')}><XCircle size={15}/> Block Customer</button>}
+      {report.user_id && blocked && <button onClick={() => setCustomerStatus(report.user_id, 'good', '')}><CheckCircle2 size={15}/> Unblock</button>}
+    </div>
+  </div>;
+}
+
 function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
   const [inspection, setInspection] = useState({
     mileageChecked: false,
     fuelChecked: false,
     damageChecked: false,
     damageFound: false,
+    issueType: 'damage',
     depositDecision: 'release',
     damageNote: '',
+    customerAction: 'review',
     skipChecklist: false,
     files: [],
   });
@@ -1276,6 +1399,22 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       </label>
       <label><input type="checkbox" checked={inspection.damageFound} onChange={(event) => setInspection((current) => ({ ...current, damageFound: event.target.checked, depositDecision: event.target.checked ? 'hold' : current.depositDecision }))} /> Damage or incident found</label>
       {inspection.damageFound && <>
+        <label className="field-label">Case type
+          <select value={inspection.issueType} onChange={(event) => update('issueType', event.target.value)}>
+            <option value="damage">Damage</option>
+            <option value="late_return">Late Return</option>
+            <option value="fuel">Fuel Issue</option>
+            <option value="cleaning">Cleaning Issue</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label className="field-label">Customer status
+          <select value={inspection.customerAction} onChange={(event) => update('customerAction', event.target.value)}>
+            <option value="review">Review Required</option>
+            <option value="block">Block Customer</option>
+            <option value="none">No Customer Flag</option>
+          </select>
+        </label>
         <textarea value={inspection.damageNote} onChange={(event) => update('damageNote', event.target.value)} placeholder="Describe damage, incident, mileage/fuel issue, cleaning issue, or deposit reason..." />
         <input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} />
       </>}

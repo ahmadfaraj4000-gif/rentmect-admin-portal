@@ -810,6 +810,29 @@ button{
     min-height:84px;
     resize:vertical
 }
+.damage-case-card{
+    align-items:stretch
+}
+.damage-case-form{
+    display:grid;
+    gap:8px;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    margin-top:10px
+}
+.damage-case-form textarea{
+    grid-column:1 / -1;
+    min-height:78px;
+    resize:vertical
+}
+.damage-case-form input,
+.damage-case-form textarea{
+    width:100%;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:12px;
+    background:rgba(255,255,255,.08);
+    color:#fff;
+    padding:10px
+}
 .document-mini-row{
     display:grid;
     grid-template-columns:minmax(0,1fr) auto;
