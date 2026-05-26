@@ -983,3 +983,284 @@ button{
     .document-mini-row{grid-template-columns:1fr;align-items:flex-start}
     .mini-actions{justify-content:flex-start}
 }
+
+/* Mobile admin app polish: keep the dark operations theme, but make it thumb-friendly. */
+@media(max-width:760px){
+    body{
+        background:#05070c
+    }
+    .admin-shell{
+        display:block;
+        min-height:100vh;
+        padding-bottom:calc(96px + env(safe-area-inset-bottom));
+        background:radial-gradient(circle at 70% 0%,rgba(229,9,20,.18),transparent 28%),linear-gradient(135deg,#05070c,#111623)
+    }
+    .sidebar{
+        position:fixed;
+        left:0;
+        right:0;
+        bottom:0;
+        top:auto;
+        z-index:50;
+        height:auto;
+        padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+        border-right:0;
+        border-top:1px solid rgba(255,255,255,.14);
+        background:rgba(5,7,12,.94);
+        box-shadow:0 -18px 55px rgba(0,0,0,.42);
+        backdrop-filter:blur(18px);
+        display:flex;
+        flex-direction:row;
+        align-items:center;
+        gap:8px;
+        overflow-x:auto;
+        overscroll-behavior-x:contain;
+        scrollbar-width:none
+    }
+    .sidebar::-webkit-scrollbar{
+        display:none
+    }
+    .brand-block{
+        display:none
+    }
+    .side-nav{
+        display:flex;
+        gap:8px;
+        flex:0 0 auto
+    }
+    .side-nav button,
+    .logout-btn{
+        min-width:74px;
+        height:66px;
+        padding:8px 9px;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        gap:5px;
+        border-radius:18px;
+        font-size:11px;
+        line-height:1.1;
+        text-align:center;
+        white-space:normal;
+        background:rgba(255,255,255,.07);
+        border:1px solid rgba(255,255,255,.08)
+    }
+    .side-nav button svg,
+    .logout-btn svg{
+        width:19px;
+        height:19px;
+        flex:0 0 auto
+    }
+    .side-nav button.active{
+        background:linear-gradient(145deg,rgba(255,48,56,.95),rgba(130,0,8,.95));
+        border-color:rgba(255,255,255,.18);
+        box-shadow:0 10px 28px rgba(229,9,20,.28)
+    }
+    .logout-btn{
+        margin-top:0;
+        flex:0 0 auto
+    }
+    .admin-main{
+        padding:16px 14px 0;
+        max-width:none
+    }
+    .admin-header{
+        position:sticky;
+        top:0;
+        z-index:20;
+        margin:-16px -14px 14px;
+        padding:14px;
+        background:linear-gradient(180deg,rgba(5,7,12,.96),rgba(5,7,12,.84));
+        border-bottom:1px solid rgba(255,255,255,.08);
+        backdrop-filter:blur(16px)
+    }
+    .admin-header h1{
+        font-size:28px;
+        letter-spacing:-.8px
+    }
+    .admin-header .eyebrow{
+        margin-bottom:5px;
+        font-size:10px;
+        letter-spacing:2px
+    }
+    .admin-header span{
+        font-size:12px;
+        word-break:break-word
+    }
+    .header-actions,
+    .header-actions .secondary-btn{
+        width:100%
+    }
+    .metric-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:10px;
+        margin-bottom:12px
+    }
+    .metric-card{
+        padding:14px;
+        border-radius:18px
+    }
+    .metric-card strong{
+        font-size:19px
+    }
+    .content-grid,
+    .messages-grid{
+        grid-template-columns:1fr;
+        gap:12px
+    }
+    .panel{
+        padding:15px;
+        margin-bottom:14px;
+        border-radius:20px
+    }
+    .panel h3{
+        font-size:22px;
+        margin-bottom:12px
+    }
+    .search-row{
+        padding:10px;
+        border-radius:16px
+    }
+    .filter-pills{
+        display:flex;
+        gap:8px;
+        flex-wrap:nowrap;
+        overflow-x:auto;
+        padding-bottom:3px;
+        scrollbar-width:none
+    }
+    .filter-pills::-webkit-scrollbar{
+        display:none
+    }
+    .filter-pills button{
+        flex:0 0 auto;
+        min-height:42px;
+        padding:10px 14px
+    }
+    .data-row,
+    .queue-item,
+    .rental-row,
+    .customer-row,
+    .damage-case-card{
+        display:grid;
+        grid-template-columns:1fr;
+        gap:12px;
+        padding:14px;
+        border-radius:18px;
+        background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(255,255,255,.045))
+    }
+    .rental-row .row-actions,
+    .row-actions{
+        min-width:0;
+        width:100%;
+        justify-content:stretch;
+        display:grid;
+        grid-template-columns:1fr;
+        gap:8px
+    }
+    .row-actions button,
+    .row-actions select,
+    .approve,
+    .reject,
+    .primary-btn,
+    .secondary-btn{
+        width:100%;
+        min-height:46px;
+        justify-content:center
+    }
+    .row-actions select,
+    .status-control{
+        min-width:0;
+        max-width:none;
+        width:100%
+    }
+    .rental-progress-tracker{
+        max-width:none;
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:9px
+    }
+    .progress-step-wrap{
+        min-width:0
+    }
+    .progress-step{
+        width:34px;
+        height:34px
+    }
+    .progress-step-wrap span{
+        font-size:10px
+    }
+    .document-mini-row,
+    .extension-action-row,
+    .damage-report-row{
+        grid-template-columns:1fr;
+        align-items:flex-start
+    }
+    .mini-actions,
+    .extension-action-row .row-actions{
+        width:100%;
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:8px
+    }
+    .mini-actions button{
+        justify-content:center;
+        min-height:40px
+    }
+    .return-completion-panel{
+        padding:13px;
+        border-radius:18px
+    }
+    .return-completion-panel label{
+        min-height:42px;
+        align-items:center
+    }
+    .return-completion-panel input[type="checkbox"]{
+        width:20px;
+        height:20px
+    }
+    .damage-case-form{
+        grid-template-columns:1fr
+    }
+    .calendar-scroller{
+        margin:0 -4px;
+        border-radius:18px
+    }
+    .fleet-calendar{
+        grid-template-columns:140px repeat(21,minmax(84px,1fr));
+        min-width:1900px
+    }
+    .calendar-cell{
+        min-height:52px;
+        padding:8px
+    }
+    .message-box{
+        min-height:380px;
+        height:auto;
+        max-height:55vh
+    }
+    .notice-banner{
+        display:grid;
+        grid-template-columns:1fr;
+        gap:10px;
+        border-radius:16px
+    }
+    .notice-banner button{
+        width:100%
+    }
+}
+
+@media(max-width:420px){
+    .metric-grid{
+        grid-template-columns:1fr
+    }
+    .rental-progress-tracker{
+        grid-template-columns:repeat(3,minmax(0,1fr))
+    }
+    .side-nav button,
+    .logout-btn{
+        min-width:68px;
+        font-size:10px
+    }
+}
