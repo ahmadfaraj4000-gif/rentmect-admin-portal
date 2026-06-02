@@ -204,6 +204,9 @@ button{
     color:#ffe8a3;
     margin-top:3px
 }
+.admin-modal-header.danger svg{
+    color:#ff9fa5
+}
 .admin-modal-header strong{
     display:block;
     color:#fff;
@@ -230,6 +233,46 @@ button{
 .override-warning span{
     color:var(--muted);
     font-size:13px
+}
+.cancel-warning{
+    display:grid;
+    gap:3px;
+    padding:12px;
+    border:1px solid rgba(229,9,20,.30);
+    border-radius:14px;
+    background:rgba(229,9,20,.12)
+}
+.cancel-warning strong{
+    color:#ffb6bc;
+    font-size:14px
+}
+.cancel-warning span{
+    color:var(--muted);
+    font-size:13px
+}
+.reminder-menu{
+    position:relative;
+    display:inline-flex
+}
+.reminder-menu-popover{
+    position:absolute;
+    right:0;
+    top:calc(100% + 8px);
+    z-index:20;
+    min-width:170px;
+    display:grid;
+    gap:6px;
+    padding:8px;
+    border:1px solid rgba(255,255,255,.16);
+    border-radius:16px;
+    background:linear-gradient(145deg,rgba(36,39,48,.98),rgba(13,16,25,.98));
+    box-shadow:0 22px 60px rgba(0,0,0,.42)
+}
+.reminder-menu-popover button{
+    width:100%;
+    justify-content:flex-start;
+    border-radius:12px;
+    padding:10px 11px
 }
 .requirement-list{
     display:grid;
@@ -448,10 +491,30 @@ button{
     max-width:820px
 }
 .rental-row .row-actions{
-    max-width:620px
+    max-width:720px
 }
 .rental-row .row-actions button{
     min-height:42px
+}
+.rental-actions{
+    display:grid;
+    gap:10px;
+    justify-items:end;
+    align-content:start
+}
+.rental-actions-primary,
+.rental-actions-secondary{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    align-items:center
+}
+.rental-actions-secondary{
+    width:100%
+}
+.rental-actions-secondary .reminder-menu{
+    margin-left:0
 }
 .mileage-summary{
     display:flex;
@@ -651,9 +714,15 @@ button{
     box-shadow:0 12px 34px rgba(82,214,107,.12)
 }
 .next-action-hint{
-    max-width:260px;
+    display:block;
+    max-width:520px;
+    margin-top:8px;
+    padding:9px 11px;
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:12px;
+    background:rgba(255,255,255,.045);
     line-height:1.35;
-    text-align:right
+    text-align:left
 }
 .filter-pills{
     display:flex;
@@ -1310,6 +1379,15 @@ button{
         display:grid;
         grid-template-columns:1fr;
         gap:8px
+    }
+    .rental-actions-primary,
+    .rental-actions-secondary{
+        display:grid;
+        grid-template-columns:1fr;
+        width:100%
+    }
+    .next-action-hint{
+        max-width:none
     }
     .row-actions button,
     .row-actions select,

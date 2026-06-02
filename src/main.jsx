@@ -1279,8 +1279,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
       {today && <em className="due-pill">Due Today</em>}
       {overdue && <em className="overdue-pill">Overdue</em>}
       <em>{prettyStatus(rental.status)}</em>
-      <button onClick={()=>sendManualReminder(rental, 'SMS')}><MessageCircle size={15}/> SMS</button>
-      <button onClick={()=>sendManualReminder(rental, 'Email')}><Mail size={15}/> Email</button>
+      <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />
     </div>
   </div>;
 }
@@ -1289,6 +1288,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -1336,6 +1336,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
+      {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
       {overrideReadyOpen && <RentalOverrideModal
         title="Override Ready For Pickup"
@@ -1356,18 +1357,28 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
         onCancel={() => setPickupModal(null)}
         onConfirm={submitPickupOverride}
       />}
+      {cancelModalOpen && <CancelRentalModal
+        rental={rental}
+        onCancel={() => setCancelModalOpen(false)}
+        onConfirm={() => {
+          updateRentalStatus(rental.id, 'cancelled');
+          setCancelModalOpen(false);
+        }}
+      />}
     </div>
-    <div className="row-actions">
-      <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
-      {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
-      {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({ override: false, missingRequirements: [] })}><Car size={15}/> Mark Vehicle Picked Up</button>}
-      {canOverrideReady && <button className="override-action" onClick={() => setOverrideReadyOpen(true)}><ShieldCheck size={15}/> Override Ready</button>}
-      {canOverrideActive && <button className="override-action" onClick={() => setPickupModal({ override: true, missingRequirements })}><Car size={15}/> Override Pickup</button>}
-      {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
-      {canCancel && <button className="reject" onClick={()=>updateRentalStatus(rental.id, 'cancelled')}><XCircle size={15}/> Cancel</button>}
-      <button onClick={()=>sendManualReminder(rental, 'SMS')}><MessageCircle size={15}/> SMS</button>
-      <button onClick={()=>sendManualReminder(rental, 'Email')}><Mail size={15}/> Email</button>
-      {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
+    <div className="row-actions rental-actions">
+      <div className="rental-actions-primary">
+        <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
+        {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
+        {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({ override: false, missingRequirements: [] })}><Car size={15}/> Mark Vehicle Picked Up</button>}
+        {canOverrideReady && <button className="override-action" onClick={() => setOverrideReadyOpen(true)}><ShieldCheck size={15}/> Override Ready</button>}
+        {canOverrideActive && <button className="override-action" onClick={() => setPickupModal({ override: true, missingRequirements })}><Car size={15}/> Override Pickup</button>}
+        {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
+      </div>
+      <div className="rental-actions-secondary">
+        {canCancel && <button className="reject" onClick={()=>setCancelModalOpen(true)}><XCircle size={15}/> Cancel</button>}
+        <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />
+      </div>
     </div>
   </div>;
 }
@@ -1379,6 +1390,45 @@ function MileageSummary({ rental }) {
     <span><strong>Pickup</strong> {formatMiles(rental.starting_mileage)}</span>
     <span><strong>Return</strong> {formatMiles(rental.ending_mileage)}</span>
     <span><strong>Driven</strong> {formatMiles(milesDriven)}</span>
+  </div>;
+}
+
+function ReminderMenu({ rental, sendManualReminder }) {
+  const [open, setOpen] = useState(false);
+
+  function choose(channel) {
+    setOpen(false);
+    sendManualReminder(rental, channel);
+  }
+
+  return <div className="reminder-menu">
+    <button type="button" onClick={() => setOpen((current) => !current)}><MessageCircle size={15}/> Contact Customer</button>
+    {open && <div className="reminder-menu-popover">
+      <button type="button" onClick={() => choose('SMS')}><MessageCircle size={14}/> Send SMS</button>
+      <button type="button" onClick={() => choose('Email')}><Mail size={14}/> Send Email</button>
+    </div>}
+  </div>;
+}
+
+function CancelRentalModal({ rental, onCancel, onConfirm }) {
+  return <div className="admin-modal-backdrop" role="presentation">
+    <div className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation">
+      <div className="admin-modal-header danger">
+        <XCircle size={20} />
+        <div>
+          <strong>Cancel Rental?</strong>
+          <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
+        </div>
+      </div>
+      <div className="cancel-warning">
+        <strong>This will cancel the reservation.</strong>
+        <span>The rental will no longer block the vehicle for this customer. Use this only when the booking should be stopped.</span>
+      </div>
+      <div className="mini-actions modal-actions">
+        <button type="button" onClick={onCancel}>Keep Rental</button>
+        <button type="button" className="reject" onClick={onConfirm}><XCircle size={14}/> Confirm Cancel</button>
+      </div>
+    </div>
   </div>;
 }
 
