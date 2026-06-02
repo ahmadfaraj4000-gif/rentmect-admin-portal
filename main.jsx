@@ -304,26 +304,36 @@ function App() {
     }, rental));
   }
 
-  async function updateRentalStatus(id, status) {
+  async function updateRentalStatus(id, status, options = {}) {
     const rental = rentals.find((item) => item.id === id);
     const nextVehicleStatus = vehicleStatusForRentalStatus(status);
-    const applyLocalStatus = () => {
+    const applyLocalStatus = (rentalUpdates = {}, vehicleUpdates = {}) => {
       setRentals((current) => current.map((item) => {
         if (item.id !== id) return item;
         return {
           ...item,
           status,
-          vehicles: item.vehicles ? { ...item.vehicles, status: nextVehicleStatus || item.vehicles.status } : item.vehicles,
+          ...rentalUpdates,
+          vehicles: item.vehicles ? { ...item.vehicles, status: nextVehicleStatus || item.vehicles.status, ...vehicleUpdates } : item.vehicles,
         };
       }));
       if (rental?.vehicle_id && nextVehicleStatus) {
         setVehicles((current) => current.map((vehicle) =>
-          vehicle.id === rental.vehicle_id ? { ...vehicle, status: nextVehicleStatus } : vehicle
+          vehicle.id === rental.vehicle_id ? { ...vehicle, status: nextVehicleStatus, ...vehicleUpdates } : vehicle
         ));
       }
     };
 
     if (status === 'active') {
+      const defaultMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
+      const enteredMileage = window.prompt('Enter the starting mileage for this pickup.', defaultMileage ? String(defaultMileage) : '');
+      if (enteredMileage === null) return;
+      const startingMileage = parseMileageInput(enteredMileage);
+      if (startingMileage === null) return notify('Starting mileage must be a whole number.');
+      if (Number(rental?.vehicles?.current_mileage || 0) > 0 && startingMileage < Number(rental.vehicles.current_mileage)) {
+        return notify(`Starting mileage cannot be below the vehicle's current mileage (${formatMiles(rental.vehicles.current_mileage)}).`);
+      }
+
       if (rental && !['document_review', 'approved', 'ready_for_pickup'].includes(rental.status)) {
         const { error: readyError } = await supabase
           .from('rentals')
@@ -331,30 +341,66 @@ function App() {
           .eq('id', id);
         if (readyError) return notify(readyError.message);
       }
-      const { data, error } = await supabase.rpc('admin_mark_rental_active', { p_rental_id: id });
+      const { data, error } = await supabase.rpc('admin_mark_rental_active', {
+        p_rental_id: id,
+        p_starting_mileage: startingMileage,
+        p_override_missing_requirements: Boolean(options.overrideMissingRequirements),
+        p_missing_requirements: options.missingRequirements || [],
+      });
       if (error) return notify(error.message);
       if (data) {
         setRentals((current) => current.map((item) =>
           item.id === id
-            ? { ...item, ...data, vehicles: item.vehicles ? { ...item.vehicles, status: 'rented' } : item.vehicles }
+            ? { ...item, ...data, vehicles: item.vehicles ? { ...item.vehicles, status: 'rented', current_mileage: startingMileage } : item.vehicles }
             : item
         ));
         if (data.vehicle_id) {
           setVehicles((current) => current.map((vehicle) =>
-            vehicle.id === data.vehicle_id ? { ...vehicle, status: 'rented' } : vehicle
+            vehicle.id === data.vehicle_id ? { ...vehicle, status: 'rented', current_mileage: startingMileage } : vehicle
           ));
         }
       } else {
-        applyLocalStatus();
+        applyLocalStatus({ starting_mileage: startingMileage }, { current_mileage: startingMileage });
       }
       notify('Rental marked active.', 'success');
       return;
     }
 
-    if (status === 'completed') {
-      const { error } = await supabase.rpc('admin_complete_rental_return', { p_rental_id: id });
+    if (status === 'ready_for_pickup' && options.overrideMissingRequirements) {
+      const { data, error } = await supabase.rpc('admin_override_rental_ready_for_pickup', {
+        p_rental_id: id,
+        p_missing_requirements: options.missingRequirements || [],
+      });
       if (error) return notify(error.message);
-      applyLocalStatus();
+      if (data) {
+        setRentals((current) => current.map((item) =>
+          item.id === id
+            ? { ...item, ...data, vehicles: item.vehicles ? { ...item.vehicles, status: 'reserved' } : item.vehicles }
+            : item
+        ));
+        if (data.vehicle_id) {
+          setVehicles((current) => current.map((vehicle) =>
+            vehicle.id === data.vehicle_id ? { ...vehicle, status: 'reserved' } : vehicle
+          ));
+        }
+      } else {
+        applyLocalStatus();
+      }
+      notify('Rental override marked ready for pickup.', 'success');
+      return;
+    }
+
+    if (status === 'completed') {
+      const endingMileage = parseMileageInput(options.endingMileage);
+      const { data, error } = await supabase.rpc('admin_complete_rental_return', {
+        p_rental_id: id,
+        p_ending_mileage: endingMileage,
+      });
+      if (error) return notify(error.message);
+      applyLocalStatus(data || {
+        ending_mileage: endingMileage,
+        miles_driven: calculateMilesDriven(rental?.starting_mileage, endingMileage),
+      }, { current_mileage: endingMileage });
       notify('Rental completed.', 'success');
       return;
     }
@@ -470,6 +516,7 @@ function App() {
         rental_id: rental.id,
         user_id: rental.user_id,
         mileage_checked: Boolean(inspection.mileageChecked || inspection.skipChecklist),
+        ending_mileage: parseMileageInput(inspection.endingMileage),
         fuel_checked: Boolean(inspection.fuelChecked || inspection.skipChecklist),
         damage_checked: Boolean(inspection.damageChecked || inspection.skipChecklist),
         damage_found: Boolean(inspection.damageFound),
@@ -479,7 +526,7 @@ function App() {
       });
     if (inspectionError) return notify(inspectionError.message);
 
-    await updateRentalStatus(rental.id, 'completed');
+    await updateRentalStatus(rental.id, 'completed', { endingMileage: inspection.endingMileage });
   }
 
   async function recordTestPayment(id) {
@@ -1131,7 +1178,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <div>
             <strong>{v.name}</strong>
             <span>{v.brand} {v.model} • {v.vehicle_type}</span>
-            <small>Plate: {v.plate_number || 'TBD'} • VIN: {v.vin || 'TBD'}</small>
+            <small>Plate: {v.plate_number || 'TBD'} • VIN: {v.vin || 'TBD'} • Mileage: {formatMiles(v.current_mileage)}</small>
           </div>
           <div className="row-actions">
             <em>{money(v.daily_rate)}/day</em>
@@ -1252,6 +1299,10 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
   const canCompleteReturn = Boolean(completeRentalReturn) && rental.status === 'return_initiated';
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
   const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
+  const canOverrideWorkflow = !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && releaseChecklist.vehicle;
+  const missingRequirements = getMissingReleaseRequirements(releaseChecklist);
+  const canOverrideReady = canOverrideWorkflow && !releaseChecklist.ready;
+  const canOverrideActive = canOverrideWorkflow && !releaseChecklist.ready;
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
@@ -1259,10 +1310,11 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
   const adminState = getAdminRentalState(rental, releaseChecklist);
 
   return <div className="data-row rental-row">
-    <div>
+    <div className="rental-row-main">
       <strong>{rental.vehicles?.name || 'Vehicle'}</strong>
       <span>{rental.profiles?.full_name || 'Client'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
       {detailed && <small>{money(rental.rental_total)} rental • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
+      {detailed && <MileageSummary rental={rental} />}
       <RentalProgressTracker steps={progressSteps} />
       {detailed && <div className="rental-doc-summary">
         <DocumentStatusBadge label="License" document={license} />
@@ -1277,12 +1329,24 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
       <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
       {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
       {canMarkActive && <button className="approve primary-action" onClick={()=>updateRentalStatus(rental.id, 'active')}><Car size={15}/> Mark Vehicle Picked Up</button>}
+      {canOverrideReady && <button className="override-action" onClick={() => confirmRentalOverride('ready_for_pickup', rental, missingRequirements) && updateRentalStatus(rental.id, 'ready_for_pickup', { overrideMissingRequirements: true, missingRequirements })}><ShieldCheck size={15}/> Override Ready</button>}
+      {canOverrideActive && <button className="override-action" onClick={() => confirmRentalOverride('active', rental, missingRequirements) && updateRentalStatus(rental.id, 'active', { overrideMissingRequirements: true, missingRequirements })}><Car size={15}/> Override Pickup</button>}
       {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
       {canCancel && <button className="reject" onClick={()=>updateRentalStatus(rental.id, 'cancelled')}><XCircle size={15}/> Cancel</button>}
       <button onClick={()=>sendManualReminder(rental, 'SMS')}><MessageCircle size={15}/> SMS</button>
       <button onClick={()=>sendManualReminder(rental, 'Email')}><Mail size={15}/> Email</button>
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
     </div>
+  </div>;
+}
+
+function MileageSummary({ rental }) {
+  const milesDriven = rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage);
+
+  return <div className="mileage-summary" aria-label="Mileage summary">
+    <span><strong>Pickup</strong> {formatMiles(rental.starting_mileage)}</span>
+    <span><strong>Return</strong> {formatMiles(rental.ending_mileage)}</span>
+    <span><strong>Driven</strong> {formatMiles(milesDriven)}</span>
   </div>;
 }
 
@@ -1401,6 +1465,7 @@ function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
 function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
   const [inspection, setInspection] = useState({
     mileageChecked: false,
+    endingMileage: rental.ending_mileage || rental.vehicles?.current_mileage || rental.starting_mileage || '',
     fuelChecked: false,
     damageChecked: false,
     damageFound: false,
@@ -1412,9 +1477,21 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     files: [],
   });
   const [saving, setSaving] = useState(false);
+  const [mileageError, setMileageError] = useState('');
+  const milesDriven = calculateMilesDriven(rental.starting_mileage, inspection.endingMileage);
 
   async function submit(event) {
     event.preventDefault();
+    setMileageError('');
+    const endingMileage = parseMileageInput(inspection.endingMileage);
+    if (endingMileage === null) {
+      setMileageError('Enter the ending mileage as a whole number.');
+      return;
+    }
+    if (rental.starting_mileage !== null && rental.starting_mileage !== undefined && endingMileage < Number(rental.starting_mileage)) {
+      setMileageError(`Ending mileage cannot be below pickup mileage (${formatMiles(rental.starting_mileage)}).`);
+      return;
+    }
     setSaving(true);
     await onComplete(inspection);
     setSaving(false);
@@ -1427,6 +1504,11 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       <strong>Return Completion</strong>
       <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
     </div>
+    <label className="field-label">Ending mileage
+      <input type="number" min={rental.starting_mileage || 0} step="1" value={inspection.endingMileage} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: true }))} required />
+    </label>
+    {mileageError && <small className="form-error">{mileageError}</small>}
+    {rental.starting_mileage !== null && rental.starting_mileage !== undefined && <small>Pickup mileage: {formatMiles(rental.starting_mileage)} • Miles driven: {formatMiles(milesDriven)}</small>}
     <label><input type="checkbox" checked={inspection.skipChecklist} onChange={(event) => update('skipChecklist', event.target.checked)} /> Skip checklist and close rental</label>
     {!inspection.skipChecklist && <>
       <label><input type="checkbox" checked={inspection.mileageChecked} onChange={(event) => update('mileageChecked', event.target.checked)} /> Mileage checked</label>
@@ -1633,7 +1715,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
       items.push({ id: `pickup-${rental.id}`, bucket: 'pickup_today', severity: 'info', title: 'Release ready', subtitle: `${customer} • ${vehicle}`, detail: `Approved documents. Pickup ${formatRentalDate(rental.pickup_date, rental.pickup_time)}`, rental, nextStatus: 'active' });
     }
     if (rental.status === 'return_initiated') {
-      items.push({ id: `return-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Return initiated', subtitle: `${customer} • ${vehicle}`, detail: 'Customer confirmed return. Inspect the vehicle, then complete the rental.', rental, nextStatus: 'completed' });
+      items.push({ id: `return-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Return initiated', subtitle: `${customer} • ${vehicle}`, detail: 'Customer confirmed return. Open the rental row to inspect the vehicle and enter ending mileage.', rental });
     }
   });
   documents.filter((d) => paidRentalIds.has(d.rental_id || d.rentals?.id) && (d.status === 'pending_review' || d.status === 'rejected')).forEach((document) => {
@@ -1668,7 +1750,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
       subtitle: message.profiles?.full_name || rental?.profiles?.full_name || message.user_id,
       detail: message.message,
       rental,
-      nextStatus: isReturnConfirmation && rental ? 'completed' : null,
+      nextStatus: null,
     });
   });
   reports.filter((r) => paidRentalIds.has(r.rental_id || r.rentals?.id) && ['open', 'pending', 'new'].includes(String(r.status || 'open').toLowerCase())).forEach((report) => {
@@ -1734,6 +1816,36 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
       insurance?.status === 'approved'
     ),
   };
+}
+
+function getMissingReleaseRequirements(releaseChecklist) {
+  return [
+    !releaseChecklist.phone ? 'phone verification' : '',
+    !releaseChecklist.agreement ? 'signed agreement' : '',
+    !releaseChecklist.payment ? 'payment' : '',
+    !releaseChecklist.license ? 'driver license' : '',
+    !releaseChecklist.insurance ? 'insurance' : '',
+  ].filter(Boolean);
+}
+
+function confirmRentalOverride(nextStatus, rental, missingRequirements = []) {
+  const actionLabel = nextStatus === 'active' ? 'mark this vehicle picked up' : 'mark this rental ready for pickup';
+  const customer = rental.profiles?.full_name || 'this customer';
+  const vehicle = rental.vehicles?.name || 'this vehicle';
+  const missingText = missingRequirements.length
+    ? missingRequirements.map((requirement) => `- ${requirement}`).join('\n')
+    : '- automatic checklist incomplete';
+
+  return window.confirm([
+    `Override automatic rental workflow and ${actionLabel}?`,
+    '',
+    `${customer} / ${vehicle}`,
+    '',
+    'The following required step(s) are incomplete:',
+    missingText,
+    '',
+    'This will be recorded in the audit log.',
+  ].join('\n'));
 }
 
 function getAdminRentalState(rental, releaseChecklist) {
@@ -1808,6 +1920,21 @@ function vehicleStatusForRentalStatus(status) {
   if (['active', 'overdue', 'return_initiated'].includes(status)) return 'rented';
   if (['completed', 'cancelled'].includes(status)) return 'available';
   return null;
+}
+function parseMileageInput(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const mileage = Number(String(value).replaceAll(',', '').trim());
+  return Number.isInteger(mileage) && mileage >= 0 ? mileage : null;
+}
+function calculateMilesDriven(startingMileage, endingMileage) {
+  const start = parseMileageInput(startingMileage);
+  const end = parseMileageInput(endingMileage);
+  if (start === null || end === null || end < start) return null;
+  return end - start;
+}
+function formatMiles(value) {
+  if (value === null || value === undefined || value === '') return 'Not recorded';
+  return `${Number(value || 0).toLocaleString('en-US')} mi`;
 }
 
 function customerRiskProfile(profile, rentals, documents, reports) {
