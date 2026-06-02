@@ -170,6 +170,113 @@ button{
     color:#ff9fa5;
     border:1px solid rgba(229,9,20,.3)
 }
+.override-action{
+    background:rgba(255,220,120,.12)!important;
+    color:#ffe8a3!important;
+    border:1px solid rgba(255,220,120,.34)!important
+}
+.admin-modal-backdrop{
+    position:fixed;
+    inset:0;
+    z-index:50;
+    display:grid;
+    place-items:center;
+    padding:24px;
+    background:rgba(3,5,10,.76);
+    backdrop-filter:blur(14px)
+}
+.admin-modal{
+    width:min(560px,100%);
+    display:grid;
+    gap:14px;
+    padding:22px;
+    border:1px solid rgba(255,255,255,.16);
+    border-radius:24px;
+    background:linear-gradient(145deg,rgba(36,39,48,.98),rgba(13,16,25,.98));
+    box-shadow:0 34px 110px rgba(0,0,0,.58),inset 0 1px 0 rgba(255,255,255,.08)
+}
+.admin-modal-header{
+    display:flex;
+    gap:12px;
+    align-items:flex-start
+}
+.admin-modal-header svg{
+    color:#ffe8a3;
+    margin-top:3px
+}
+.admin-modal-header strong{
+    display:block;
+    color:#fff;
+    font-size:22px;
+    letter-spacing:0
+}
+.admin-modal-header span,
+.modal-hint{
+    color:var(--muted);
+    font-size:13px
+}
+.override-warning{
+    display:grid;
+    gap:3px;
+    padding:12px;
+    border:1px solid rgba(255,220,120,.26);
+    border-radius:14px;
+    background:rgba(255,220,120,.08)
+}
+.override-warning strong{
+    color:#ffe8a3;
+    font-size:14px
+}
+.override-warning span{
+    color:var(--muted);
+    font-size:13px
+}
+.requirement-list{
+    display:grid;
+    gap:8px
+}
+.requirement-list > strong{
+    color:#fff;
+    font-size:13px
+}
+.requirement-list span{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:#ffb6bc;
+    font-weight:850;
+    padding:9px 10px;
+    border:1px solid rgba(229,9,20,.24);
+    border-radius:12px;
+    background:rgba(229,9,20,.10)
+}
+.modal-field{
+    display:grid;
+    gap:7px;
+    color:#fff;
+    font-size:13px;
+    font-weight:900
+}
+.admin-modal input{
+    width:100%;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:14px;
+    background:rgba(255,255,255,.08);
+    color:#fff;
+    padding:12px 13px;
+    outline:none
+}
+.admin-modal input:focus{
+    border-color:rgba(255,220,120,.45);
+    box-shadow:0 0 0 4px rgba(255,220,120,.10)
+}
+.admin-modal .form-error{
+    color:#ffb6bc;
+    font-weight:850
+}
+.modal-actions{
+    justify-content:flex-end
+}
 .auth-message{
     color:#fff;
     background:rgba(229,9,20,.16);

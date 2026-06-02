@@ -325,9 +325,10 @@ function App() {
     };
 
     if (status === 'active') {
-      const defaultMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
-      const enteredMileage = window.prompt('Enter the starting mileage for this pickup.', defaultMileage ? String(defaultMileage) : '');
-      if (enteredMileage === null) return;
+      const enteredMileage = options.startingMileage;
+      if (enteredMileage === undefined || enteredMileage === null) {
+        return notify('Open the rental row and enter starting mileage before marking pickup.');
+      }
       const startingMileage = parseMileageInput(enteredMileage);
       if (startingMileage === null) return notify('Starting mileage must be a whole number.');
       if (Number(rental?.vehicles?.current_mileage || 0) > 0 && startingMileage < Number(rental.vehicles.current_mileage)) {
@@ -344,6 +345,8 @@ function App() {
       const { data, error } = await supabase.rpc('admin_mark_rental_active', {
         p_rental_id: id,
         p_starting_mileage: startingMileage,
+        p_override_missing_requirements: Boolean(options.overrideMissingRequirements),
+        p_missing_requirements: options.missingRequirements || [],
       });
       if (error) return notify(error.message);
       if (data) {
@@ -361,6 +364,30 @@ function App() {
         applyLocalStatus({ starting_mileage: startingMileage }, { current_mileage: startingMileage });
       }
       notify('Rental marked active.', 'success');
+      return;
+    }
+
+    if (status === 'ready_for_pickup' && options.overrideMissingRequirements) {
+      const { data, error } = await supabase.rpc('admin_override_rental_ready_for_pickup', {
+        p_rental_id: id,
+        p_missing_requirements: options.missingRequirements || [],
+      });
+      if (error) return notify(error.message);
+      if (data) {
+        setRentals((current) => current.map((item) =>
+          item.id === id
+            ? { ...item, ...data, vehicles: item.vehicles ? { ...item.vehicles, status: 'reserved' } : item.vehicles }
+            : item
+        ));
+        if (data.vehicle_id) {
+          setVehicles((current) => current.map((vehicle) =>
+            vehicle.id === data.vehicle_id ? { ...vehicle, status: 'reserved' } : vehicle
+          ));
+        }
+      } else {
+        applyLocalStatus();
+      }
+      notify('Rental override marked ready for pickup.', 'success');
       return;
     }
 
@@ -1260,6 +1287,8 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
 
 function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
+  const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
+  const [pickupModal, setPickupModal] = useState(null);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -1273,11 +1302,25 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
   const canCompleteReturn = Boolean(completeRentalReturn) && rental.status === 'return_initiated';
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
   const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
+  const canOverrideWorkflow = !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && releaseChecklist.vehicle;
+  const missingRequirements = getMissingReleaseRequirements(releaseChecklist);
+  const canOverrideReady = canOverrideWorkflow && !releaseChecklist.ready;
+  const canOverrideActive = canOverrideWorkflow && !releaseChecklist.ready;
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, releaseChecklist);
+  const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
+
+  function submitPickupOverride(startingMileage) {
+    updateRentalStatus(rental.id, 'active', {
+      startingMileage,
+      overrideMissingRequirements: Boolean(pickupModal?.override),
+      missingRequirements: pickupModal?.missingRequirements || [],
+    });
+    setPickupModal(null);
+  }
 
   return <div className="data-row rental-row">
     <div className="rental-row-main">
@@ -1294,11 +1337,32 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
+      {overrideReadyOpen && <RentalOverrideModal
+        title="Override Ready For Pickup"
+        actionLabel="Mark Ready"
+        rental={rental}
+        missingRequirements={missingRequirements}
+        onCancel={() => setOverrideReadyOpen(false)}
+        onConfirm={() => {
+          updateRentalStatus(rental.id, 'ready_for_pickup', { overrideMissingRequirements: true, missingRequirements });
+          setOverrideReadyOpen(false);
+        }}
+      />}
+      {pickupModal && <PickupOverrideModal
+        rental={rental}
+        defaultMileage={defaultPickupMileage}
+        missingRequirements={pickupModal.missingRequirements}
+        override={pickupModal.override}
+        onCancel={() => setPickupModal(null)}
+        onConfirm={submitPickupOverride}
+      />}
     </div>
     <div className="row-actions">
       <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
       {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
-      {canMarkActive && <button className="approve primary-action" onClick={()=>updateRentalStatus(rental.id, 'active')}><Car size={15}/> Mark Vehicle Picked Up</button>}
+      {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({ override: false, missingRequirements: [] })}><Car size={15}/> Mark Vehicle Picked Up</button>}
+      {canOverrideReady && <button className="override-action" onClick={() => setOverrideReadyOpen(true)}><ShieldCheck size={15}/> Override Ready</button>}
+      {canOverrideActive && <button className="override-action" onClick={() => setPickupModal({ override: true, missingRequirements })}><Car size={15}/> Override Pickup</button>}
       {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
       {canCancel && <button className="reject" onClick={()=>updateRentalStatus(rental.id, 'cancelled')}><XCircle size={15}/> Cancel</button>}
       <button onClick={()=>sendManualReminder(rental, 'SMS')}><MessageCircle size={15}/> SMS</button>
@@ -1315,6 +1379,87 @@ function MileageSummary({ rental }) {
     <span><strong>Pickup</strong> {formatMiles(rental.starting_mileage)}</span>
     <span><strong>Return</strong> {formatMiles(rental.ending_mileage)}</span>
     <span><strong>Driven</strong> {formatMiles(milesDriven)}</span>
+  </div>;
+}
+
+function RentalOverrideModal({ title, actionLabel, rental, missingRequirements = [], onCancel, onConfirm }) {
+  return <div className="admin-modal-backdrop" role="presentation">
+    <div className="admin-modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="admin-modal-header">
+        <ShieldCheck size={20} />
+        <div>
+          <strong>{title}</strong>
+          <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
+        </div>
+      </div>
+      <div className="override-warning">
+        <strong>Automatic checklist is incomplete.</strong>
+        <span>This override will be recorded in the audit log.</span>
+      </div>
+      <RequirementList requirements={missingRequirements} />
+      <div className="mini-actions modal-actions">
+        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" className="override-action" onClick={onConfirm}><ShieldCheck size={14}/> {actionLabel}</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function PickupOverrideModal({ rental, defaultMileage, missingRequirements = [], override, onCancel, onConfirm }) {
+  const [startingMileage, setStartingMileage] = useState(defaultMileage ? String(defaultMileage) : '');
+  const [error, setError] = useState('');
+  const currentMileage = parseMileageInput(rental?.vehicles?.current_mileage);
+
+  function submit(event) {
+    event.preventDefault();
+    setError('');
+    const parsedMileage = parseMileageInput(startingMileage);
+    if (parsedMileage === null) {
+      setError('Enter starting mileage as a whole number.');
+      return;
+    }
+    if (currentMileage !== null && parsedMileage < currentMileage) {
+      setError(`Starting mileage cannot be below current vehicle mileage (${formatMiles(currentMileage)}).`);
+      return;
+    }
+    onConfirm(parsedMileage);
+  }
+
+  return <div className="admin-modal-backdrop" role="presentation">
+    <form className="admin-modal" role="dialog" aria-modal="true" aria-label={override ? 'Override Pickup' : 'Mark Vehicle Picked Up'} onSubmit={submit}>
+      <div className="admin-modal-header">
+        <Car size={20} />
+        <div>
+          <strong>{override ? 'Override Pickup' : 'Mark Vehicle Picked Up'}</strong>
+          <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
+        </div>
+      </div>
+      {override && <>
+        <div className="override-warning">
+          <strong>Automatic checklist is incomplete.</strong>
+          <span>This will bypass the missing step(s), mark the rental active, and log the override.</span>
+        </div>
+        <RequirementList requirements={missingRequirements} />
+      </>}
+      <label className="field-label modal-field">Starting mileage
+        <input type="number" min={currentMileage || 0} step="1" value={startingMileage} onChange={(event) => setStartingMileage(event.target.value)} autoFocus required />
+      </label>
+      {currentMileage !== null && <small className="modal-hint">Current vehicle mileage: {formatMiles(currentMileage)}</small>}
+      {error && <small className="form-error">{error}</small>}
+      <div className="mini-actions modal-actions">
+        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="submit" className={override ? 'override-action' : 'approve'}><Car size={14}/> {override ? 'Override Pickup' : 'Mark Picked Up'}</button>
+      </div>
+    </form>
+  </div>;
+}
+
+function RequirementList({ requirements = [] }) {
+  return <div className="requirement-list">
+    <strong>Missing required step{requirements.length === 1 ? '' : 's'}</strong>
+    {(requirements.length ? requirements : ['automatic checklist requirement']).map((requirement) => (
+      <span key={requirement}><AlertTriangle size={14}/> {prettyStatus(requirement)}</span>
+    ))}
   </div>;
 }
 
@@ -1680,7 +1825,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
     }
     const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at);
     if (['document_review', 'approved', 'ready_for_pickup'].includes(rental.status) && phoneVerified && rental.agreement_signed && paymentPaid && releaseDocsApproved) {
-      items.push({ id: `pickup-${rental.id}`, bucket: 'pickup_today', severity: 'info', title: 'Release ready', subtitle: `${customer} • ${vehicle}`, detail: `Approved documents. Pickup ${formatRentalDate(rental.pickup_date, rental.pickup_time)}`, rental, nextStatus: 'active' });
+      items.push({ id: `pickup-${rental.id}`, bucket: 'pickup_today', severity: 'info', title: 'Release ready', subtitle: `${customer} • ${vehicle}`, detail: `Approved documents. Open the rental row to record pickup mileage and release ${formatRentalDate(rental.pickup_date, rental.pickup_time)}.`, rental });
     }
     if (rental.status === 'return_initiated') {
       items.push({ id: `return-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Return initiated', subtitle: `${customer} • ${vehicle}`, detail: 'Customer confirmed return. Open the rental row to inspect the vehicle and enter ending mileage.', rental });
@@ -1784,6 +1929,16 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
       insurance?.status === 'approved'
     ),
   };
+}
+
+function getMissingReleaseRequirements(releaseChecklist) {
+  return [
+    !releaseChecklist.phone ? 'phone verification' : '',
+    !releaseChecklist.agreement ? 'signed agreement' : '',
+    !releaseChecklist.payment ? 'payment' : '',
+    !releaseChecklist.license ? 'driver license' : '',
+    !releaseChecklist.insurance ? 'insurance' : '',
+  ].filter(Boolean);
 }
 
 function getAdminRentalState(rental, releaseChecklist) {
