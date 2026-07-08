@@ -19,16 +19,18 @@ VITE_ADMIN_EMAIL=your_admin_email@example.com
 VITE_RENTMECT_ADDRESS=485 Colt Hwy, Farmington, CT
 ```
 
-## GitHub Pages
+## Deployment
 
 This project uses:
 
 ```js
-base: '/'
+base: './'
 build.outDir: 'dist'
 ```
 
-Use GitHub Actions to build and deploy the `dist` folder.
+Run `npm run build` and deploy the full `dist` folder, including `dist/assets`.
+The relative base keeps the built files working whether the portal is hosted at
+`/admin/`, `/rentmect-admin-portal/`, or another subdirectory.
 
 ## Features Included
 
