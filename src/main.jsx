@@ -1536,7 +1536,7 @@ function App() {
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} waiveTurnaroundGrace={waiveTurnaroundGrace} />}
-        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} />}
@@ -2248,24 +2248,52 @@ function Messages({ rentals, messages, selectedRental, setSelectedRentalId, repl
   </section>;
 }
 
-function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, createManualBooking, submitting }) {
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, availabilityBlocks, createManualBooking, submitting }) {
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
-  const chooseCustomerMode = (customerMode) => setManualBookingForm((current) => ({
-    ...current,
-    customerMode,
-    customerId: '',
-    existingDateOfBirth: '',
-    driverLicenseNumber: '',
-    driverLicenseState: '',
-    insuranceProvider: '',
-    insurancePolicyNumber: '',
-  }));
+  const updateSchedule = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value, vehicleId: '' }));
+  const chooseCustomerMode = (customerMode) => {
+    setCustomerSearch('');
+    setCustomerDropdownOpen(false);
+    setManualBookingForm((current) => ({
+      ...current,
+      customerMode,
+      customerId: '',
+      existingDateOfBirth: '',
+      driverLicenseNumber: '',
+      driverLicenseState: '',
+      insuranceProvider: '',
+      insurancePolicyNumber: '',
+    }));
+  };
   const customers = profiles
     .filter((profile) => profile.role !== 'admin')
     .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
+  const normalizedCustomerSearch = customerSearch.trim().toLowerCase();
+  const customerSearchDigits = normalizedCustomerSearch.replace(/\D/g, '');
+  const matchingCustomers = customers.filter((profile) => {
+    if (!normalizedCustomerSearch) return true;
+    const name = String(profile.full_name || '').toLowerCase();
+    const email = String(profile.email || '').toLowerCase();
+    const phone = String(profile.phone || '');
+    return name.includes(normalizedCustomerSearch) || email.includes(normalizedCustomerSearch) || (customerSearchDigits && phone.replace(/\D/g, '').includes(customerSearchDigits));
+  }).slice(0, 12);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === manualBookingForm.vehicleId);
   const selectedCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
   const days = Math.max(0, getRentalDays(manualBookingForm.pickupDate, manualBookingForm.returnDate));
+  const reservationWindowReady = days >= 1;
+  const reservationWindow = {
+    pickupDate: manualBookingForm.pickupDate,
+    pickupTime: manualBookingForm.pickupTime,
+    returnDate: manualBookingForm.returnDate,
+    returnTime: manualBookingForm.returnTime,
+  };
+  const vehicleChoices = vehicles.map((vehicle) => ({
+    vehicle,
+    availability: manualBookingVehicleAvailability(vehicle, reservationWindow, rentals, availabilityBlocks, reservationWindowReady),
+  }));
+  const selectedVehicleAvailability = vehicleChoices.find((choice) => choice.vehicle.id === manualBookingForm.vehicleId)?.availability;
   const rentalTotal = Number(selectedVehicle?.daily_rate || 0) * days;
   const dateOfBirth = manualBookingForm.customerMode === 'new' ? manualBookingForm.dateOfBirth : selectedCustomer?.date_of_birth || manualBookingForm.existingDateOfBirth;
   const age = adminCustomerAge(dateOfBirth);
@@ -2283,24 +2311,33 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
           <button type="button" className={manualBookingForm.customerMode === 'new' ? 'active' : ''} onClick={() => chooseCustomerMode('new')}><Plus size={17}/> Add new customer</button>
         </div>
 
-        {manualBookingForm.customerMode === 'existing' ? <label className="full-field">
-          <span>Customer</span>
-          <select value={manualBookingForm.customerId} onChange={(event) => {
-            const customer = profiles.find((profile) => profile.id === event.target.value);
+        {manualBookingForm.customerMode === 'existing' ? <div className="customer-combobox full-field">
+          <label htmlFor="manual-customer-search"><span>Customer</span></label>
+          <div className="customer-search-input">
+            <Search size={18}/>
+            <input id="manual-customer-search" value={customerSearch} onFocus={() => setCustomerDropdownOpen(true)} onBlur={() => window.setTimeout(() => setCustomerDropdownOpen(false), 120)} onChange={(event) => {
+              setCustomerSearch(limitText(event.target.value, 160));
+              setCustomerDropdownOpen(true);
+              setManualBookingForm((current) => ({ ...current, customerId: '', existingDateOfBirth: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '' }));
+            }} placeholder="Search name, email, or phone" autoComplete="off" role="combobox" aria-expanded={customerDropdownOpen} aria-controls="manual-customer-results" />
+          </div>
+          {customerDropdownOpen && <div className="customer-search-results" id="manual-customer-results" role="listbox">
+            {matchingCustomers.length ? matchingCustomers.map((customer) => <button type="button" role="option" aria-selected={customer.id === manualBookingForm.customerId} key={customer.id} onMouseDown={(event) => event.preventDefault()} onClick={() => {
+              setCustomerSearch(customer.full_name || customer.email || customer.phone || 'Customer');
+              setCustomerDropdownOpen(false);
             setManualBookingForm((current) => ({
               ...current,
-              customerId: event.target.value,
+              customerId: customer.id,
               existingDateOfBirth: customer?.date_of_birth || '',
               driverLicenseNumber: customer?.drivers_license_number || '',
               driverLicenseState: customer?.drivers_license_state || '',
               insuranceProvider: customer?.insurance_provider || '',
               insurancePolicyNumber: customer?.insurance_policy_number || '',
             }));
-          }} required>
-            <option value="">Choose a customer</option>
-            {customers.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name || 'Unnamed customer'}{profile.email ? ` — ${profile.email}` : ''}{profile.phone ? ` — ${profile.phone}` : ''}</option>)}
-          </select>
-        </label> : <div className="new-customer-fields">
+            }}><strong>{customer.full_name || 'Unnamed customer'}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>No customers match that search.</p>}
+          </div>}
+          {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}</span></div>}
+        </div> : <div className="new-customer-fields">
           <label><span>Full name</span><input value={manualBookingForm.fullName} onChange={(event) => update('fullName', limitText(event.target.value, 120))} autoComplete="name" placeholder="Customer name" required /></label>
           <label><span>Email</span><input type="email" value={manualBookingForm.email} onChange={(event) => update('email', limitText(event.target.value, 200))} autoComplete="email" placeholder="customer@email.com" required /></label>
           <label><span>Phone</span><input type="tel" value={manualBookingForm.phone} onChange={(event) => update('phone', limitText(event.target.value, 32))} autoComplete="tel" placeholder="(860) 555-0123" required /></label>
@@ -2319,12 +2356,14 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         </div>
 
         <div className="booking-divider"><span>Reservation</span></div>
-        <label className="full-field"><span>Vehicle</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} required><option value="">Choose a vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id} disabled={BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase())}>{vehicle.name} — {money(vehicle.daily_rate)}/day{BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? ` — ${prettyVehicleStatus(vehicle.status)}` : ''}</option>)}</select></label>
-        <label><span>Pickup date</span><input type="date" value={manualBookingForm.pickupDate} onChange={(event) => update('pickupDate', event.target.value)} required /></label>
-        <label><span>Pickup time</span><select value={manualBookingForm.pickupTime} onChange={(event) => update('pickupTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.pickupTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
-        <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => update('returnDate', event.target.value)} required /></label>
-        <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => update('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
-        <button className="primary-btn full-field" disabled={submitting}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : 'Create Booking'}</button>
+        <label><span>Pickup date</span><input type="date" value={manualBookingForm.pickupDate} onChange={(event) => updateSchedule('pickupDate', event.target.value)} required /></label>
+        <label><span>Pickup time</span><select value={manualBookingForm.pickupTime} onChange={(event) => updateSchedule('pickupTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.pickupTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+        <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => updateSchedule('returnDate', event.target.value)} required /></label>
+        <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => updateSchedule('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+        <label className="full-field vehicle-availability-field"><span>Vehicle availability</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={!reservationWindowReady} required><option value="">{reservationWindowReady ? 'Choose an available vehicle' : 'Choose pickup and return dates first'}</option>{vehicleChoices.map(({ vehicle, availability }) => <option key={vehicle.id} value={vehicle.id} disabled={!availability.available}>{availability.available ? '✓ Available' : '✕ Unavailable'} — {vehicle.name} — {money(vehicle.daily_rate)}/day{!availability.available ? ` — ${availability.reason}` : ''}</option>)}</select></label>
+        {reservationWindowReady && <div className="vehicle-availability-legend full-field"><span className="available"><CheckCircle2 size={16}/> Available for these exact times</span><span className="unavailable"><XCircle size={16}/> Unavailable vehicles are blocked</span></div>}
+        {selectedVehicleAvailability && !selectedVehicleAvailability.available && <div className="vehicle-selection-warning full-field"><AlertTriangle size={17}/>{selectedVehicleAvailability.reason}</div>}
+        <button className="primary-btn full-field" disabled={submitting || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : 'Create Booking'}</button>
       </form>
     </Panel>
 
@@ -3078,6 +3117,34 @@ function availabilityBlockOverlapsReservation(block, reservation) {
   const blockEnd = getAvailabilityBlockBlockedUntil(block);
   if (!requestedStart || !requestedEnd || !blockStart || !blockEnd) return false;
   return requestedStart < blockEnd && requestedEnd > blockStart;
+}
+function manualBookingVehicleAvailability(vehicle, reservation, rentals = [], availabilityBlocks = [], windowReady = false) {
+  const vehicleStatus = String(vehicle?.status || 'available').toLowerCase();
+  if (BLOCKING_VEHICLE_STATUSES.includes(vehicleStatus)) {
+    return { available: false, reason: prettyVehicleStatus(vehicleStatus) };
+  }
+  if (!windowReady) return { available: false, reason: 'Choose dates first' };
+
+  const conflictingRental = rentals.find((rental) =>
+    rental.vehicle_id === vehicle.id &&
+    BLOCKING_RENTAL_STATUSES.includes(String(rental.status || '').toLowerCase()) &&
+    rentalPeriodsOverlap(reservation, rental)
+  );
+  if (conflictingRental) {
+    const status = String(conflictingRental.status || '').toLowerCase();
+    const reason = ['active', 'overdue', 'return_initiated'].includes(status) ? 'On the road during selected time' : 'Reserved during selected time';
+    return { available: false, reason };
+  }
+
+  const conflictingBlock = availabilityBlocks.find((block) =>
+    block.vehicle_id === vehicle.id &&
+    block.active !== false &&
+    String(block.block_type || 'unavailable').toLowerCase() !== 'available' &&
+    availabilityBlockOverlapsReservation(block, reservation)
+  );
+  if (conflictingBlock) return { available: false, reason: conflictingBlock.label || prettyStatus(conflictingBlock.block_type || 'Calendar block') };
+
+  return { available: true, reason: 'Available' };
 }
 function getRentalBlockedUntil(rental) {
   const bookedEnd = parseRentMeCtDateTime(rental?.return_date, rental?.return_time);
