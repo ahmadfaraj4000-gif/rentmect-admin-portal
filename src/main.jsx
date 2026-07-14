@@ -114,14 +114,22 @@ function App() {
   const [editingVehicleId, setEditingVehicleId] = useState('');
   const [editVehicleForm, setEditVehicleForm] = useState(null);
 
-  const [mockForm, setMockForm] = useState({
-    customerEmail: '',
+  const [manualBookingForm, setManualBookingForm] = useState({
+    customerMode: 'existing',
+    customerId: '',
+    existingDateOfBirth: '',
+    fullName: '',
+    email: '',
+    phone: '',
+    dateOfBirth: '',
+    address: '',
     vehicleId: '',
     pickupDate: '',
     returnDate: '',
     pickupTime: '9:00 AM',
     returnTime: '9:00 AM',
   });
+  const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
   const [vehicleForm, setVehicleForm] = useState({
     name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available', description: '', features: '', image_urls: ''
@@ -213,6 +221,25 @@ function App() {
 
   useEffect(() => {
     if (isAdminUser) loadAllData();
+  }, [isAdminUser]);
+
+  useEffect(() => {
+    if (!isAdminUser) return undefined;
+    let refreshTimer;
+    const refreshCalendarSourceOfTruth = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => loadAllData({ silent: true }), 150);
+    };
+    const calendarChannel = supabase
+      .channel('admin-calendar-source-of-truth')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, refreshCalendarSourceOfTruth)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, refreshCalendarSourceOfTruth)
+      .subscribe();
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      supabase.removeChannel(calendarChannel);
+    };
   }, [isAdminUser]);
 
   const selectedRental = rentals.find((r) => r.id === selectedRentalId) || rentals[0];
@@ -314,8 +341,8 @@ function App() {
     setIsAdminUser(false);
   }
 
-  async function loadAllData() {
-    setLoading(true);
+  async function loadAllData({ silent = false } = {}) {
+    if (!silent) setLoading(true);
     const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, availabilityBlocksRes] = await Promise.all([
       supabase
         .from('profiles')
@@ -405,7 +432,7 @@ function App() {
     if (discountCodesRes.data) setDiscountCodes(discountCodesRes.data);
     if (serviceFeesRes.data) setServiceFees(serviceFeesRes.data);
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 
   async function isVehicleAvailable(vehicleId, startDate, pickupTime, endDate, returnTime) {
@@ -1288,47 +1315,58 @@ function App() {
     loadAllData();
   }
 
-  async function createMockReservation(event) {
+  async function createManualBooking(event) {
     event.preventDefault();
-
-    const profile = profiles.find((p) =>
-      p.email === mockForm.customerEmail ||
-      p.full_name?.toLowerCase() === mockForm.customerEmail.toLowerCase()
-    );
-
-    const vehicle = vehicles.find((v) => v.id === mockForm.vehicleId);
-
-    if (!profile) return notify('Customer not found in profiles. Use an existing customer profile.');
+    const vehicle = vehicles.find((item) => item.id === manualBookingForm.vehicleId);
+    if (manualBookingForm.customerMode === 'existing' && !manualBookingForm.customerId) return notify('Choose a customer.');
+    if (manualBookingForm.customerMode === 'new' && (!manualBookingForm.fullName.trim() || !manualBookingForm.email.trim() || !manualBookingForm.phone.trim() || !manualBookingForm.dateOfBirth)) {
+      return notify('Enter the new customer’s name, email, phone, and date of birth.');
+    }
     if (!vehicle) return notify('Choose a vehicle.');
 
-    const available = await isVehicleAvailable(vehicle.id, mockForm.pickupDate, mockForm.pickupTime, mockForm.returnDate, mockForm.returnTime);
-    if (!available) return notify('Vehicle is not available for that pickup and return time.');
-
-    const days = getRentalDays(mockForm.pickupDate, mockForm.returnDate);
+    const days = getRentalDays(manualBookingForm.pickupDate, manualBookingForm.returnDate);
     if (days < 1) return notify('Return date must be after pickup date.');
 
-    const rentalTotal = Number(vehicle.daily_rate || 0) * days;
-    const taxAmount = rentalTotal * CT_TAX_RATE;
+    const available = await isVehicleAvailable(vehicle.id, manualBookingForm.pickupDate, manualBookingForm.pickupTime, manualBookingForm.returnDate, manualBookingForm.returnTime);
+    if (!available) return notify('Vehicle is not available for that pickup and return time.');
 
-    const { error } = await supabase.from('rentals').insert({
-      user_id: profile.id,
-      vehicle_id: vehicle.id,
-      pickup_date: mockForm.pickupDate,
-      return_date: mockForm.returnDate,
-      pickup_time: mockForm.pickupTime,
-      return_time: mockForm.returnTime,
-      status: 'approved',
-      rental_total: rentalTotal,
-      tax_amount: taxAmount,
-      security_deposit: Number(vehicle.security_deposit || 0),
-      is_mock: true,
+    setManualBookingSubmitting(true);
+    const { data, error } = await supabase.functions.invoke('admin-manual-booking', {
+      body: {
+        customerMode: manualBookingForm.customerMode,
+        customerId: manualBookingForm.customerId || undefined,
+        customerDateOfBirth: manualBookingForm.existingDateOfBirth || undefined,
+        customer: manualBookingForm.customerMode === 'new' ? {
+          fullName: manualBookingForm.fullName.trim(),
+          email: manualBookingForm.email.trim(),
+          phone: manualBookingForm.phone.trim(),
+          dateOfBirth: manualBookingForm.dateOfBirth,
+          address: manualBookingForm.address.trim(),
+        } : undefined,
+        vehicleId: manualBookingForm.vehicleId,
+        pickupDate: manualBookingForm.pickupDate,
+        returnDate: manualBookingForm.returnDate,
+        pickupTime: manualBookingForm.pickupTime,
+        returnTime: manualBookingForm.returnTime,
+      },
     });
+    setManualBookingSubmitting(false);
 
-    if (error) return notify(error.message);
+    if (error || data?.error) {
+      let detail = data?.error || error?.message || 'Could not create the booking.';
+      try {
+        const payload = await error?.context?.clone?.().json();
+        detail = payload?.error || detail;
+      } catch {
+        // Keep the function error message.
+      }
+      return notify(detail);
+    }
 
-    notify('Mock reservation created without payment.');
-    setMockForm({ customerEmail: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM' });
-    loadAllData();
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM' });
+    await loadAllData({ silent: true });
+    setActiveTab('calendar');
+    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'} — it is now on the calendar.`, 'success');
   }
 
   async function addVehicle(event) {
@@ -1385,6 +1423,7 @@ function App() {
     { key: 'queue', label: 'Queue', icon: ClipboardList },
     { key: 'payments', label: 'Payments', icon: DollarSign },
     { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { key: 'new-booking', label: 'New Booking', icon: CalendarClock },
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
@@ -1487,13 +1526,13 @@ function App() {
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} waiveTurnaroundGrace={waiveTurnaroundGrace} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
-        {activeTab === 'mock' && <MockReservation mockForm={mockForm} setMockForm={setMockForm} profiles={profiles} vehicles={vehicles} createMockReservation={createMockReservation} />}
         {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
     </div>
@@ -2026,6 +2065,9 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
             <strong>{p.full_name || 'Unnamed Client'}</strong>
             <span>{p.email || p.id}</span>
             <small className="customer-phone">Phone: {p.phone || 'Not provided'}</small>
+            <small className={adminCustomerAge(p.date_of_birth) !== null && adminCustomerAge(p.date_of_birth) < 25 ? 'unverified-badge' : 'verified-badge'}>
+              {adminCustomerAge(p.date_of_birth) === null ? 'Age Not Confirmed' : adminCustomerAge(p.date_of_birth) < 25 ? `Under 25 (${adminCustomerAge(p.date_of_birth)}) • $500 deposit` : `Age 25+ (${adminCustomerAge(p.date_of_birth)})`}
+            </small>
             <small className={p.phone_verified ? 'verified-badge' : 'unverified-badge'}>{p.phone_verified ? 'Phone Verified' : 'Not Verified'}</small>
             {p.phone_verified_at && <small className="customer-verified-time">Verified: {new Date(p.phone_verified_at).toLocaleString()}</small>}
             <div className={`risk-box ${risk.level}`}>
@@ -2196,20 +2238,74 @@ function Messages({ rentals, messages, selectedRental, setSelectedRentalId, repl
   </section>;
 }
 
-function MockReservation({ mockForm, setMockForm, profiles, vehicles, createMockReservation }) {
-  const update = (k, v) => setMockForm({ ...mockForm, [k]: v });
-  return <Panel title="Create Mock Reservation" eyebrow="Testing Mode">
-    <p className="muted">Use this to test the dashboard without triggering Stripe payment. The rental will be marked as mock.</p>
-    <form className="portal-form mock-form" onSubmit={createMockReservation}>
-      <select value={mockForm.customerEmail} onChange={(e)=>update('customerEmail', e.target.value)} required><option value="">Choose customer</option>{profiles.map(p=><option key={p.id} value={p.email || p.full_name}>{p.full_name || p.email || p.id}</option>)}</select>
-      <select value={mockForm.vehicleId} onChange={(e)=>update('vehicleId', e.target.value)} required><option value="">Choose vehicle</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.name} — {money(v.daily_rate)}/day</option>)}</select>
-      <input type="date" value={mockForm.pickupDate} onChange={(e)=>update('pickupDate', e.target.value)} required />
-      <input type="date" value={mockForm.returnDate} onChange={(e)=>update('returnDate', e.target.value)} required />
-      <select value={mockForm.pickupTime} onChange={(e)=>update('pickupTime', e.target.value)}>{timeOptions().map(t=><option key={t} value={t}>{t}</option>)}</select>
-      <select value={mockForm.returnTime} onChange={(e)=>update('returnTime', e.target.value)}>{timeOptions().map(t=><option key={t} value={t}>{t}</option>)}</select>
-      <button className="primary-btn"><Plus size={17}/> Create Mock Reservation</button>
-    </form>
-  </Panel>;
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, createManualBooking, submitting }) {
+  const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
+  const customers = profiles
+    .filter((profile) => profile.role !== 'admin')
+    .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === manualBookingForm.vehicleId);
+  const selectedCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
+  const days = Math.max(0, getRentalDays(manualBookingForm.pickupDate, manualBookingForm.returnDate));
+  const rentalTotal = Number(selectedVehicle?.daily_rate || 0) * days;
+  const dateOfBirth = manualBookingForm.customerMode === 'new' ? manualBookingForm.dateOfBirth : selectedCustomer?.date_of_birth || manualBookingForm.existingDateOfBirth;
+  const age = adminCustomerAge(dateOfBirth);
+  const deposit = age !== null && age < 25 ? 500 : Number(selectedVehicle?.security_deposit || 0);
+  const customerName = manualBookingForm.customerMode === 'new'
+    ? manualBookingForm.fullName.trim() || 'New customer'
+    : selectedCustomer?.full_name || selectedCustomer?.email || 'Choose a customer';
+
+  return <section className="manual-booking-layout">
+    <Panel title="Create a Booking" eyebrow="Admin Booking">
+      <p className="muted">Choose an existing customer or add a new one, then select the car and exact pickup and return times.</p>
+      <form className="portal-form manual-booking-form" onSubmit={createManualBooking}>
+        <div className="customer-mode-switch" role="group" aria-label="Customer type">
+          <button type="button" className={manualBookingForm.customerMode === 'existing' ? 'active' : ''} onClick={() => update('customerMode', 'existing')}><UserRound size={17}/> Existing customer</button>
+          <button type="button" className={manualBookingForm.customerMode === 'new' ? 'active' : ''} onClick={() => update('customerMode', 'new')}><Plus size={17}/> Add new customer</button>
+        </div>
+
+        {manualBookingForm.customerMode === 'existing' ? <label className="full-field">
+          <span>Customer</span>
+          <select value={manualBookingForm.customerId} onChange={(event) => {
+            const customer = profiles.find((profile) => profile.id === event.target.value);
+            setManualBookingForm((current) => ({ ...current, customerId: event.target.value, existingDateOfBirth: customer?.date_of_birth || '' }));
+          }} required>
+            <option value="">Choose a customer</option>
+            {customers.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name || 'Unnamed customer'}{profile.email ? ` — ${profile.email}` : ''}{profile.phone ? ` — ${profile.phone}` : ''}</option>)}
+          </select>
+        </label> : <div className="new-customer-fields">
+          <label><span>Full name</span><input value={manualBookingForm.fullName} onChange={(event) => update('fullName', limitText(event.target.value, 120))} autoComplete="name" placeholder="Customer name" required /></label>
+          <label><span>Email</span><input type="email" value={manualBookingForm.email} onChange={(event) => update('email', limitText(event.target.value, 200))} autoComplete="email" placeholder="customer@email.com" required /></label>
+          <label><span>Phone</span><input type="tel" value={manualBookingForm.phone} onChange={(event) => update('phone', limitText(event.target.value, 32))} autoComplete="tel" placeholder="(860) 555-0123" required /></label>
+          <label><span>Date of birth</span><input type="date" max={new Date().toISOString().slice(0, 10)} value={manualBookingForm.dateOfBirth} onChange={(event) => update('dateOfBirth', event.target.value)} required /></label>
+          <label className="full-field"><span>Address (optional)</span><input value={manualBookingForm.address} onChange={(event) => update('address', limitText(event.target.value, 240))} autoComplete="street-address" placeholder="Street, city, state, ZIP" /></label>
+          <p className="customer-save-note full-field"><ShieldCheck size={16}/> The customer will be saved and can use Forgot Password to access the client portal.</p>
+        </div>}
+        {manualBookingForm.customerMode === 'existing' && selectedCustomer && !selectedCustomer.date_of_birth && <label className="full-field missing-dob-field"><span>Date of birth required for deposit</span><input type="date" max={new Date().toISOString().slice(0, 10)} value={manualBookingForm.existingDateOfBirth} onChange={(event) => update('existingDateOfBirth', event.target.value)} required /></label>}
+
+        <div className="booking-divider"><span>Reservation</span></div>
+        <label className="full-field"><span>Vehicle</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} required><option value="">Choose a vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id} disabled={BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase())}>{vehicle.name} — {money(vehicle.daily_rate)}/day{BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? ` — ${prettyVehicleStatus(vehicle.status)}` : ''}</option>)}</select></label>
+        <label><span>Pickup date</span><input type="date" value={manualBookingForm.pickupDate} onChange={(event) => update('pickupDate', event.target.value)} required /></label>
+        <label><span>Pickup time</span><select value={manualBookingForm.pickupTime} onChange={(event) => update('pickupTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.pickupTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+        <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => update('returnDate', event.target.value)} required /></label>
+        <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => update('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+        <button className="primary-btn full-field" disabled={submitting}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : 'Create Booking'}</button>
+      </form>
+    </Panel>
+
+    <aside className="booking-summary-card">
+      <p className="eyebrow">Booking Summary</p>
+      <h3>{customerName}</h3>
+      <dl>
+        <div><dt>Vehicle</dt><dd>{selectedVehicle?.name || 'Not selected'}</dd></div>
+        <div><dt>Dates</dt><dd>{days > 0 ? `${days} day${days === 1 ? '' : 's'}` : 'Choose dates'}</dd></div>
+        <div><dt>Rental</dt><dd>{money(rentalTotal)}</dd></div>
+        <div><dt>CT tax</dt><dd>{money(rentalTotal * CT_TAX_RATE)}</dd></div>
+        <div><dt>Deposit</dt><dd>{selectedVehicle ? money(deposit) : '—'}</dd></div>
+      </dl>
+      {age !== null && age < 25 && <div className="underage-deposit-note"><ShieldCheck size={17}/><span>Under 25: $500 refundable deposit</span></div>}
+      <p className="summary-note">Payment starts as due. The customer can finish payment and documents in the client portal.</p>
+    </aside>
+  </section>;
 }
 
 function SettingsTab({
@@ -3512,7 +3608,7 @@ function buildPaymentEvents({ rentals, extensionRequests = [] }) {
 
   return [...rentalEvents, ...extensionEvents].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', mock:'Mock Reservations', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function formatDecimalInput(value) {
   const amount = Number(value || 0);
@@ -3557,6 +3653,15 @@ function escapeHtml(value) {
 function getRentalDays(start, end) { const a = new Date(`${start}T00:00:00`); const b = new Date(`${end}T00:00:00`); return Math.ceil((b - a) / (1000*60*60*24)); }
 function formatRentalDate(date, time) { if (!date) return 'Pending'; return `${new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}${time ? ` ${time}` : ''}`; }
 function isThisMonth(date) { if (!date) return false; const d = new Date(date); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); }
+function adminCustomerAge(dateOfBirth, today = new Date()) {
+  const [year, month, day] = String(dateOfBirth || '').split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const birthDate = new Date(year, month - 1, day);
+  if (Number.isNaN(birthDate.getTime()) || birthDate > today) return null;
+  let age = today.getFullYear() - year;
+  if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age -= 1;
+  return age;
+}
 function isOverdue(returnDate, status) { if (!returnDate || ['completed','cancelled'].includes(status)) return false; return new Date(`${returnDate}T23:59:59`) < new Date(); }
 function isDueSoon(returnDate) { if (!returnDate) return false; const due = new Date(`${returnDate}T23:59:59`); const now = new Date(); const hours = (due - now) / 36e5; return hours > 0 && hours <= 30; }
 function isToday(date) { if (!date) return false; const due = new Date(`${date}T00:00:00`); const now = new Date(); return due.getFullYear() === now.getFullYear() && due.getMonth() === now.getMonth() && due.getDate() === now.getDate(); }

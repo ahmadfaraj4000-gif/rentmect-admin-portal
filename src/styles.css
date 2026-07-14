@@ -1088,6 +1088,142 @@ button{
 .mock-form{
     max-width:800px
 }
+.manual-booking-layout{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 320px;
+    gap:18px;
+    align-items:start
+}
+.manual-booking-form{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    max-width:900px;
+    margin-top:18px
+}
+.manual-booking-form .full-field{
+    grid-column:1/-1
+}
+.customer-mode-switch{
+    grid-column:1/-1;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    padding:5px;
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:rgba(0,0,0,.16)
+}
+.customer-mode-switch button{
+    min-height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    border:0;
+    border-radius:8px;
+    background:transparent;
+    color:var(--admin-muted);
+    font-weight:900;
+    cursor:pointer
+}
+.customer-mode-switch button.active{
+    background:var(--admin-green);
+    color:#fff;
+    box-shadow:0 4px 14px rgba(23,120,72,.24)
+}
+.new-customer-fields{
+    grid-column:1/-1;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:10px
+}
+.customer-save-note{
+    display:flex!important;
+    grid-template-columns:auto 1fr!important;
+    align-items:center;
+    gap:8px!important;
+    margin:0;
+    padding:10px 12px;
+    border-radius:9px;
+    background:var(--admin-green-soft);
+    color:var(--italy-green-dark);
+    font-size:12px;
+    font-weight:800
+}
+.missing-dob-field{
+    padding:12px;
+    border:1px solid #d7a927;
+    border-radius:10px;
+    background:#fff8df
+}
+.booking-divider{
+    grid-column:1/-1;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin:5px 0 0;
+    color:var(--admin-muted);
+    font-size:11px;
+    font-weight:950;
+    letter-spacing:.08em;
+    text-transform:uppercase
+}
+.booking-divider::after{
+    content:"";
+    height:1px;
+    flex:1;
+    background:var(--line)
+}
+.booking-summary-card{
+    position:sticky;
+    top:18px;
+    padding:20px;
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:var(--panel);
+    box-shadow:var(--shadow)
+}
+.booking-summary-card h3{
+    margin:4px 0 18px;
+    font-size:21px
+}
+.booking-summary-card dl{
+    display:grid;
+    gap:0;
+    margin:0
+}
+.booking-summary-card dl div{
+    display:flex;
+    justify-content:space-between;
+    gap:16px;
+    padding:11px 0;
+    border-bottom:1px solid var(--line)
+}
+.booking-summary-card dt{
+    color:var(--admin-muted)
+}
+.booking-summary-card dd{
+    margin:0;
+    text-align:right;
+    font-weight:900
+}
+.underage-deposit-note{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:14px;
+    padding:10px;
+    border-radius:9px;
+    background:#fff3d4;
+    color:#744f00;
+    font-size:12px;
+    font-weight:900
+}
+.summary-note{
+    margin:14px 0 0;
+    color:var(--admin-muted);
+    font-size:12px;
+    line-height:1.5
+}
 .settings-grid{
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(0,1fr);
@@ -3657,6 +3793,17 @@ body{
     .mock-form,
     .vehicle-detail-form,
     .damage-case-form{
+        grid-template-columns:1fr!important
+    }
+    .manual-booking-layout,
+    .manual-booking-form,
+    .new-customer-fields{
+        grid-template-columns:1fr!important
+    }
+    .booking-summary-card{
+        position:static
+    }
+    .customer-mode-switch{
         grid-template-columns:1fr!important
     }
     .calendar-scroller,
