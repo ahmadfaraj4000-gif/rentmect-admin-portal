@@ -1788,7 +1788,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                 onMouseUp={() => !manualBlock && !rental && finishPaint(vehicle.id, day.iso)}
               >
                 {rental && <span>{calendarBlockLabel(rental, day.iso)}</span>}
-                {!rental && manualBlock && <span>{manualBlock.label || prettyStatus(manualBlock.block_type)}</span>}
+                {!rental && manualBlock && <span>{calendarManualBlockLabel(manualBlock, day.iso)}</span>}
                 {!rental && !manualBlock && vehicleBlocked && <span>{prettyVehicleStatus(vehicle.status)}</span>}
               </div>;
             })}
@@ -2885,6 +2885,13 @@ function calendarBlockLabel(rental, dayIso) {
   if (dayIso === rental.pickup_date) return `From ${rental.pickup_time || '9:00 AM'}`;
   if (dayIso === rental.return_date) return `Due ${rental.return_time || '9:00 AM'} · Book after ${formatTimeOnly(blockedUntil)}`;
   return 'Booked';
+}
+function calendarManualBlockLabel(block, dayIso) {
+  const blockType = String(block?.block_type || '').toLowerCase();
+  const fallbackLabel = block?.label || prettyStatus(blockType || 'unavailable');
+  if (!block || dayIso !== block.end_date) return fallbackLabel;
+  const endTime = block.end_time || '11:59 PM';
+  return ['reserved', 'on_road'].includes(blockType) ? `Due ${endTime}` : `Until ${endTime}`;
 }
 function calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso }) {
   if (!unavailable) return 'calendar-cell open';
