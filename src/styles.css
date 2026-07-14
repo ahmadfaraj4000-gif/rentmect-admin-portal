@@ -65,6 +65,17 @@
     }
 }
 
+/* Keep the customer search icon in its own lane after all global input overrides. */
+.manual-booking-form .customer-search-input input#manual-customer-search{
+    padding-left:48px!important
+}
+.manual-booking-form .customer-search-input svg{
+    left:16px!important;
+    width:18px!important;
+    height:18px!important;
+    z-index:2
+}
+
 /* Final logo fit: generated transparent assets should never be cropped. */
 .brand-block picture{
     display:flex!important;
