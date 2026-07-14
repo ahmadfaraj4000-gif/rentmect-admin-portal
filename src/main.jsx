@@ -1,29 +1,43 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
   Banknote,
   CalendarClock,
+  CalendarDays,
   Car,
   CheckCircle2,
+  ClipboardList,
   Clock,
   CreditCard,
+  DollarSign,
+  Eye,
+  EyeOff,
   FileCheck,
+  FileSignature,
   FileText,
   Gauge,
   ImagePlus,
+  KeyRound,
   LogOut,
   Mail,
+  Menu,
   MessageCircle,
+  Pencil,
   Plus,
+  ReceiptText,
   Search,
   Send,
+  Settings,
   ShieldCheck,
+  Tag,
   UserRound,
   Wrench,
   XCircle,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import logoUrl from './assets/logo-sidebar.png';
+import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
@@ -34,7 +48,18 @@ const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
 
 const vehicleStatuses = ['available', 'maintenance', 'unavailable', 'inactive'];
-const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented'];
+const SYSTEM_VEHICLE_STATUSES = ['rented'];
+const VIN_MAX_LENGTH = 17;
+const PLATE_MAX_LENGTH = 12;
+const MONEY_MAX = 100000;
+const MILEAGE_MAX = 9999999;
+const DEFAULT_AVAILABILITY_TYPES = {
+  available: { label: 'Available', color: '#ffffff' },
+  unavailable: { label: 'Unavailable', color: '#9f241f' },
+  reserved: { label: 'Reserved', color: '#d0a017' },
+  on_road: { label: 'On the Road', color: '#2f8f5b' },
+  maintenance: { label: 'Maintenance', color: '#171717' },
+};
 
 function App() {
   const [session, setSession] = useState(null);
@@ -42,8 +67,22 @@ function App() {
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authMessage, setAuthMessage] = useState('');
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [notice, setNotice] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isMobileAdminNav, setIsMobileAdminNav] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
+  const [navCollapsed, setNavCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
+  const [mobileFabPosition, setMobileFabPosition] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return JSON.parse(window.localStorage.getItem('rentmect_admin_mobile_fab_position') || 'null');
+    } catch {
+      return null;
+    }
+  });
+  const mobileFabDragRef = useRef(null);
+  const suppressFabClickRef = useRef(false);
+  const [paymentFilter, setPaymentFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [rentalFilter, setRentalFilter] = useState('needs_action');
 
@@ -55,6 +94,17 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [reports, setReports] = useState([]);
   const [extensionRequests, setExtensionRequests] = useState([]);
+  const [discountCodes, setDiscountCodes] = useState([]);
+  const [serviceFees, setServiceFees] = useState([]);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState([]);
+  const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState('');
+  const [availabilityTypes, setAvailabilityTypes] = useState(() => {
+    try {
+      return { ...DEFAULT_AVAILABILITY_TYPES, ...JSON.parse(window.localStorage.getItem('rentmect_availability_types') || '{}') };
+    } catch {
+      return DEFAULT_AVAILABILITY_TYPES;
+    }
+  });
 
   const [selectedRentalId, setSelectedRentalId] = useState('');
   const [replyText, setReplyText] = useState('');
@@ -72,8 +122,52 @@ function App() {
   });
 
   const [vehicleForm, setVehicleForm] = useState({
-    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available'
+    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available', description: '', features: '', image_urls: ''
   });
+  const [discountForm, setDiscountForm] = useState({
+    code: '',
+    discount_type: 'percentage',
+    amount: '',
+    max_redemptions: '',
+    starts_at: '',
+    expires_at: '',
+    active: true,
+  });
+  const [serviceFeeForm, setServiceFeeForm] = useState({
+    name: '',
+    service_type: '',
+    amount: '0.00',
+    taxable: true,
+    active: true,
+    description: '',
+  });
+  const [availabilityBlockForm, setAvailabilityBlockForm] = useState({
+    vehicle_id: '',
+    start_date: '',
+    end_date: '',
+    start_time: '9:00 AM',
+    end_time: '9:00 AM',
+    block_type: 'unavailable',
+    label: '',
+    notes: '',
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mediaQuery = window.matchMedia('(max-width: 760px)');
+    const syncMobileNav = () => {
+      setIsMobileAdminNav(mediaQuery.matches);
+      if (mediaQuery.matches) setNavCollapsed(true);
+      else setNavCollapsed(false);
+    };
+    syncMobileNav();
+    mediaQuery.addEventListener('change', syncMobileNav);
+    return () => mediaQuery.removeEventListener('change', syncMobileNav);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('rentmect_availability_types', JSON.stringify(availabilityTypes));
+  }, [availabilityTypes]);
 
   function notify(text, type = 'info') {
     setNotice({ text, type });
@@ -178,6 +272,7 @@ function App() {
   }, [paidRentals]);
 
   const operationsQueue = useMemo(() => buildOperationsQueue({ rentals, documents, messages, reports, extensionRequests }), [rentals, documents, messages, reports, extensionRequests]);
+  const paymentEvents = useMemo(() => buildPaymentEvents({ rentals: paidRentals, extensionRequests }), [paidRentals, extensionRequests]);
 
   const filteredRentals = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -198,6 +293,18 @@ function App() {
     if (error) return setAuthMessage(error.message);
   }
 
+  async function handleAdminForgotPassword() {
+    const email = authForm.email.trim();
+    if (!email) {
+      setAuthMessage('Enter the admin email first, then use forgot password.');
+      return;
+    }
+
+    const redirectTo = import.meta.env.VITE_ADMIN_PORTAL_URL || window.location.origin;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    setAuthMessage(error ? error.message : 'Password reset link sent. Check your email.');
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     setSession(null);
@@ -206,7 +313,7 @@ function App() {
 
   async function loadAllData() {
     setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, availabilityBlocksRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -266,6 +373,22 @@ function App() {
           rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))
         `)
         .order('created_at', { ascending: false }),
+
+      supabase
+        .from('discount_codes')
+        .select('*')
+        .order('created_at', { ascending: false }),
+
+      supabase
+        .from('service_fees')
+        .select('*')
+        .order('created_at', { ascending: false }),
+
+      supabase
+        .from('vehicle_availability_blocks')
+        .select('*, vehicles(*)')
+        .eq('active', true)
+        .order('start_date', { ascending: true }),
     ]);
 
     if (profilesRes.data) setProfiles(profilesRes.data);
@@ -276,6 +399,9 @@ function App() {
     if (messagesRes.data) setMessages(messagesRes.data);
     if (reportsRes.data) setReports(reportsRes.data);
     if (extensionsRes.data) setExtensionRequests(extensionsRes.data);
+    if (discountCodesRes.data) setDiscountCodes(discountCodesRes.data);
+    if (serviceFeesRes.data) setServiceFees(serviceFeesRes.data);
+    if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
     setLoading(false);
   }
 
@@ -296,12 +422,31 @@ function App() {
       return false;
     }
 
-    return !(data || []).some((rental) => rentalPeriodsOverlap({
+    const rentalOverlap = (data || []).some((rental) => rentalPeriodsOverlap({
       pickupDate: startDate,
       pickupTime,
       returnDate: endDate,
       returnTime,
     }, rental));
+    if (rentalOverlap) return false;
+
+    const { data: blocks, error: blocksError } = await supabase
+      .from('vehicle_availability_blocks')
+      .select('start_date, end_date, start_time, end_time, block_type, label')
+      .eq('vehicle_id', vehicleId)
+      .eq('active', true);
+
+    if (blocksError) {
+      notify(blocksError.message);
+      return false;
+    }
+
+    return !(blocks || []).some((block) => availabilityBlockOverlapsReservation(block, {
+      pickupDate: startDate,
+      pickupTime,
+      returnDate: endDate,
+      returnTime,
+    }));
   }
 
   async function updateRentalStatus(id, status, options = {}) {
@@ -376,14 +521,9 @@ function App() {
       if (data) {
         setRentals((current) => current.map((item) =>
           item.id === id
-            ? { ...item, ...data, vehicles: item.vehicles ? { ...item.vehicles, status: 'reserved' } : item.vehicles }
+            ? { ...item, ...data }
             : item
         ));
-        if (data.vehicle_id) {
-          setVehicles((current) => current.map((vehicle) =>
-            vehicle.id === data.vehicle_id ? { ...vehicle, status: 'reserved' } : vehicle
-          ));
-        }
       } else {
         applyLocalStatus();
       }
@@ -545,12 +685,8 @@ function App() {
               ...paidRental,
               payment_status: 'paid',
               deposit_status: 'held',
-              vehicles: rental.vehicles ? { ...rental.vehicles, status: 'reserved' } : rental.vehicles,
             }
           : rental
-      ));
-      setVehicles((current) => current.map((vehicle) =>
-        vehicle.id === paidRental.vehicle_id ? { ...vehicle, status: 'reserved' } : vehicle
       ));
     }
 
@@ -640,6 +776,9 @@ function App() {
       vin: vehicle.vin || '',
       daily_rate: vehicle.daily_rate || '',
       security_deposit: vehicle.security_deposit || '',
+      description: vehicle.description || '',
+      features: listToLines(vehicle.features),
+      image_urls: listToLines(vehicle.image_urls),
       status: SYSTEM_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? '' : vehicle.status || 'available',
     });
   }
@@ -660,6 +799,8 @@ function App() {
         ...(status ? { status } : {}),
         daily_rate: Number(editVehicleForm.daily_rate || 0),
         security_deposit: Number(editVehicleForm.security_deposit || 0),
+        features: linesToList(editVehicleForm.features),
+        image_urls: linesToList(editVehicleForm.image_urls),
       })
       .eq('id', id);
 
@@ -684,6 +825,309 @@ function App() {
     if (error) return notify(error.message);
 
     loadAllData();
+  }
+
+  function generateDiscountCode() {
+    const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
+    setDiscountForm((current) => ({ ...current, code: `RENTME-${randomPart}` }));
+  }
+
+  async function createDiscountCode(event) {
+    event.preventDefault();
+    const amount = Number(discountForm.amount);
+    if (!discountForm.code.trim()) return notify('Enter or generate a discount code.');
+    if (!amount || amount <= 0) return notify('Discount amount must be greater than zero.');
+    if (discountForm.discount_type === 'percentage' && amount > 100) return notify('Percentage discounts cannot be over 100%.');
+
+    const payload = {
+      code: discountForm.code.trim().toUpperCase(),
+      discount_type: discountForm.discount_type,
+      amount,
+      max_redemptions: discountForm.max_redemptions ? Number(discountForm.max_redemptions) : null,
+      starts_at: discountForm.starts_at || null,
+      expires_at: discountForm.expires_at || null,
+      active: Boolean(discountForm.active),
+    };
+
+    const { data, error } = await supabase
+      .from('discount_codes')
+      .insert(payload)
+      .select('*')
+      .single();
+    if (error) return notify(error.message);
+
+    setDiscountCodes((current) => [data, ...current]);
+    setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true });
+    notify('Discount code created.', 'success');
+  }
+
+  async function toggleDiscountCode(id, active) {
+    const { data, error } = await supabase
+      .from('discount_codes')
+      .update({ active })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) return notify(error.message);
+    setDiscountCodes((current) => current.map((code) => code.id === id ? data : code));
+    notify(active ? 'Discount code activated.' : 'Discount code paused.', 'success');
+  }
+
+  async function deleteDiscountCode(id) {
+    const confirmed = window.confirm('Delete this discount code?');
+    if (!confirmed) return;
+    const { error } = await supabase.from('discount_codes').delete().eq('id', id);
+    if (error) return notify(error.message);
+    setDiscountCodes((current) => current.filter((code) => code.id !== id));
+    notify('Discount code deleted.', 'success');
+  }
+
+  async function createServiceFee(event) {
+    event.preventDefault();
+    const amount = Number(serviceFeeForm.amount);
+    if (!serviceFeeForm.name.trim()) return notify('Enter a service fee name.');
+    if (!serviceFeeForm.service_type.trim()) return notify('Enter a fee type.');
+    if (!amount || amount <= 0) return notify('Service fee amount must be greater than zero.');
+
+    const payload = {
+      name: serviceFeeForm.name.trim(),
+      service_type: serviceFeeForm.service_type.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'custom_fee',
+      amount,
+      taxable: Boolean(serviceFeeForm.taxable),
+      active: Boolean(serviceFeeForm.active),
+      description: serviceFeeForm.description.trim() || null,
+    };
+
+    const { data, error } = await supabase
+      .from('service_fees')
+      .insert(payload)
+      .select('*')
+      .single();
+    if (error) return notify(error.message);
+
+    setServiceFees((current) => [data, ...current]);
+    setServiceFeeForm({ name: '', service_type: '', amount: '0.00', taxable: true, active: true, description: '' });
+    notify('Service fee added.', 'success');
+  }
+
+  async function toggleServiceFee(id, active) {
+    const { data, error } = await supabase
+      .from('service_fees')
+      .update({ active })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) return notify(error.message);
+    setServiceFees((current) => current.map((fee) => fee.id === id ? data : fee));
+    notify(active ? 'Service fee activated.' : 'Service fee paused.', 'success');
+  }
+
+  async function deleteServiceFee(id) {
+    const confirmed = window.confirm('Delete this service fee?');
+    if (!confirmed) return;
+    const { error } = await supabase.from('service_fees').delete().eq('id', id);
+    if (error) return notify(error.message);
+    setServiceFees((current) => current.filter((fee) => fee.id !== id));
+    notify('Service fee deleted.', 'success');
+  }
+
+  async function createAvailabilityBlock(event) {
+    event.preventDefault();
+    const vehicleId = availabilityBlockForm.vehicle_id || vehicles[0]?.id;
+    if (!vehicleId) return notify('Choose a vehicle to block.');
+    if (!availabilityBlockForm.start_date || !availabilityBlockForm.end_date) return notify('Choose start and end dates.');
+    if (availabilityBlockForm.end_date < availabilityBlockForm.start_date) return notify('End date must be after the start date.');
+    const selectedType = availabilityBlockForm.block_type || 'unavailable';
+
+    if (selectedType === 'available') {
+      const idsToClear = availabilityBlocks
+        .filter((block) => block.vehicle_id === vehicleId && datesOverlap(block.start_date, block.end_date, availabilityBlockForm.start_date, availabilityBlockForm.end_date))
+        .map((block) => block.id)
+        .filter((id) => !String(id).startsWith('pending-'));
+
+      if (idsToClear.length > 0) {
+        const { error } = await supabase
+          .from('vehicle_availability_blocks')
+          .update({ active: false })
+          .in('id', idsToClear);
+        if (error) return notify(availabilityTableError(error), 'error');
+        setAvailabilityBlocks((current) => current.filter((block) => !idsToClear.includes(block.id)));
+      }
+
+      setEditingAvailabilityBlockId('');
+      setAvailabilityBlockForm({
+        vehicle_id: vehicleId,
+        start_date: '',
+        end_date: '',
+        start_time: '9:00 AM',
+        end_time: '9:00 AM',
+        block_type: 'unavailable',
+        label: '',
+        notes: '',
+      });
+      notify(idsToClear.length ? 'Selected dates are available again.' : 'Those dates were already available.', 'success');
+      return;
+    }
+
+    const payload = {
+      vehicle_id: vehicleId,
+      start_date: availabilityBlockForm.start_date,
+      end_date: availabilityBlockForm.end_date,
+      start_time: availabilityBlockForm.start_time || '9:00 AM',
+      end_time: availabilityBlockForm.end_time || '9:00 AM',
+      block_type: selectedType,
+      label: availabilityBlockForm.label.trim() || availabilityTypes[selectedType]?.label || prettyStatus(selectedType),
+      notes: availabilityBlockForm.notes.trim() || null,
+      active: true,
+    };
+
+    const query = editingAvailabilityBlockId
+      ? supabase
+        .from('vehicle_availability_blocks')
+        .update(payload)
+        .eq('id', editingAvailabilityBlockId)
+        .select('*, vehicles(*)')
+        .single()
+      : supabase
+        .from('vehicle_availability_blocks')
+        .insert(payload)
+        .select('*, vehicles(*)')
+        .single();
+
+    const { data, error } = await query;
+    if (error) return notify(availabilityTableError(error), 'error');
+
+    setAvailabilityBlocks((current) => {
+      const next = editingAvailabilityBlockId
+        ? current.map((block) => block.id === editingAvailabilityBlockId ? data : block)
+        : [...current, data];
+      return next.sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
+    });
+    setEditingAvailabilityBlockId('');
+    setAvailabilityBlockForm({
+      vehicle_id: vehicleId,
+      start_date: '',
+      end_date: '',
+      start_time: '9:00 AM',
+      end_time: '9:00 AM',
+      block_type: 'unavailable',
+      label: '',
+      notes: '',
+    });
+    notify(editingAvailabilityBlockId ? 'Availability block updated.' : 'Availability block added.', 'success');
+  }
+
+  async function createAvailabilityPaintBlock({ vehicleId, startDate, endDate, blockType, startTime, endTime, label, notes }) {
+    if (!vehicleId || !startDate || !endDate) return;
+    const sortedDates = [startDate, endDate].sort();
+    const type = blockType || 'unavailable';
+    if (type === 'available') {
+      const idsToClear = availabilityBlocks
+        .filter((block) => block.vehicle_id === vehicleId && datesOverlap(block.start_date, block.end_date, sortedDates[0], sortedDates[1]))
+        .map((block) => block.id)
+        .filter((id) => !String(id).startsWith('pending-'));
+      if (idsToClear.length === 0) return { ok: true };
+      const { error } = await supabase
+        .from('vehicle_availability_blocks')
+        .update({ active: false })
+        .in('id', idsToClear);
+      if (error) return { ok: false, error: availabilityTableError(error) };
+      setAvailabilityBlocks((current) => current.filter((block) => !idsToClear.includes(block.id)));
+      return { ok: true };
+    }
+    const payload = {
+      vehicle_id: vehicleId,
+      start_date: sortedDates[0],
+      end_date: sortedDates[1],
+      start_time: startTime || '12:00 AM',
+      end_time: endTime || '11:59 PM',
+      block_type: type,
+      label: label || availabilityTypes[type]?.label || prettyStatus(type),
+      notes: notes || 'Painted from fleet calendar',
+      active: true,
+    };
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const tempBlock = {
+      ...payload,
+      id: tempId,
+      vehicles: vehicles.find((vehicle) => vehicle.id === vehicleId) || null,
+    };
+
+    setAvailabilityBlocks((current) => [...current, tempBlock].sort((a, b) => String(a.start_date).localeCompare(String(b.start_date))));
+
+    const { data, error } = await supabase
+      .from('vehicle_availability_blocks')
+      .insert(payload)
+      .select('*, vehicles(*)')
+      .single();
+    if (error) {
+      setAvailabilityBlocks((current) => current.filter((block) => block.id !== tempId));
+      return { ok: false, error: availabilityTableError(error) };
+    }
+
+    setAvailabilityBlocks((current) => current.map((block) => block.id === tempId ? data : block).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date))));
+    return { ok: true };
+  }
+
+  async function updateAvailabilityBlock(id, updates) {
+    const payload = {
+      vehicle_id: updates.vehicle_id,
+      start_date: updates.start_date,
+      end_date: updates.end_date,
+      start_time: updates.start_time || '12:00 AM',
+      end_time: updates.end_time || '11:59 PM',
+      block_type: updates.block_type || 'unavailable',
+      label: updates.label || availabilityTypes[updates.block_type]?.label || prettyStatus(updates.block_type),
+      notes: updates.notes || null,
+      active: true,
+    };
+
+    const { data, error } = await supabase
+      .from('vehicle_availability_blocks')
+      .update(payload)
+      .eq('id', id)
+      .select('*, vehicles(*)')
+      .single();
+    if (error) return { ok: false, error: availabilityTableError(error) };
+    setAvailabilityBlocks((current) => current.map((block) => block.id === id ? data : block).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date))));
+    return { ok: true };
+  }
+
+  function editAvailabilityBlock(block) {
+    setEditingAvailabilityBlockId(block.id);
+    setAvailabilityBlockForm({
+      vehicle_id: block.vehicle_id || '',
+      start_date: block.start_date || '',
+      end_date: block.end_date || '',
+      start_time: block.start_time || '9:00 AM',
+      end_time: block.end_time || '9:00 AM',
+      block_type: block.block_type || 'unavailable',
+      label: block.label || '',
+      notes: block.notes || '',
+    });
+    notify('Block loaded into the calendar form. Update the details and save.', 'info');
+  }
+
+  async function deleteAvailabilityBlock(id) {
+    const confirmed = window.confirm('Remove this calendar block?');
+    if (!confirmed) return;
+    const { error } = await supabase
+      .from('vehicle_availability_blocks')
+      .update({ active: false })
+      .eq('id', id);
+    if (error) return notify(availabilityTableError(error), 'error');
+    setAvailabilityBlocks((current) => current.filter((block) => block.id !== id));
+    notify('Availability block removed.', 'success');
+  }
+
+  function updateAvailabilityType(key, field, value) {
+    setAvailabilityTypes((current) => ({
+      ...current,
+      [key]: {
+        ...(current[key] || DEFAULT_AVAILABILITY_TYPES[key] || { label: prettyStatus(key), color: '#394852' }),
+        [field]: value,
+      },
+    }));
   }
 
   async function markDocument(id, status) {
@@ -867,9 +1311,11 @@ function App() {
       ...vehicleForm,
       daily_rate: Number(vehicleForm.daily_rate || 0),
       security_deposit: Number(vehicleForm.security_deposit || 0),
+      features: linesToList(vehicleForm.features),
+      image_urls: linesToList(vehicleForm.image_urls),
     });
     if (error) return notify(error.message);
-    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available' });
+    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available', description: '', features: '', image_urls: '' });
     loadAllData();
   }
 
@@ -908,27 +1354,100 @@ function App() {
     notify(`Return reminder SMS sent to ${customer}.`, 'success');
   }
 
+  const adminTabs = [
+    { key: 'dashboard', label: 'Dashboard', icon: Gauge },
+    { key: 'queue', label: 'Queue', icon: ClipboardList },
+    { key: 'payments', label: 'Payments', icon: DollarSign },
+    { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { key: 'rentals', label: 'Rentals', icon: KeyRound },
+    { key: 'vehicles', label: 'Vehicles', icon: Car },
+    { key: 'customers', label: 'Customers', icon: UserRound },
+    { key: 'messages', label: 'Messages', icon: MessageCircle },
+    { key: 'settings', label: 'Settings', icon: Settings },
+  ];
+
+  function selectAdminTab(key) {
+    setActiveTab(key);
+    if (isMobileAdminNav) {
+      setNavCollapsed(true);
+    }
+  }
+
+  function handleMobileFabPointerDown(event) {
+    if (typeof window === 'undefined' || !isMobileAdminNav) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    mobileFabDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      initialX: rect.left,
+      initialY: rect.top,
+      moved: false,
+    };
+
+    const moveFab = (moveEvent) => {
+      const drag = mobileFabDragRef.current;
+      if (!drag) return;
+      const deltaX = moveEvent.clientX - drag.startX;
+      const deltaY = moveEvent.clientY - drag.startY;
+      if (Math.abs(deltaX) + Math.abs(deltaY) > 8) drag.moved = true;
+      const nextX = Math.min(Math.max(8, drag.initialX + deltaX), window.innerWidth - 64);
+      const nextY = Math.min(Math.max(8, drag.initialY + deltaY), window.innerHeight - 64);
+      drag.lastPosition = { x: nextX, y: nextY };
+      setMobileFabPosition(drag.lastPosition);
+    };
+
+    const stopDragging = () => {
+      const drag = mobileFabDragRef.current;
+      if (drag?.moved) {
+        suppressFabClickRef.current = true;
+        setTimeout(() => { suppressFabClickRef.current = false; }, 0);
+      }
+      mobileFabDragRef.current = null;
+      window.removeEventListener('pointermove', moveFab);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      if (drag?.moved && drag.lastPosition) {
+        window.localStorage.setItem('rentmect_admin_mobile_fab_position', JSON.stringify(drag.lastPosition));
+      }
+    };
+
+    window.addEventListener('pointermove', moveFab);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+  }
+
+  function toggleMobileNav(event) {
+    if (suppressFabClickRef.current) return;
+    setNavCollapsed(!navCollapsed);
+    if (isMobileAdminNav) {
+      event?.currentTarget?.blur();
+    }
+  }
+
   if (loading) return <Loading />;
-  if (!session) return <Login authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} authMessage={authMessage} />;
+  if (!session) return <Login authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} authMessage={authMessage} showPassword={showAdminPassword} setShowPassword={setShowAdminPassword} handleForgotPassword={handleAdminForgotPassword} />;
   if (!isAdminUser) return <NotAdmin email={session.user.email} signOut={signOut} />;
 
   return (
-    <div className="admin-shell">
-      <aside className="sidebar">
-        <div className="brand-block"><div className="brand-mark">RM</div><div><strong>Rent Me CT</strong><span>Admin Portal</span></div></div>
+    <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
+      <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} style={isMobileAdminNav && mobileFabPosition ? { left: `${mobileFabPosition.x}px`, top: `${mobileFabPosition.y}px`, right: 'auto', bottom: 'auto' } : undefined}>
+        <div className="brand-block">
+          <picture>
+            <source media="(max-width: 760px)" srcSet={logoMobileUrl} />
+            <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
+          </picture>
+        </div>
+        <button className="nav-toggle" type="button" onPointerDown={handleMobileFabPointerDown} onClick={toggleMobileNav} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>
+          <Menu size={18} /><span>{navCollapsed ? 'Expand' : 'Collapse'}</span>
+        </button>
         <nav className="side-nav">
-          <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}><Gauge size={18}/> Dashboard</button>
-          <button className={activeTab === 'queue' ? 'active' : ''} onClick={() => setActiveTab('queue')}><AlertTriangle size={18}/> Queue</button>
-          <button className={activeTab === 'calendar' ? 'active' : ''} onClick={() => setActiveTab('calendar')}><CalendarClock size={18}/> Calendar</button>
-          <button className={activeTab === 'rentals' ? 'active' : ''} onClick={() => setActiveTab('rentals')}><CalendarClock size={18}/> Rentals</button>
-          <button className={activeTab === 'customers' ? 'active' : ''} onClick={() => setActiveTab('customers')}><UserRound size={18}/> Customers</button>
-          <button className={activeTab === 'vehicles' ? 'active' : ''} onClick={() => setActiveTab('vehicles')}><Car size={18}/> Vehicles</button>
-          <button className={activeTab === 'damage' ? 'active' : ''} onClick={() => setActiveTab('damage')}><Wrench size={18}/> Damage</button>
-          <button className={activeTab === 'documents' ? 'active' : ''} onClick={() => setActiveTab('documents')}><FileText size={18}/> Documents</button>
-          <button className={activeTab === 'messages' ? 'active' : ''} onClick={() => setActiveTab('messages')}><MessageCircle size={18}/> Messages</button>
-          <button className={activeTab === 'mock' ? 'active' : ''} onClick={() => setActiveTab('mock')}><Plus size={18}/> Mock Reservation</button>
+          {adminTabs.map(({ key, label, icon: Icon }) => (
+            <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label}>
+              <Icon size={18}/><span>{label}</span>
+            </button>
+          ))}
         </nav>
-        <button className="logout-btn" onClick={signOut}><LogOut size={17}/> Log Out</button>
+        <button className="logout-btn" onClick={signOut} title="Log Out"><LogOut size={18}/><span>Log Out</span></button>
       </aside>
 
       <main className="admin-main">
@@ -940,14 +1459,16 @@ function App() {
 
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
-        {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} />}
+        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
+        {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
-        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} />}
+        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
         {activeTab === 'mock' && <MockReservation mockForm={mockForm} setMockForm={setMockForm} profiles={profiles} vehicles={vehicles} createMockReservation={createMockReservation} />}
+        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
     </div>
   );
@@ -994,11 +1515,14 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
   return <Panel title="Operational View" eyebrow="Operations Queue">
     {queue.length === 0 && <p className="muted">Nothing needs attention right now.</p>}
     <div className="operations-buckets">
-      {buckets.map(([bucket, label]) => <section className="operations-bucket" key={bucket}>
-        <h4>{label}</h4>
+      {buckets.map(([bucket, label]) => {
+        const items = queue.filter((item) => item.bucket === bucket);
+        const visibleItems = items.slice(0, 5);
+        return <section className="operations-bucket" key={bucket}>
+        <h4>{label} <span>{items.length}</span></h4>
         <div className="table-list">
-          {queue.filter((item) => item.bucket === bucket).length === 0 && <p className="muted">Clear.</p>}
-          {queue.filter((item) => item.bucket === bucket).map((item) => <div className={`data-row queue-row ${item.severity}`} key={item.id}>
+          {items.length === 0 && <p className="muted">Clear.</p>}
+          {visibleItems.map((item) => <div className={`data-row queue-row ${item.severity}`} key={item.id}>
         <div>
           <strong>{item.title}</strong>
           <span>{item.subtitle}</span>
@@ -1016,14 +1540,71 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
           {item.document && <button className="reject" onClick={() => markDocument(item.document.id, 'rejected')}><XCircle size={16}/> Reject</button>}
         </div>
       </div>)}
+          {items.length > visibleItems.length && <p className="muted">Showing 5 of {items.length}. Use Rentals, Payments, or Messages for the full list.</p>}
         </div>
-      </section>)}
+      </section>;
+      })}
     </div>
   </Panel>;
 }
 
-function FleetCalendar({ vehicles, rentals }) {
-  const days = calendarDays(21);
+function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }) {
+  const paid = paymentEvents.filter((event) => event.status === 'paid');
+  const pending = paymentEvents.filter((event) => event.status === 'pending');
+  const depositsHeld = rentals.filter((rental) => String(rental.deposit_status || '').toLowerCase() === 'held');
+  const visibleEvents = paymentEvents.filter((event) => paymentFilter === 'all' || event.type === paymentFilter || event.status === paymentFilter);
+
+  return <>
+    <section className="metric-grid payments-metrics">
+      <Metric icon={DollarSign} label="Paid Activity" value={money(paid.reduce((sum, event) => sum + event.amount, 0))} />
+      <Metric icon={Clock} label="Pending Payments" value={pending.length} danger={pending.length > 0} />
+      <Metric icon={CreditCard} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.security_deposit || 0), 0))} />
+      <Metric icon={ReceiptText} label="Payment Events" value={paymentEvents.length} />
+    </section>
+    <Panel title="Payments" eyebrow="Booqable-Style Activity">
+      <div className="filter-pills" role="group" aria-label="Payment filters">
+        {[
+          ['all', 'All'],
+          ['paid', 'Paid'],
+          ['pending', 'Pending'],
+          ['deposit', 'Deposits'],
+          ['rental', 'Rentals'],
+          ['extension', 'Extensions'],
+        ].map(([key, label]) => (
+          <button key={key} type="button" className={paymentFilter === key ? 'active' : ''} onClick={() => setPaymentFilter(key)}>{label}</button>
+        ))}
+      </div>
+      <div className="payments-table">
+        <div className="payments-table-head">
+          <span>Customer</span>
+          <span>Vehicle</span>
+          <span>Type</span>
+          <span>Status</span>
+          <span>Amount</span>
+          <span>Date</span>
+        </div>
+        {visibleEvents.length === 0 && <p className="muted">No payment activity matches this filter.</p>}
+        {visibleEvents.map((event) => (
+          <div className="payments-table-row" key={event.id}>
+            <span><strong>{event.customer}</strong><small>{event.detail}</small></span>
+            <span>{event.vehicle}</span>
+            <span>{prettyStatus(event.type)}</span>
+            <span><em className={event.status === 'paid' ? 'active-status' : 'paused-status'}>{prettyStatus(event.status)}</em></span>
+            <span>{money(event.amount)}</span>
+            <span>{event.date ? new Date(event.date).toLocaleDateString() : 'Pending'}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  </>;
+}
+
+function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
+  const days = calendarDays(28);
+  const [paintRange, setPaintRange] = useState(null);
+  const [paintModal, setPaintModal] = useState(null);
+  const [calendarHint, setCalendarHint] = useState('');
+  const updateBlock = (key, value) => setAvailabilityBlockForm({ ...availabilityBlockForm, [key]: value });
   const rentalsByVehicle = useMemo(() => {
     const grouped = {};
     rentals.filter((r) => BLOCKING_RENTAL_STATUSES.includes(r.status)).forEach((r) => {
@@ -1033,13 +1614,127 @@ function FleetCalendar({ vehicles, rentals }) {
     return grouped;
   }, [rentals]);
 
+  const blocksByVehicle = useMemo(() => {
+    const grouped = {};
+    availabilityBlocks.forEach((block) => {
+      if (String(block.block_type || '').toLowerCase() === 'available') return;
+      if (!grouped[block.vehicle_id]) grouped[block.vehicle_id] = [];
+      grouped[block.vehicle_id].push(block);
+    });
+    return grouped;
+  }, [availabilityBlocks]);
+
+  const activeVehicle = vehicles.find((vehicle) => vehicle.id === availabilityBlockForm.vehicle_id) || vehicles[0];
+  const selectedType = availabilityBlockForm.block_type || 'unavailable';
+  const selectedTypeStyle = availabilityTypes[selectedType] || DEFAULT_AVAILABILITY_TYPES[selectedType] || { label: prettyStatus(selectedType), color: '#394852' };
+
+  function openBlockEdit(block) {
+    setPaintModal({
+      mode: 'edit',
+      id: block.id,
+      vehicleId: block.vehicle_id,
+      startDate: block.start_date,
+      endDate: block.end_date,
+      startTime: block.start_time || '12:00 AM',
+      endTime: block.end_time || '11:59 PM',
+      blockType: block.block_type || 'unavailable',
+      label: block.label || availabilityTypes[block.block_type]?.label || prettyStatus(block.block_type),
+      notes: block.notes || '',
+      error: '',
+      saving: false,
+    });
+  }
+
+  function startPaint(vehicleId, dayIso) {
+    setCalendarHint('');
+    setPaintRange({ vehicleId, startDate: dayIso, endDate: dayIso });
+  }
+
+  function updatePaint(vehicleId, dayIso) {
+    setPaintRange((current) => current && current.vehicleId === vehicleId ? { ...current, endDate: dayIso } : current);
+  }
+
+  function finishPaint(vehicleId, dayIso) {
+    setPaintRange((current) => {
+      if (current && current.vehicleId === vehicleId) {
+        const [startDate, endDate] = [current.startDate, dayIso].sort();
+        setPaintModal({
+          mode: 'create',
+          vehicleId,
+          startDate,
+          endDate,
+          startTime: '12:00 AM',
+          endTime: '11:59 PM',
+          blockType: selectedType,
+          label: selectedTypeStyle.label,
+          notes: '',
+          error: '',
+          saving: false,
+        });
+      }
+      return null;
+    });
+  }
+
+  function blockedRentalHint(rental) {
+    setCalendarHint(`${availabilityTypes[rentalStatusToAvailabilityType(rental?.status)]?.label || 'Booked'} time comes from a rental. Change the rental status or return flow to clear it; Available only removes manual calendar blocks.`);
+    setPaintRange(null);
+  }
+
+  function isPreviewed(vehicleId, dayIso) {
+    if (!paintRange || paintRange.vehicleId !== vehicleId) return false;
+    const [start, end] = [paintRange.startDate, paintRange.endDate].sort();
+    return dayIso >= start && dayIso <= end;
+  }
+
   return <Panel title="Fleet Calendar" eyebrow="Date-Based Availability">
+    <div className="calendar-toolbar">
+      <div>
+        <strong>{days[0]?.label} - {days[days.length - 1]?.label}</strong>
+        <span>Bookings update this grid automatically. Use Available to clear manual blocks only; active rentals stay blocked until the rental status changes.</span>
+      </div>
+      <button type="button" className="secondary-btn" onClick={() => updateBlock('start_date', new Date().toISOString().split('T')[0])}><CalendarClock size={16}/> Today</button>
+    </div>
+    {calendarHint && <div className="calendar-hint"><AlertTriangle size={16}/><span>{calendarHint}</span></div>}
+
+    <form className="availability-form" onSubmit={createAvailabilityBlock}>
+      <select value={availabilityBlockForm.vehicle_id || activeVehicle?.id || ''} onChange={(event) => updateBlock('vehicle_id', event.target.value)} required>
+        <option value="">Choose vehicle</option>
+        {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}
+      </select>
+      <select value={availabilityBlockForm.block_type} onChange={(event) => updateBlock('block_type', event.target.value)}>
+        {Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}
+      </select>
+      <input type="date" value={availabilityBlockForm.start_date} onChange={(event) => updateBlock('start_date', event.target.value)} required />
+      <input type="date" value={availabilityBlockForm.end_date} onChange={(event) => updateBlock('end_date', event.target.value)} required />
+      <select value={availabilityBlockForm.start_time} onChange={(event) => updateBlock('start_time', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select>
+      <select value={availabilityBlockForm.end_time} onChange={(event) => updateBlock('end_time', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select>
+      <button className="primary-btn"><Plus size={16}/> {editingAvailabilityBlockId ? 'Save Block' : 'Add Block'}</button>
+    </form>
+
+    <div className="availability-legend" aria-label="Calendar paint colors">
+      {Object.entries(availabilityTypes).map(([key, type]) => (
+        <button
+          type="button"
+          key={key}
+          className={selectedType === key ? 'active' : ''}
+          onClick={() => updateBlock('block_type', key)}
+          title={`Paint ${type.label}`}
+        >
+          <span className={key === 'available' ? 'clear-swatch' : ''} style={{ backgroundColor: type.color }} />
+          {type.label}
+        </button>
+      ))}
+      <em>Drag across a vehicle row, then confirm or edit the block.</em>
+    </div>
+
     <div className="calendar-scroller">
       <div className="fleet-calendar">
         <div className="calendar-cell calendar-head sticky-col">Vehicle</div>
-        {days.map((day) => <div className="calendar-cell calendar-head" key={day.iso}>{day.label}</div>)}
+        {days.map((day) => <div className="calendar-cell calendar-head" key={day.iso}><strong>{day.weekday}</strong><span>{day.shortLabel}</span></div>)}
         {vehicles.map((vehicle) => {
           const vehicleRentals = rentalsByVehicle[vehicle.id] || [];
+          const vehicleBlocks = blocksByVehicle[vehicle.id] || [];
           const vehicleBlocked = BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase());
           return <React.Fragment key={vehicle.id}>
             <div className="calendar-cell sticky-col vehicle-name">
@@ -1050,20 +1745,125 @@ function FleetCalendar({ vehicles, rentals }) {
               const dayStart = parseRentMeCtDateTime(day.iso, '12:00 AM');
               const dayEnd = parseRentMeCtDateTime(day.iso, '11:59 PM');
               const rental = vehicleRentals.find((r) => rentalBlocksCalendarDay(r, dayStart, dayEnd));
-              const unavailable = vehicleBlocked || Boolean(rental);
+              const manualBlock = vehicleBlocks.find((block) =>
+                String(block.block_type || '').toLowerCase() !== 'available' &&
+                availabilityBlockTouchesDay(block, dayStart, dayEnd)
+              );
+              const unavailable = vehicleBlocked || Boolean(rental) || Boolean(manualBlock);
               const blockedUntil = rental ? getRentalBlockedUntil(rental) : null;
+              const previewed = isPreviewed(vehicle.id, day.iso);
               const rentalTitle = rental
                 ? `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`
                 : '';
-              return <div className={calendarCellClass({ unavailable, vehicleBlocked, rental, dayIso: day.iso })} key={`${vehicle.id}-${day.iso}`} title={rental ? rentalTitle : vehicleBlocked ? prettyVehicleStatus(vehicle.status) : 'Available'}>
-                {rental ? <span>{calendarBlockLabel(rental, day.iso)}</span> : vehicleBlocked ? <span>Maintenance</span> : <span>Available</span>}
+              const title = rental ? rentalTitle : manualBlock ? availabilityBlockTitle(manualBlock) : vehicleBlocked ? prettyVehicleStatus(vehicle.status) : 'Available';
+              const rentalType = rental ? rentalStatusToAvailabilityType(rental.status) : null;
+              const blockColor = manualBlock
+                ? availabilityTypes[manualBlock.block_type]?.color
+                : rentalType
+                  ? availabilityTypes[rentalType]?.color
+                  : null;
+              const clearPreview = previewed && selectedType === 'available';
+              const previewColor = previewed && !clearPreview ? selectedTypeStyle.color : null;
+              return <div
+                className={`${calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso: day.iso })} ${previewed ? 'paint-preview' : ''} ${clearPreview ? 'clear-preview' : ''}`}
+                key={`${vehicle.id}-${day.iso}`}
+                title={title}
+                style={blockColor || previewColor ? { '--block-color': previewColor || blockColor } : undefined}
+                onMouseDown={() => {
+                  if (rental) return blockedRentalHint(rental);
+                  if (manualBlock) return openBlockEdit(manualBlock);
+                  startPaint(vehicle.id, day.iso);
+                }}
+                onMouseEnter={() => updatePaint(vehicle.id, day.iso)}
+                onMouseUp={() => !manualBlock && !rental && finishPaint(vehicle.id, day.iso)}
+              >
+                {rental && <span>{calendarBlockLabel(rental, day.iso)}</span>}
+                {!rental && manualBlock && <span>{manualBlock.label || prettyStatus(manualBlock.block_type)}</span>}
+                {!rental && !manualBlock && vehicleBlocked && <span>{prettyVehicleStatus(vehicle.status)}</span>}
               </div>;
             })}
           </React.Fragment>;
         })}
       </div>
     </div>
+    {paintModal && <AvailabilityBlockModal
+      modal={paintModal}
+      setModal={setPaintModal}
+      vehicles={vehicles}
+      availabilityTypes={availabilityTypes}
+      onCancel={() => setPaintModal(null)}
+      onSave={async (nextModal) => {
+        setPaintModal({ ...nextModal, saving: true, error: '' });
+        const result = nextModal.mode === 'edit'
+          ? await updateAvailabilityBlock(nextModal.id, {
+            vehicle_id: nextModal.vehicleId,
+            start_date: nextModal.startDate,
+            end_date: nextModal.endDate,
+            start_time: nextModal.startTime,
+            end_time: nextModal.endTime,
+            block_type: nextModal.blockType,
+            label: nextModal.label,
+            notes: nextModal.notes,
+          })
+          : await createAvailabilityPaintBlock({
+            vehicleId: nextModal.vehicleId,
+            startDate: nextModal.startDate,
+            endDate: nextModal.endDate,
+            blockType: nextModal.blockType,
+            startTime: nextModal.startTime,
+            endTime: nextModal.endTime,
+            label: nextModal.label,
+            notes: nextModal.notes,
+          });
+        if (!result?.ok) {
+          setPaintModal({ ...nextModal, saving: false, error: result?.error || 'Unable to save this calendar block.' });
+          return;
+        }
+        setPaintModal(null);
+      }}
+    />}
   </Panel>;
+}
+
+function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, onCancel, onSave }) {
+  const update = (key, value) => {
+    setModal((current) => {
+      const next = { ...current, [key]: value, error: '' };
+      if (key === 'blockType') next.label = availabilityTypes[value]?.label || prettyStatus(value);
+      return next;
+    });
+  };
+  const selectedType = availabilityTypes[modal.blockType] || DEFAULT_AVAILABILITY_TYPES[modal.blockType] || DEFAULT_AVAILABILITY_TYPES.unavailable;
+  const isClear = modal.blockType === 'available';
+
+  return <div className="admin-modal-backdrop" role="presentation">
+    <form className="admin-modal availability-modal" role="dialog" aria-modal="true" aria-label="Calendar availability block" onSubmit={(event) => {
+      event.preventDefault();
+      onSave(modal);
+    }}>
+      <div className="admin-modal-header">
+        <CalendarClock size={22}/>
+        <div>
+          <strong>{modal.mode === 'edit' ? 'Edit Calendar Block' : isClear ? 'Clear Availability Blocks' : 'Confirm Calendar Block'}</strong>
+          <span>{isClear ? 'Available stays clear. This removes manual color blocks in the selected range.' : 'Adjust the vehicle, dates, and label before saving.'}</span>
+        </div>
+      </div>
+      <div className="availability-modal-grid">
+        <label><span>Vehicle</span><select value={modal.vehicleId} onChange={(event) => update('vehicleId', event.target.value)}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label>
+        <label><span>Label</span><select value={modal.blockType} onChange={(event) => update('blockType', event.target.value)}>{Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}</select></label>
+        <label><span>Start date</span><input type="date" value={modal.startDate} onChange={(event) => update('startDate', event.target.value)} /></label>
+        <label><span>End date</span><input type="date" value={modal.endDate} onChange={(event) => update('endDate', event.target.value)} /></label>
+        {!isClear && <label><span>Start time</span><select value={modal.startTime} onChange={(event) => update('startTime', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
+        {!isClear && <label><span>End time</span><select value={modal.endTime} onChange={(event) => update('endTime', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
+      </div>
+      <div className="availability-modal-swatch"><span className={isClear ? 'clear-swatch' : ''} style={{ backgroundColor: selectedType.color }} />{selectedType.label}</div>
+      {modal.error && <p className="form-error">{modal.error}</p>}
+      <div className="modal-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="primary-btn" disabled={modal.saving}>{modal.saving ? 'Saving...' : isClear ? 'OK - Clear Dates' : 'OK - Apply Changes'}</button>
+      </div>
+    </form>
+  </div>;
 }
 
 function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
@@ -1106,7 +1906,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
           </button>
         ))}
       </div>
-      <div className="search-row"><Search size={18}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search customer, car, phone, status..." /></div>
+      <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
       <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
     </Panel>
@@ -1143,39 +1943,44 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
   </Panel>;
 }
 
-function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle }) {
-  const update = (k, v) => setVehicleForm({ ...vehicleForm, [k]: v });
-  const updateEdit = (k, v) => setEditVehicleForm({ ...editVehicleForm, [k]: v });
+function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes }) {
+  const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
+  const normalizeVehicleField = (key, value) => {
+    if (key === 'vin') return normalizeVinInput(value);
+    if (key === 'plate_number') return normalizePlateInput(value);
+    if (key === 'name') return limitText(value, 80);
+    if (['brand', 'model', 'vehicle_type'].includes(key)) return limitText(value, 40);
+    if (key === 'description') return limitText(value, 600);
+    if (key === 'features') return limitText(value, 1200);
+    if (key === 'image_urls') return limitText(value, 3000);
+    return value;
+  };
+  const update = (k, v) => setVehicleForm({ ...vehicleForm, [k]: normalizeVehicleField(k, v) });
+  const updateEdit = (k, v) => setEditVehicleForm({ ...editVehicleForm, [k]: normalizeVehicleField(k, v) });
+  const statusOptions = Object.entries(availabilityTypes).map(([key, type]) => [key, type.label]);
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0];
+  const editingVehicle = vehicles.find((vehicle) => vehicle.id === editingVehicleId);
 
-  return <section className="content-grid">
+  useEffect(() => {
+    if (!selectedVehicleId && vehicles[0]) setSelectedVehicleId(vehicles[0].id);
+  }, [selectedVehicleId, vehicles]);
+
+  function selectVehicle(vehicle) {
+    setSelectedVehicleId(vehicle.id);
+  }
+
+  function openVehicleEditor(vehicle) {
+    setSelectedVehicleId(vehicle.id);
+    startEditVehicle(vehicle);
+  }
+
+  return <section className="content-grid vehicles-layout">
     <Panel title="Fleet" eyebrow="Vehicles">
       {vehicles.map((v) => {
-        const isEditing = editingVehicleId === v.id;
-
-        if (isEditing) {
-          return <div className="data-row" key={v.id}>
-            <div className="portal-form">
-              <input placeholder="Vehicle name" value={editVehicleForm.name} onChange={(e)=>updateEdit('name', e.target.value)} required />
-              <input placeholder="Brand" value={editVehicleForm.brand} onChange={(e)=>updateEdit('brand', e.target.value)} />
-              <input placeholder="Model" value={editVehicleForm.model} onChange={(e)=>updateEdit('model', e.target.value)} />
-              <input placeholder="Type" value={editVehicleForm.vehicle_type} onChange={(e)=>updateEdit('vehicle_type', e.target.value)} />
-              <input placeholder="Plate Number" value={editVehicleForm.plate_number} onChange={(e)=>updateEdit('plate_number', e.target.value)} />
-              <input placeholder="VIN" value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
-              <input type="number" step="0.01" placeholder="Daily Rate" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
-              <input type="number" step="0.01" placeholder="Security Deposit" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} />
-              <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
-                <option value="">Keep system status ({prettyVehicleStatus(v.status)})</option>
-                {vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}
-              </select>
-            </div>
-            <div className="row-actions">
-              <button className="approve" onClick={()=>saveVehicleEdit(v.id)}><CheckCircle2 size={16}/> Save</button>
-              <button className="secondary-btn" onClick={cancelEditVehicle}>Cancel</button>
-            </div>
-          </div>;
-        }
-
-        return <div className="data-row" key={v.id}>
+        const isSelected = selectedVehicle?.id === v.id;
+        return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
+        }}>
           <div>
             <strong>{v.name}</strong>
             <span>{v.brand} {v.model} • {v.vehicle_type}</span>
@@ -1187,28 +1992,70 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
             {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) ? (
               <span className="system-owned-status">System controlled</span>
             ) : (
-              <select value={v.status || 'available'} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}</select>
+              <select value={v.status || 'available'} onClick={(event) => event.stopPropagation()} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
             )}
-            <button onClick={()=>startEditVehicle(v)}>Edit</button>
-            <button className="reject" onClick={()=>deleteVehicle(v.id)}><XCircle size={16}/> Delete</button>
+            <button className="secondary-btn vehicle-edit-btn" type="button" onClick={(event) => {
+              event.stopPropagation();
+              openVehicleEditor(v);
+            }}><Pencil size={15}/> Edit</button>
           </div>
         </div>;
       })}
     </Panel>
     <Panel title="Add Vehicle" eyebrow="Fleet Manager">
       <form className="portal-form" onSubmit={addVehicle}>
-        <input placeholder="Vehicle name e.g. Audi Q5 #474" value={vehicleForm.name} onChange={(e)=>update('name', e.target.value)} required />
-        <input placeholder="Brand" value={vehicleForm.brand} onChange={(e)=>update('brand', e.target.value)} />
-        <input placeholder="Model" value={vehicleForm.model} onChange={(e)=>update('model', e.target.value)} />
-        <input placeholder="Type e.g. SUV, Luxury Sedan" value={vehicleForm.vehicle_type} onChange={(e)=>update('vehicle_type', e.target.value)} />
-        <input placeholder="Plate Number" value={vehicleForm.plate_number} onChange={(e)=>update('plate_number', e.target.value)} />
-        <input placeholder="VIN" value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} />
-        <input type="number" step="0.01" placeholder="Daily Rate" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} />
-        <input type="number" step="0.01" placeholder="Security Deposit" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} />
-        <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{vehicleStatuses.map(s=><option key={s} value={s}>{prettyStatus(s)}</option>)}</select>
+        <input placeholder="Vehicle name e.g. Audi Q5 #474" maxLength="80" value={vehicleForm.name} onChange={(e)=>update('name', e.target.value)} required />
+        <input placeholder="Brand" maxLength="40" value={vehicleForm.brand} onChange={(e)=>update('brand', e.target.value)} />
+        <input placeholder="Model" maxLength="40" value={vehicleForm.model} onChange={(e)=>update('model', e.target.value)} />
+        <input placeholder="Type e.g. SUV, Luxury Sedan" maxLength="40" value={vehicleForm.vehicle_type} onChange={(e)=>update('vehicle_type', e.target.value)} />
+        <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={vehicleForm.plate_number} onChange={(e)=>update('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
+        <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} />
+        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} />
+        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 deposit" title="Security deposit in USD" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} />
+        <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
+        <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
+        <textarea placeholder="Features, one per line" maxLength="1200" value={vehicleForm.features} onChange={(e)=>update('features', e.target.value)} />
+        <textarea placeholder="Picture URLs, one per line" maxLength="3000" value={vehicleForm.image_urls} onChange={(e)=>update('image_urls', e.target.value)} />
         <button className="primary-btn"><Plus size={17}/> Add Vehicle</button>
       </form>
     </Panel>
+    {editingVehicle && editVehicleForm && <div className="admin-modal-backdrop" role="presentation">
+      <div className="admin-modal vehicle-editor-modal" role="dialog" aria-modal="true" aria-label={`Edit ${editingVehicle.name}`}>
+        <div className="admin-modal-header">
+          <Car size={22}/>
+          <div>
+            <strong>Edit Vehicle</strong>
+            <span>{editingVehicle.name} • pricing, pictures, features, and inventory details</span>
+          </div>
+        </div>
+        <div className="portal-form vehicle-detail-form">
+          <input placeholder="Vehicle name" maxLength="80" value={editVehicleForm.name} onChange={(e)=>updateEdit('name', e.target.value)} required />
+          <input placeholder="Brand" maxLength="40" value={editVehicleForm.brand} onChange={(e)=>updateEdit('brand', e.target.value)} />
+          <input placeholder="Model" maxLength="40" value={editVehicleForm.model} onChange={(e)=>updateEdit('model', e.target.value)} />
+          <input placeholder="Type e.g. SUV, Luxury Sedan" maxLength="40" value={editVehicleForm.vehicle_type} onChange={(e)=>updateEdit('vehicle_type', e.target.value)} />
+          <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={editVehicleForm.plate_number} onChange={(e)=>updateEdit('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
+          <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
+          <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
+          <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 deposit" title="Security deposit in USD" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} />
+          <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
+            <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
+            {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
+          </select>
+          <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
+          <textarea placeholder="Features, one per line e.g. Bluetooth, AWD, backup camera" maxLength="1200" value={editVehicleForm.features} onChange={(e)=>updateEdit('features', e.target.value)} />
+          <textarea placeholder="Picture URLs, one per line" maxLength="3000" value={editVehicleForm.image_urls} onChange={(e)=>updateEdit('image_urls', e.target.value)} />
+        </div>
+        <div className="vehicle-image-preview">
+          {linesToList(editVehicleForm.image_urls).slice(0, 4).map((url) => <img key={url} src={url} alt={`${editVehicleForm.name || editingVehicle.name} inventory`} loading="lazy" />)}
+          {linesToList(editVehicleForm.image_urls).length === 0 && <span className="vehicle-image-empty">No custom pictures yet</span>}
+        </div>
+        <div className="modal-actions">
+          <button className="secondary-btn" type="button" onClick={cancelEditVehicle}>Cancel</button>
+          <button className="reject" type="button" onClick={()=>deleteVehicle(editingVehicle.id)}><XCircle size={16}/> Delete</button>
+          <button className="approve" type="button" onClick={()=>saveVehicleEdit(editingVehicle.id)}><CheckCircle2 size={16}/> Save Vehicle</button>
+        </div>
+      </div>
+    </div>}
   </section>;
 }
 
@@ -1244,7 +2091,7 @@ function Messages({ rentals, messages, selectedRental, setSelectedRentalId, repl
       <div className="message-box">
         {threadMessages.map((m) => <div key={m.id} className={m.sender_role === 'admin' ? 'message own' : 'message'}><strong>{m.sender_role === 'admin' ? 'Admin' : 'Client'}</strong><p>{m.message}</p><span>{new Date(m.created_at).toLocaleString()}</span></div>)}
       </div>
-      <form className="support-form" onSubmit={sendReply}><input value={replyText} onChange={(e)=>setReplyText(e.target.value)} placeholder="Reply to customer..."/><button><Send size={16}/> Send</button></form>
+      <form className="support-form" onSubmit={sendReply}><input value={replyText} maxLength="1000" onChange={(e)=>setReplyText(limitText(e.target.value, 1000))} placeholder="Reply to customer..."/><button><Send size={16}/> Send</button></form>
     </Panel>
   </section>;
 }
@@ -1263,6 +2110,124 @@ function MockReservation({ mockForm, setMockForm, profiles, vehicles, createMock
       <button className="primary-btn"><Plus size={17}/> Create Mock Reservation</button>
     </form>
   </Panel>;
+}
+
+function SettingsTab({
+  discountCodes,
+  discountForm,
+  setDiscountForm,
+  generateDiscountCode,
+  createDiscountCode,
+  toggleDiscountCode,
+  deleteDiscountCode,
+  serviceFees,
+  serviceFeeForm,
+  setServiceFeeForm,
+  createServiceFee,
+  toggleServiceFee,
+  deleteServiceFee,
+  availabilityTypes,
+  updateAvailabilityType,
+}) {
+  const updateDiscount = (key, value) => setDiscountForm({ ...discountForm, [key]: key === 'code' ? normalizeCodeInput(value) : value });
+  const updateFee = (key, value) => {
+    const normalizedValue = key === 'name' ? limitText(value, 60)
+      : key === 'service_type' ? limitText(value, 32)
+      : key === 'description' ? limitText(value, 240)
+      : value;
+    setServiceFeeForm({ ...serviceFeeForm, [key]: normalizedValue });
+  };
+
+  return <section className="settings-grid">
+    <Panel title="Discount Codes" eyebrow="Pricing">
+      <form className="portal-form settings-form" onSubmit={createDiscountCode}>
+        <div className="form-row">
+          <input placeholder="Code e.g. SUMMER25" maxLength="24" pattern="[A-Z0-9-]{3,24}" title="Discount code: 3-24 characters, uppercase letters, numbers, and hyphens only." value={discountForm.code} onChange={(event) => updateDiscount('code', event.target.value)} />
+          <button type="button" className="secondary-btn" onClick={generateDiscountCode}><Tag size={16}/> Generate</button>
+        </div>
+        <div className="form-row">
+          <select value={discountForm.discount_type} onChange={(event) => updateDiscount('discount_type', event.target.value)}>
+            <option value="percentage">Percentage off</option>
+            <option value="fixed">Dollar amount off</option>
+          </select>
+          <input type="number" step="0.01" min="0.01" max={discountForm.discount_type === 'percentage' ? 100 : MONEY_MAX} inputMode="decimal" placeholder={discountForm.discount_type === 'percentage' ? '0-100%' : '$0.00'} title={discountForm.discount_type === 'percentage' ? 'Percentage discount from 0.01 to 100.' : 'Dollar discount in USD.'} value={discountForm.amount} onChange={(event) => updateDiscount('amount', event.target.value)} />
+        </div>
+        <div className="form-row">
+          <input type="number" min="1" max="10000" step="1" inputMode="numeric" placeholder="Max uses optional" title="Whole-number redemption limit, max 10,000." value={discountForm.max_redemptions} onChange={(event) => updateDiscount('max_redemptions', event.target.value)} />
+          <label className="checkbox-pill"><input type="checkbox" checked={discountForm.active} onChange={(event) => updateDiscount('active', event.target.checked)} /> Active</label>
+        </div>
+        <div className="form-row">
+          <label className="date-field"><span>Starts</span><input type="date" value={discountForm.starts_at} onChange={(event) => updateDiscount('starts_at', event.target.value)} /></label>
+          <label className="date-field"><span>Expires</span><input type="date" value={discountForm.expires_at} onChange={(event) => updateDiscount('expires_at', event.target.value)} /></label>
+        </div>
+        <button className="primary-btn"><Plus size={17}/> Create Discount Code</button>
+      </form>
+
+      <div className="settings-list">
+        {discountCodes.length === 0 && <p className="muted">No discount codes yet.</p>}
+        {discountCodes.map((code) => <div className="data-row settings-row" key={code.id}>
+          <div>
+            <strong>{code.code}</strong>
+            <span>{discountLabel(code)} • {code.max_redemptions ? `${code.redemption_count || 0}/${code.max_redemptions} used` : `${code.redemption_count || 0} used`}</span>
+            <small>{code.starts_at ? `Starts ${formatDateOnly(code.starts_at)}` : 'Starts now'} • {code.expires_at ? `Expires ${formatDateOnly(code.expires_at)}` : 'No expiration'}</small>
+          </div>
+          <div className="row-actions">
+            <em className={code.active ? 'active-status' : 'paused-status'}>{code.active ? 'Active' : 'Paused'}</em>
+            <button onClick={() => toggleDiscountCode(code.id, !code.active)}>{code.active ? 'Pause' : 'Activate'}</button>
+            <button className="reject" onClick={() => deleteDiscountCode(code.id)}><XCircle size={16}/> Delete</button>
+          </div>
+        </div>)}
+      </div>
+    </Panel>
+
+    <Panel title="Calendar Labels" eyebrow="Availability Colors">
+      <div className="identifier-settings">
+        {Object.entries(availabilityTypes).map(([key, type]) => (
+          <div className="identifier-row" key={key}>
+            <span className="identifier-swatch" style={{ backgroundColor: type.color }} />
+            <div>
+              <strong>{prettyStatus(key)}</strong>
+              <small>Used by the fleet calendar paint brush and vehicle status dropdown.</small>
+            </div>
+            <input value={type.label} maxLength="28" onChange={(event) => updateAvailabilityType(key, 'label', limitText(event.target.value, 28))} aria-label={`${key} label`} title="Calendar label, 28 characters max." />
+            <input type="color" value={type.color} onChange={(event) => updateAvailabilityType(key, 'color', event.target.value)} aria-label={`${key} color`} />
+          </div>
+        ))}
+      </div>
+    </Panel>
+
+    <Panel title="Custom Fees" eyebrow="Pricing">
+      <form className="portal-form settings-form" onSubmit={createServiceFee}>
+        <input placeholder="Fee name e.g. Gas refill, late return, delivery, cleaning" maxLength="60" value={serviceFeeForm.name} onChange={(event) => updateFee('name', event.target.value)} />
+        <div className="form-row">
+          <input placeholder="Fee type e.g. gas, late_return, pickup, delivery" maxLength="32" title="Internal fee type, 32 characters max." value={serviceFeeForm.service_type} onChange={(event) => updateFee('service_type', event.target.value)} />
+          <input type="number" step="0.01" min="0.01" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Fee amount in USD." value={serviceFeeForm.amount} onFocus={(event) => event.target.select()} onBlur={() => updateFee('amount', formatDecimalInput(serviceFeeForm.amount))} onChange={(event) => updateFee('amount', event.target.value)} />
+        </div>
+        <textarea placeholder="Optional note for the admin and customer checkout display" maxLength="240" value={serviceFeeForm.description} onChange={(event) => updateFee('description', event.target.value)} />
+        <div className="form-row compact">
+          <label className="checkbox-pill"><input type="checkbox" checked={serviceFeeForm.taxable} onChange={(event) => updateFee('taxable', event.target.checked)} /> Taxable</label>
+          <label className="checkbox-pill"><input type="checkbox" checked={serviceFeeForm.active} onChange={(event) => updateFee('active', event.target.checked)} /> Active</label>
+        </div>
+        <button className="primary-btn"><Plus size={17}/> Add Service Fee</button>
+      </form>
+
+      <div className="settings-list">
+        {serviceFees.length === 0 && <p className="muted">No custom fees yet.</p>}
+        {serviceFees.map((fee) => <div className="data-row settings-row" key={fee.id}>
+          <div>
+            <strong>{fee.name}</strong>
+            <span>{prettyStatus(fee.service_type)} • {money(fee.amount)} {fee.taxable ? 'taxable' : 'not taxable'}</span>
+            {fee.description && <small>{fee.description}</small>}
+          </div>
+          <div className="row-actions">
+            <em className={fee.active ? 'active-status' : 'paused-status'}>{fee.active ? 'Active' : 'Paused'}</em>
+            <button onClick={() => toggleServiceFee(fee.id, !fee.active)}>{fee.active ? 'Pause' : 'Activate'}</button>
+            <button className="reject" onClick={() => deleteServiceFee(fee.id)}><XCircle size={16}/> Delete</button>
+          </div>
+        </div>)}
+      </div>
+    </Panel>
+  </section>;
 }
 
 function ReturnMonitorRow({ rental, sendManualReminder }) {
@@ -1376,6 +2341,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
         {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
       </div>
       <div className="rental-actions-secondary">
+        {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
         {canCancel && <button className="reject" onClick={()=>setCancelModalOpen(true)}><XCircle size={15}/> Cancel</button>}
         <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />
       </div>
@@ -1492,7 +2458,7 @@ function PickupOverrideModal({ rental, defaultMileage, missingRequirements = [],
         <RequirementList requirements={missingRequirements} />
       </>}
       <label className="field-label modal-field">Starting mileage
-        <input type="number" min={currentMileage || 0} step="1" value={startingMileage} onChange={(event) => setStartingMileage(event.target.value)} autoFocus required />
+        <input type="number" min={currentMileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" title={`Whole-number mileage, max ${MILEAGE_MAX.toLocaleString('en-US')}.`} value={startingMileage} onChange={(event) => setStartingMileage(event.target.value)} autoFocus required />
       </label>
       {currentMileage !== null && <small className="modal-hint">Current vehicle mileage: {formatMiles(currentMileage)}</small>}
       {error && <small className="form-error">{error}</small>}
@@ -1601,11 +2567,11 @@ function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
       <span>{report.profiles?.full_name || report.user_id || 'Customer'} • {prettyStatus(report.status || 'open')}</span>
       <small>{report.rentals ? `${formatRentalDate(report.rentals.pickup_date, report.rentals.pickup_time)} → ${formatRentalDate(report.rentals.return_date, report.rentals.return_time)}` : 'No rental attached'}</small>
       <div className="damage-case-form">
-        <textarea value={form.description} onChange={(event) => update('description', event.target.value)} placeholder="Damage description" />
-        <textarea value={form.admin_notes} onChange={(event) => update('admin_notes', event.target.value)} placeholder="Admin notes, estimate details, customer communication..." />
-        <input type="number" step="0.01" value={form.estimated_cost} onChange={(event) => update('estimated_cost', event.target.value)} placeholder="Estimated cost" />
-        <input type="number" step="0.01" value={form.final_charge_amount} onChange={(event) => update('final_charge_amount', event.target.value)} placeholder="Final charge" />
-        <input type="number" step="0.01" value={form.deposit_held_amount} onChange={(event) => update('deposit_held_amount', event.target.value)} placeholder="Deposit held" />
+        <textarea value={form.description} maxLength="1000" onChange={(event) => update('description', limitText(event.target.value, 1000))} placeholder="Damage description" />
+        <textarea value={form.admin_notes} maxLength="1500" onChange={(event) => update('admin_notes', limitText(event.target.value, 1500))} placeholder="Admin notes, estimate details, customer communication..." />
+        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Estimated repair cost in USD." value={form.estimated_cost} onChange={(event) => update('estimated_cost', event.target.value)} placeholder="$0.00 estimated cost" />
+        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Final customer charge in USD." value={form.final_charge_amount} onChange={(event) => update('final_charge_amount', event.target.value)} placeholder="$0.00 final charge" />
+        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Deposit amount held in USD." value={form.deposit_held_amount} onChange={(event) => update('deposit_held_amount', event.target.value)} placeholder="$0.00 deposit held" />
       </div>
     </div>
     <div className="row-actions">
@@ -1668,7 +2634,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
     </div>
     <label className="field-label">Ending mileage
-      <input type="number" min={rental.starting_mileage || 0} step="1" value={inspection.endingMileage} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: true }))} required />
+      <input type="number" min={rental.starting_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" title={`Whole-number mileage, max ${MILEAGE_MAX.toLocaleString('en-US')}.`} value={inspection.endingMileage} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: true }))} required />
     </label>
     {mileageError && <small className="form-error">{mileageError}</small>}
     {rental.starting_mileage !== null && rental.starting_mileage !== undefined && <small>Pickup mileage: {formatMiles(rental.starting_mileage)} • Miles driven: {formatMiles(milesDriven)}</small>}
@@ -1701,7 +2667,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
             <option value="none">No Customer Flag</option>
           </select>
         </label>
-        <textarea value={inspection.damageNote} onChange={(event) => update('damageNote', event.target.value)} placeholder="Describe damage, incident, mileage/fuel issue, cleaning issue, or deposit reason..." />
+        <textarea value={inspection.damageNote} maxLength="1000" onChange={(event) => update('damageNote', limitText(event.target.value, 1000))} placeholder="Describe damage, incident, mileage/fuel issue, cleaning issue, or deposit reason..." />
         <input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} />
       </>}
     </>}
@@ -1713,15 +2679,26 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
 }
 
 function RentalProgressTracker({ steps }) {
+  const icons = {
+    phone: ShieldCheck,
+    vehicle: Car,
+    agreement: FileSignature,
+    payment: CreditCard,
+    license: FileText,
+    insurance: ShieldCheck,
+    ready: CheckCircle2,
+  };
+
   return <div className="rental-progress-tracker" aria-label="Rental progress">
-    {steps.map((step, index) => (
-      <div className="progress-step-wrap" key={step.key}>
-        <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
-          {step.complete ? <CheckCircle2 size={14} /> : index + 1}
-        </div>
-        <span>{step.label}</span>
-      </div>
-    ))}
+    {steps.map((step) => {
+      const Icon = icons[step.key] || CheckCircle2;
+      return <div className="progress-step-wrap" key={step.key}>
+          <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
+            {step.complete ? <CheckCircle2 size={16} /> : <Icon size={16} />}
+          </div>
+          <span>{step.label}</span>
+        </div>;
+    })}
   </div>;
 }
 
@@ -1750,9 +2727,92 @@ function Panel({ title, eyebrow, children }) { return <section className="panel"
 function Metric({ icon: Icon, label, value, danger }) { return <div className={danger ? 'metric-card danger' : 'metric-card'}><Icon size={22}/><span>{label}</span><strong>{value}</strong></div>; }
 function QueueItem({ icon: Icon, label, value }) { return <div className="queue-item"><Icon size={18}/><span>{label}</span><strong>{value}</strong></div>; }
 function Loading() { return <div className="loading-screen"><div className="road"><div className="loading-car">▰</div></div><h1>Loading admin portal...</h1></div>; }
-function Login({ authForm, setAuthForm, handleLogin, authMessage }) { return <div className="auth-screen"><div className="auth-left"><p className="eyebrow">Rent Me CT Admin</p><h1>Control the fleet, rentals, documents, deposits, and clients.</h1><p>Sign in with your approved admin email to manage reservations, cars out, document reviews, messages, mock reservations, and revenue.</p></div><form className="auth-card" onSubmit={handleLogin}><h2>Admin Login</h2><input type="email" placeholder="Admin email" value={authForm.email} onChange={(e)=>setAuthForm({...authForm, email:e.target.value})} required/><input type="password" placeholder="Password" value={authForm.password} onChange={(e)=>setAuthForm({...authForm, password:e.target.value})} required/><button className="primary-btn">Sign In</button>{authMessage && <p className="auth-message">{authMessage}</p>}</form></div>; }
-function NotAdmin({ email, signOut }) { return <div className="auth-screen"><div className="auth-card"><h2>Not Authorized</h2><p className="muted">{email} is signed in, but this account does not have admin access.</p><button className="primary-btn" onClick={signOut}>Log Out</button></div></div>; }
+function Login({ authForm, setAuthForm, handleLogin, authMessage, showPassword, setShowPassword, handleForgotPassword }) {
+  return <div className="auth-screen admin-auth-light">
+    <form className="auth-card" onSubmit={handleLogin}>
+      <img className="auth-logo" src={logoMobileUrl} alt="Rent Me CT" />
+      <span className="auth-portal-label">Admin</span>
+      <input type="email" placeholder="Admin email" maxLength="254" value={authForm.email} onChange={(e)=>setAuthForm({...authForm, email:limitText(e.target.value, 254)})} required/>
+      <div className="password-field">
+        <input type={showPassword ? 'text' : 'password'} placeholder="Password" maxLength="128" value={authForm.password} onChange={(e)=>setAuthForm({...authForm, password:limitText(e.target.value, 128)})} required/>
+        <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+          {showPassword ? <EyeOff size={17}/> : <Eye size={17}/>}
+        </button>
+      </div>
+      <button className="primary-btn">Sign In</button>
+      <button className="link-btn" type="button" onClick={handleForgotPassword}>Forgot password?</button>
+      <span className="auth-symbolic-line">Liv to drive</span>
+      {authMessage && <p className="auth-message">{authMessage}</p>}
+    </form>
+  </div>;
+}
+function NotAdmin({ email, signOut }) {
+  return <div className="auth-screen">
+    <div className="auth-card">
+      <h2>Not Authorized</h2>
+      <p className="muted">{email} is signed in, but this account is not marked as an admin in Supabase.</p>
+      <div className="auth-help-box">
+        <strong>Fix in Supabase SQL Editor</strong>
+        <code>{`insert into public.profiles (id, email, role)
+select id, email, 'admin'
+from auth.users
+where lower(email) = lower('${email}')
+on conflict (id) do update
+set email = excluded.email,
+    role = 'admin';`}</code>
+        <span>Then refresh this page.</span>
+      </div>
+      <button className="primary-btn" onClick={signOut}>Log Out</button>
+    </div>
+  </div>;
+}
 function Notice({ notice, onDismiss }) { return <div className={`notice-banner ${notice.type || 'info'}`}><span>{notice.text}</span><button type="button" onClick={onDismiss}>Dismiss</button></div>; }
+
+function availabilityTableError(error) {
+  const message = error?.message || String(error || 'Unable to save availability block.');
+  if (message.includes('vehicle_availability_blocks') && message.includes('schema cache')) {
+    return 'Supabase is missing public.vehicle_availability_blocks. Run supabase/admin_pricing_settings.sql in Supabase, then refresh the admin portal.';
+  }
+  return message;
+}
+
+function linesToList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value || '')
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function limitText(value, maxLength) {
+  return String(value || '').slice(0, maxLength);
+}
+
+function normalizeVinInput(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-HJ-NPR-Z0-9]/g, '')
+    .slice(0, VIN_MAX_LENGTH);
+}
+
+function normalizePlateInput(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 -]/g, '')
+    .slice(0, PLATE_MAX_LENGTH);
+}
+
+function normalizeCodeInput(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '')
+    .slice(0, 24);
+}
+
+function listToLines(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join('\n');
+  return String(value || '');
+}
 
 function datesOverlap(start1, end1, start2, end2) { return new Date(start1) <= new Date(end2) && new Date(end1) >= new Date(start2); }
 function parseRentMeCtDateTime(dateValue, timeValue = '9:00 AM') {
@@ -1779,6 +2839,14 @@ function rentalPeriodsOverlap(reservation, rental) {
   const blockedUntil = new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000);
   return requestedStart < blockedUntil && requestedEnd > bookedStart;
 }
+function availabilityBlockOverlapsReservation(block, reservation) {
+  const requestedStart = parseRentMeCtDateTime(reservation?.pickupDate, reservation?.pickupTime);
+  const requestedEnd = parseRentMeCtDateTime(reservation?.returnDate, reservation?.returnTime);
+  const blockStart = parseRentMeCtDateTime(block?.start_date, block?.start_time || '12:00 AM');
+  const blockEnd = parseRentMeCtDateTime(block?.end_date, block?.end_time || '11:59 PM');
+  if (!requestedStart || !requestedEnd || !blockStart || !blockEnd) return false;
+  return requestedStart < blockEnd && requestedEnd > blockStart;
+}
 function getRentalBlockedUntil(rental) {
   const bookedEnd = parseRentMeCtDateTime(rental?.return_date, rental?.return_time);
   if (!bookedEnd) return null;
@@ -1790,6 +2858,15 @@ function rentalBlocksCalendarDay(rental, dayStart, dayEnd) {
   if (!bookedStart || !blockedUntil) return false;
   return dayStart < blockedUntil && dayEnd > bookedStart;
 }
+function availabilityBlockTouchesDay(block, dayStart, dayEnd) {
+  const blockStart = parseRentMeCtDateTime(block?.start_date, block?.start_time || '12:00 AM');
+  const blockEnd = parseRentMeCtDateTime(block?.end_date, block?.end_time || '11:59 PM');
+  if (!blockStart || !blockEnd) return false;
+  return dayStart < blockEnd && dayEnd > blockStart;
+}
+function availabilityBlockTitle(block) {
+  return `${block.label || prettyStatus(block.block_type)} - ${formatDateOnly(block.start_date)} ${block.start_time || ''} to ${formatDateOnly(block.end_date)} ${block.end_time || ''}`.trim();
+}
 function calendarBlockLabel(rental, dayIso) {
   if (dayIso === rental.pickup_date && dayIso === rental.return_date) {
     return `Booked ${rental.pickup_time || '9:00 AM'} - buffer until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
@@ -1798,11 +2875,17 @@ function calendarBlockLabel(rental, dayIso) {
   if (dayIso === rental.return_date) return `Buffer until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
   return 'Booked';
 }
-function calendarCellClass({ unavailable, vehicleBlocked, rental, dayIso }) {
+function calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso }) {
   if (!unavailable) return 'calendar-cell open';
   if (vehicleBlocked) return 'calendar-cell maintenance';
+  if (manualBlock) return `calendar-cell manual-block ${String(manualBlock.block_type || 'unavailable').toLowerCase()}`;
   if (rental && dayIso === rental.return_date) return 'calendar-cell buffer';
-  return 'calendar-cell booked';
+  return `calendar-cell booked ${rentalStatusToAvailabilityType(rental?.status)}`;
+}
+function rentalStatusToAvailabilityType(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (['active', 'overdue', 'return_initiated'].includes(normalized)) return 'on_road';
+  return 'reserved';
 }
 function formatTimeOnly(date) {
   if (!date) return 'Blocked';
@@ -1817,7 +2900,12 @@ function calendarDays(count) {
     const date = new Date();
     date.setDate(date.getDate() + index);
     const iso = date.toISOString().split('T')[0];
-    return { iso, label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+    return {
+      iso,
+      label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      shortLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      weekday: date.toLocaleDateString('en-US', { weekday: 'short' }),
+    };
   });
 }
 function buildOperationsQueue({ rentals, documents, messages, reports, extensionRequests = [] }) {
@@ -2094,8 +3182,97 @@ function customerRiskProfile(profile, rentals, documents, reports) {
   const summary = blocked ? 'Blocked customer flag is active.' : score === 0 ? 'Clean history based on available records.' : 'Review history before approving another rental.';
   return { level, summary, completed, late, rejectedDocs, openReports, depositsHeld, depositsReleased };
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', calendar:'Fleet Calendar', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', mock:'Mock Reservations' })[tab] || 'Admin Portal'; }
+function buildPaymentEvents({ rentals, extensionRequests = [] }) {
+  const rentalEvents = rentals.flatMap((rental) => {
+    const customer = rental.profiles?.full_name || rental.user_email || 'Client';
+    const vehicle = rental.vehicles?.name || 'Vehicle';
+    const paid = String(rental.payment_status || '').toLowerCase() === 'paid';
+    const events = [
+      {
+        id: `rental-${rental.id}`,
+        customer,
+        vehicle,
+        type: 'rental',
+        status: paid ? 'paid' : 'pending',
+        amount: Number(rental.rental_total || 0) + Number(rental.tax_amount || 0),
+        detail: `Rental ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}`,
+        date: rental.paid_at || rental.created_at,
+      },
+    ];
+
+    if (Number(rental.security_deposit || 0) > 0) {
+      events.push({
+        id: `deposit-${rental.id}`,
+        customer,
+        vehicle,
+        type: 'deposit',
+        status: String(rental.deposit_status || '').toLowerCase() === 'held' ? 'paid' : 'pending',
+        amount: Number(rental.security_deposit || 0),
+        detail: `Deposit ${prettyStatus(rental.deposit_status || 'pending')}`,
+        date: rental.paid_at || rental.created_at,
+      });
+    }
+
+    return events;
+  });
+
+  const extensionEvents = extensionRequests
+    .filter((request) => ['approved_pending_payment', 'activated'].includes(request.status))
+    .map((request) => ({
+      id: `extension-${request.id}`,
+      customer: request.rentals?.profiles?.full_name || request.user_id || 'Client',
+      vehicle: request.rentals?.vehicles?.name || 'Vehicle',
+      type: 'extension',
+      status: request.status === 'activated' ? 'paid' : 'pending',
+      amount: Number(request.extension_total_amount || 0),
+      detail: `Extension through ${formatRentalDate(request.requested_return_date, request.requested_return_time)}`,
+      date: request.paid_at || request.updated_at || request.created_at,
+    }));
+
+  return [...rentalEvents, ...extensionEvents].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+}
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', mock:'Mock Reservations', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
+function formatDecimalInput(value) {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) ? amount.toFixed(2) : '0.00';
+}
+function discountLabel(code) {
+  if (code?.discount_type === 'percentage') return `${Number(code.amount || 0)}% off`;
+  return `${money(code?.amount)} off`;
+}
+function formatDateOnly(value) {
+  if (!value) return '';
+  return new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+}
+function extractSignatureImage(snapshot = '') {
+  const match = String(snapshot).match(/Drawn Signature Image:\s*(data:image\/png;base64,[^\s]+)/);
+  return match?.[1] || '';
+}
+function downloadAgreement(rental) {
+  if (!rental?.agreement_snapshot) return;
+  const signatureImage = extractSignatureImage(rental.agreement_snapshot);
+  const printableText = String(rental.agreement_snapshot).replace(/Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/, 'Drawn Signature Image: embedded below');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Rent Me CT Agreement</title><style>body{font-family:Arial,sans-serif;color:#172033;line-height:1.5;padding:32px;max-width:900px;margin:auto}pre{white-space:pre-wrap;font-family:inherit}.signature{margin-top:24px;border:1px solid #d6dee8;border-radius:10px;padding:16px}.signature img{max-width:420px;width:100%;height:auto;display:block}</style></head><body><pre>${escapeHtml(printableText)}</pre>${signatureImage ? `<div class="signature"><strong>Drawn Signature</strong><img src="${signatureImage}" alt="Drawn renter signature"></div>` : ''}</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `rent-me-ct-agreement-${rental.id || 'signed'}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  })[char]);
+}
 function getRentalDays(start, end) { const a = new Date(`${start}T00:00:00`); const b = new Date(`${end}T00:00:00`); return Math.ceil((b - a) / (1000*60*60*24)); }
 function formatRentalDate(date, time) { if (!date) return 'Pending'; return `${new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}${time ? ` ${time}` : ''}`; }
 function isThisMonth(date) { if (!date) return false; const d = new Date(date); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); }
