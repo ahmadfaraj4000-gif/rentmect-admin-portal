@@ -247,6 +247,7 @@ function App() {
       status !== 'cancelled' &&
       (
         paymentStatus === 'paid' ||
+        isPartialPaymentStatus(paymentStatus) ||
         depositStatus === 'held' ||
         Boolean(r?.paid_at) ||
         ['documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'].includes(status)
@@ -1551,6 +1552,7 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
 function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }) {
   const paid = paymentEvents.filter((event) => event.status === 'paid');
   const pending = paymentEvents.filter((event) => event.status === 'pending');
+  const partiallyPaid = paymentEvents.filter((event) => event.status === 'partially_paid');
   const depositsHeld = rentals.filter((rental) => String(rental.deposit_status || '').toLowerCase() === 'held');
   const visibleEvents = paymentEvents.filter((event) => paymentFilter === 'all' || event.type === paymentFilter || event.status === paymentFilter);
 
@@ -1558,14 +1560,15 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }
     <section className="metric-grid payments-metrics">
       <Metric icon={DollarSign} label="Paid Activity" value={money(paid.reduce((sum, event) => sum + event.amount, 0))} />
       <Metric icon={Clock} label="Pending Payments" value={pending.length} danger={pending.length > 0} />
-      <Metric icon={CreditCard} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.security_deposit || 0), 0))} />
-      <Metric icon={ReceiptText} label="Payment Events" value={paymentEvents.length} />
+      <Metric icon={CreditCard} label="Partially Paid" value={money(partiallyPaid.reduce((sum, event) => sum + event.amount, 0))} danger={partiallyPaid.length > 0} />
+      <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.security_deposit || 0), 0))} />
     </section>
-    <Panel title="Payments" eyebrow="Booqable-Style Activity">
+    <Panel title="Payments" eyebrow="Payment Activity">
       <div className="filter-pills" role="group" aria-label="Payment filters">
         {[
           ['all', 'All'],
           ['paid', 'Paid'],
+          ['partially_paid', 'Partially Paid'],
           ['pending', 'Pending'],
           ['deposit', 'Deposits'],
           ['rental', 'Rentals'],
@@ -1677,7 +1680,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   }
 
   function blockedRentalHint(rental) {
-    setCalendarHint(`${availabilityTypes[rentalStatusToAvailabilityType(rental?.status)]?.label || 'Booked'} time comes from a rental. Change the rental status or return flow to clear it; Available only removes manual calendar blocks.`);
+    setCalendarHint(`${availabilityTypes[rentalStatusToAvailabilityType(rental?.status)]?.label || 'Booked'} time comes from a rental. The return-day cell becomes bookable after the shown three-hour turnaround; Available only removes manual calendar blocks.`);
     setPaintRange(null);
   }
 
@@ -1691,7 +1694,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     <div className="calendar-toolbar">
       <div>
         <strong>{days[0]?.label} - {days[days.length - 1]?.label}</strong>
-        <span>Bookings update this grid automatically. Use Available to clear manual blocks only; active rentals stay blocked until the rental status changes.</span>
+        <span>Bookings update this grid automatically. Return-day cells show the due-back time and become bookable after the three-hour turnaround. Available clears manual blocks only.</span>
       </div>
       <button type="button" className="secondary-btn" onClick={() => updateBlock('start_date', new Date().toISOString().split('T')[0])}><CalendarClock size={16}/> Today</button>
     </div>
@@ -1751,6 +1754,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
               );
               const unavailable = vehicleBlocked || Boolean(rental) || Boolean(manualBlock);
               const blockedUntil = rental ? getRentalBlockedUntil(rental) : null;
+              const returnDayBlockedPercent = rental ? getReturnDayBlockedPercent(rental, day.iso) : null;
               const previewed = isPreviewed(vehicle.id, day.iso);
               const rentalTitle = rental
                 ? `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`
@@ -1764,11 +1768,17 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                   : null;
               const clearPreview = previewed && selectedType === 'available';
               const previewColor = previewed && !clearPreview ? selectedTypeStyle.color : null;
+              const cellStyle = blockColor || previewColor || returnDayBlockedPercent !== null
+                ? {
+                  '--block-color': previewColor || blockColor,
+                  ...(returnDayBlockedPercent !== null ? { '--return-blocked-percent': `${returnDayBlockedPercent}%` } : {}),
+                }
+                : undefined;
               return <div
                 className={`${calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso: day.iso })} ${previewed ? 'paint-preview' : ''} ${clearPreview ? 'clear-preview' : ''}`}
                 key={`${vehicle.id}-${day.iso}`}
                 title={title}
-                style={blockColor || previewColor ? { '--block-color': previewColor || blockColor } : undefined}
+                style={cellStyle}
                 onMouseDown={() => {
                   if (rental) return blockedRentalHint(rental);
                   if (manualBlock) return openBlockEdit(manualBlock);
@@ -2868,19 +2878,31 @@ function availabilityBlockTitle(block) {
   return `${block.label || prettyStatus(block.block_type)} - ${formatDateOnly(block.start_date)} ${block.start_time || ''} to ${formatDateOnly(block.end_date)} ${block.end_time || ''}`.trim();
 }
 function calendarBlockLabel(rental, dayIso) {
+  const blockedUntil = getRentalBlockedUntil(rental);
   if (dayIso === rental.pickup_date && dayIso === rental.return_date) {
-    return `Booked ${rental.pickup_time || '9:00 AM'} - buffer until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
+    return `Due ${rental.return_time || '9:00 AM'} · Book after ${formatTimeOnly(blockedUntil)}`;
   }
   if (dayIso === rental.pickup_date) return `From ${rental.pickup_time || '9:00 AM'}`;
-  if (dayIso === rental.return_date) return `Buffer until ${formatTimeOnly(getRentalBlockedUntil(rental))}`;
+  if (dayIso === rental.return_date) return `Due ${rental.return_time || '9:00 AM'} · Book after ${formatTimeOnly(blockedUntil)}`;
   return 'Booked';
 }
 function calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso }) {
   if (!unavailable) return 'calendar-cell open';
   if (vehicleBlocked) return 'calendar-cell maintenance';
   if (manualBlock) return `calendar-cell manual-block ${String(manualBlock.block_type || 'unavailable').toLowerCase()}`;
-  if (rental && dayIso === rental.return_date) return 'calendar-cell buffer';
+  if (rental && dayIso === rental.return_date) return `calendar-cell booked return-day ${rentalStatusToAvailabilityType(rental.status)}`;
   return `calendar-cell booked ${rentalStatusToAvailabilityType(rental?.status)}`;
+}
+function getReturnDayBlockedPercent(rental, dayIso) {
+  if (!rental || dayIso !== rental.return_date) return null;
+  const dayStart = parseRentMeCtDateTime(dayIso, '12:00 AM');
+  if (!dayStart) return null;
+  const nextDayStart = new Date(dayStart);
+  nextDayStart.setDate(nextDayStart.getDate() + 1);
+  const blockedUntil = getRentalBlockedUntil(rental);
+  if (!blockedUntil) return null;
+  const percent = ((blockedUntil.getTime() - dayStart.getTime()) / (nextDayStart.getTime() - dayStart.getTime())) * 100;
+  return Math.min(100, Math.max(0, percent));
 }
 function rentalStatusToAvailabilityType(status) {
   const normalized = String(status || '').toLowerCase();
@@ -3186,15 +3208,17 @@ function buildPaymentEvents({ rentals, extensionRequests = [] }) {
   const rentalEvents = rentals.flatMap((rental) => {
     const customer = rental.profiles?.full_name || rental.user_email || 'Client';
     const vehicle = rental.vehicles?.name || 'Vehicle';
-    const paid = String(rental.payment_status || '').toLowerCase() === 'paid';
+    const paymentStatus = normalizePaymentStatus(rental.payment_status);
+    const rentalTotal = Number(rental.rental_total || 0) + Number(rental.tax_amount || 0);
+    const recordedPayment = Number(rental.payment_amount_cents || 0) / 100;
     const events = [
       {
         id: `rental-${rental.id}`,
         customer,
         vehicle,
         type: 'rental',
-        status: paid ? 'paid' : 'pending',
-        amount: Number(rental.rental_total || 0) + Number(rental.tax_amount || 0),
+        status: paymentStatus,
+        amount: paymentStatus === 'partially_paid' && recordedPayment > 0 ? recordedPayment : rentalTotal,
         detail: `Rental ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}`,
         date: rental.paid_at || rental.created_at,
       },
@@ -3218,16 +3242,20 @@ function buildPaymentEvents({ rentals, extensionRequests = [] }) {
 
   const extensionEvents = extensionRequests
     .filter((request) => ['approved_pending_payment', 'activated'].includes(request.status))
-    .map((request) => ({
-      id: `extension-${request.id}`,
-      customer: request.rentals?.profiles?.full_name || request.user_id || 'Client',
-      vehicle: request.rentals?.vehicles?.name || 'Vehicle',
-      type: 'extension',
-      status: request.status === 'activated' ? 'paid' : 'pending',
-      amount: Number(request.extension_total_amount || 0),
-      detail: `Extension through ${formatRentalDate(request.requested_return_date, request.requested_return_time)}`,
-      date: request.paid_at || request.updated_at || request.created_at,
-    }));
+    .map((request) => {
+      const paymentStatus = request.status === 'activated' ? 'paid' : normalizePaymentStatus(request.payment_status);
+      const recordedPayment = Number(request.payment_amount_cents || 0) / 100;
+      return {
+        id: `extension-${request.id}`,
+        customer: request.rentals?.profiles?.full_name || request.user_id || 'Client',
+        vehicle: request.rentals?.vehicles?.name || 'Vehicle',
+        type: 'extension',
+        status: paymentStatus,
+        amount: paymentStatus === 'partially_paid' && recordedPayment > 0 ? recordedPayment : Number(request.extension_total_amount || 0),
+        detail: `Extension through ${formatRentalDate(request.requested_return_date, request.requested_return_time)}`,
+        date: request.paid_at || request.updated_at || request.created_at,
+      };
+    });
 
   return [...rentalEvents, ...extensionEvents].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
@@ -3284,6 +3312,16 @@ function isPaidRental(rental) {
   const status = String(rental?.status || '').toLowerCase();
 
   return paymentStatus === 'paid' && status !== 'cancelled';
+}
+function isPartialPaymentStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return ['partial', 'partial_paid', 'partially_paid'].includes(normalized);
+}
+function normalizePaymentStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'paid') return 'paid';
+  if (isPartialPaymentStatus(normalized)) return 'partially_paid';
+  return 'pending';
 }
 function prettyStatus(status) { return String(status || '').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function docLabel(type) { return type === 'license' ? 'Driver License' : type === 'insurance' ? 'Insurance Policy' : prettyStatus(type); }

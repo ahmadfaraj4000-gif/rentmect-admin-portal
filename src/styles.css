@@ -136,6 +136,28 @@
     }
 }
 
+/* Show the return-day turnaround window without making the entire day look blocked. */
+.fleet-calendar .calendar-cell.booked.return-day{
+    background:linear-gradient(
+        90deg,
+        var(--block-color, #2f8f5b) 0,
+        var(--block-color, #2f8f5b) var(--return-blocked-percent, 100%),
+        #fbfdfc var(--return-blocked-percent, 100%),
+        #fbfdfc 100%
+    )!important;
+    border-color:#d8e0dd!important;
+    color:#fff!important
+}
+.fleet-calendar .calendar-cell.booked.return-day span{
+    width:fit-content;
+    max-width:100%;
+    padding:3px 5px;
+    border-radius:4px;
+    background:rgba(20,49,59,.86);
+    color:#fff!important;
+    line-height:1.25!important
+}
+
 /* Final auth layout: centered logo and login form only. */
 .auth-screen.admin-auth-light{
     min-height:100vh!important;
