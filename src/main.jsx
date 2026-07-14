@@ -7,12 +7,14 @@ import {
   CalendarDays,
   Car,
   CheckCircle2,
+  ChevronDown,
   ClipboardList,
   Clock,
   CreditCard,
   DollarSign,
   Eye,
   EyeOff,
+  ExternalLink,
   FileCheck,
   FileSignature,
   FileText,
@@ -62,6 +64,38 @@ const DEFAULT_AVAILABILITY_TYPES = {
   on_road: { label: 'On the Road', color: '#2f8f5b' },
   maintenance: { label: 'Maintenance', color: '#171717' },
 };
+
+const INSURANCE_RESOURCE_LINKS = [
+  { label: 'Bonzah Insurance', detail: 'Rental insurance options', href: 'https://bonzah.com/', recommended: true },
+  { label: 'RentalCover', detail: 'Rental protection options', href: 'https://rentalcover.com/' },
+  { label: 'Faye Insurance', detail: 'Rental car coverage information', href: 'https://www.withfaye.com/info/rental-car-coverage/' },
+  { label: 'Capital One', detail: 'Rental car card-benefit information', href: 'https://www.capitalone.com/learn-grow/more-than-money/capital-one-rental-car-insurance/' },
+];
+
+const ADMIN_QUICK_LINK_GROUPS = [
+  {
+    label: 'Money',
+    links: [
+      { label: 'Stripe', href: 'https://dashboard.stripe.com/login' },
+      { label: 'QuickBooks', href: 'https://qbo.intuit.com/' },
+      { label: 'TD Bank', href: 'https://www.td.com/us/en/personal-banking/my-td' },
+    ],
+  },
+  {
+    label: 'Messages',
+    links: [
+      { label: 'Twilio', href: 'https://console.twilio.com/' },
+      { label: 'Resend', href: 'https://resend.com/login' },
+    ],
+  },
+  {
+    label: 'Rental Operations',
+    links: [
+      { label: 'TollSpot', href: 'https://tollspot.com/' },
+    ],
+  },
+  { label: 'Insurance', links: INSURANCE_RESOURCE_LINKS },
+];
 
 function App() {
   const [session, setSession] = useState(null);
@@ -1529,7 +1563,7 @@ function App() {
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
         <header className="admin-header">
           <div><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
-          <div className="header-actions"><button onClick={loadAllData} className="secondary-btn">Refresh</button></div>
+          <div className="header-actions"><AdminQuickLinks/><button onClick={loadAllData} className="secondary-btn">Refresh</button></div>
         </header>
 
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
@@ -2367,20 +2401,50 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
       </form>
     </Panel>
 
-    <aside className="booking-summary-card">
-      <p className="eyebrow">Booking Summary</p>
-      <h3>{customerName}</h3>
-      <dl>
-        <div><dt>Vehicle</dt><dd>{selectedVehicle?.name || 'Not selected'}</dd></div>
-        <div><dt>Dates</dt><dd>{days > 0 ? `${days} day${days === 1 ? '' : 's'}` : 'Choose dates'}</dd></div>
-        <div><dt>Rental</dt><dd>{money(rentalTotal)}</dd></div>
-        <div><dt>CT tax</dt><dd>{money(rentalTotal * CT_TAX_RATE)}</dd></div>
-        <div><dt>Deposit</dt><dd>{selectedVehicle ? money(deposit) : '—'}</dd></div>
-      </dl>
-      {age !== null && age < 25 && <div className="underage-deposit-note"><ShieldCheck size={17}/><span>Under 25: $500 refundable deposit</span></div>}
-      <p className="summary-note">Payment starts as due. The customer can finish payment and documents in the client portal.</p>
-    </aside>
+    <div className="manual-booking-sidebar">
+      <aside className="booking-summary-card">
+        <p className="eyebrow">Booking Summary</p>
+        <h3>{customerName}</h3>
+        <dl>
+          <div><dt>Vehicle</dt><dd>{selectedVehicle?.name || 'Not selected'}</dd></div>
+          <div><dt>Dates</dt><dd>{days > 0 ? `${days} day${days === 1 ? '' : 's'}` : 'Choose dates'}</dd></div>
+          <div><dt>Rental</dt><dd>{money(rentalTotal)}</dd></div>
+          <div><dt>CT tax</dt><dd>{money(rentalTotal * CT_TAX_RATE)}</dd></div>
+          <div><dt>Deposit</dt><dd>{selectedVehicle ? money(deposit) : '—'}</dd></div>
+        </dl>
+        {age !== null && age < 25 && <div className="underage-deposit-note"><ShieldCheck size={17}/><span>Under 25: $500 refundable deposit</span></div>}
+        <p className="summary-note">Payment starts as due. The customer can finish payment and documents in the client portal.</p>
+      </aside>
+      <InsuranceLinksPanel/>
+    </div>
   </section>;
+}
+
+function AdminQuickLinks() {
+  return <details className="admin-quick-links">
+    <summary><ExternalLink size={16}/><span>Quick Links</span><ChevronDown className="quick-links-chevron" size={16}/></summary>
+    <div className="quick-links-dropdown">
+      {ADMIN_QUICK_LINK_GROUPS.map((group) => <section key={group.label}>
+        <h4>{group.label}</h4>
+        <div>{group.links.map((link) => <a key={`${group.label}-${link.label}`} href={link.href} target="_blank" rel="noopener noreferrer"><span>{link.label}</span><ExternalLink size={14}/></a>)}</div>
+      </section>)}
+    </div>
+  </details>;
+}
+
+function InsuranceLinksPanel() {
+  return <aside className="insurance-links-card">
+    <div className="insurance-links-heading"><ShieldCheck size={19}/><div><p className="eyebrow">Insurance Resources</p><h3>Coverage Links</h3></div></div>
+    <p className="muted">Open coverage options for the customer without leaving the booking form.</p>
+    <div className="insurance-resource-list">
+      {INSURANCE_RESOURCE_LINKS.map((link) => <a key={link.label} className={link.recommended ? 'recommended' : ''} href={link.href} target="_blank" rel="noopener noreferrer">
+        <span><strong>{link.label}</strong><small>{link.detail}</small></span>
+        {link.recommended && <em>Recommended</em>}
+        <ExternalLink size={16}/>
+      </a>)}
+    </div>
+    <small className="insurance-links-disclaimer">Third-party coverage terms and eligibility are controlled by each provider.</small>
+  </aside>;
 }
 
 function SettingsTab({
