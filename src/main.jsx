@@ -123,6 +123,10 @@ function App() {
     phone: '',
     dateOfBirth: '',
     address: '',
+    driverLicenseNumber: '',
+    driverLicenseState: '',
+    insuranceProvider: '',
+    insurancePolicyNumber: '',
     vehicleId: '',
     pickupDate: '',
     returnDate: '',
@@ -1336,6 +1340,12 @@ function App() {
         customerMode: manualBookingForm.customerMode,
         customerId: manualBookingForm.customerId || undefined,
         customerDateOfBirth: manualBookingForm.existingDateOfBirth || undefined,
+        driverInfo: {
+          licenseNumber: manualBookingForm.driverLicenseNumber.trim(),
+          licenseState: manualBookingForm.driverLicenseState.trim(),
+          insuranceProvider: manualBookingForm.insuranceProvider.trim(),
+          insurancePolicyNumber: manualBookingForm.insurancePolicyNumber.trim(),
+        },
         customer: manualBookingForm.customerMode === 'new' ? {
           fullName: manualBookingForm.fullName.trim(),
           email: manualBookingForm.email.trim(),
@@ -1363,7 +1373,7 @@ function App() {
       return notify(detail);
     }
 
-    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM' });
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM' });
     await loadAllData({ silent: true });
     setActiveTab('calendar');
     notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'} — it is now on the calendar.`, 'success');
@@ -2240,6 +2250,16 @@ function Messages({ rentals, messages, selectedRental, setSelectedRentalId, repl
 
 function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, createManualBooking, submitting }) {
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
+  const chooseCustomerMode = (customerMode) => setManualBookingForm((current) => ({
+    ...current,
+    customerMode,
+    customerId: '',
+    existingDateOfBirth: '',
+    driverLicenseNumber: '',
+    driverLicenseState: '',
+    insuranceProvider: '',
+    insurancePolicyNumber: '',
+  }));
   const customers = profiles
     .filter((profile) => profile.role !== 'admin')
     .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
@@ -2259,15 +2279,23 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
       <p className="muted">Choose an existing customer or add a new one, then select the car and exact pickup and return times.</p>
       <form className="portal-form manual-booking-form" onSubmit={createManualBooking}>
         <div className="customer-mode-switch" role="group" aria-label="Customer type">
-          <button type="button" className={manualBookingForm.customerMode === 'existing' ? 'active' : ''} onClick={() => update('customerMode', 'existing')}><UserRound size={17}/> Existing customer</button>
-          <button type="button" className={manualBookingForm.customerMode === 'new' ? 'active' : ''} onClick={() => update('customerMode', 'new')}><Plus size={17}/> Add new customer</button>
+          <button type="button" className={manualBookingForm.customerMode === 'existing' ? 'active' : ''} onClick={() => chooseCustomerMode('existing')}><UserRound size={17}/> Existing customer</button>
+          <button type="button" className={manualBookingForm.customerMode === 'new' ? 'active' : ''} onClick={() => chooseCustomerMode('new')}><Plus size={17}/> Add new customer</button>
         </div>
 
         {manualBookingForm.customerMode === 'existing' ? <label className="full-field">
           <span>Customer</span>
           <select value={manualBookingForm.customerId} onChange={(event) => {
             const customer = profiles.find((profile) => profile.id === event.target.value);
-            setManualBookingForm((current) => ({ ...current, customerId: event.target.value, existingDateOfBirth: customer?.date_of_birth || '' }));
+            setManualBookingForm((current) => ({
+              ...current,
+              customerId: event.target.value,
+              existingDateOfBirth: customer?.date_of_birth || '',
+              driverLicenseNumber: customer?.drivers_license_number || '',
+              driverLicenseState: customer?.drivers_license_state || '',
+              insuranceProvider: customer?.insurance_provider || '',
+              insurancePolicyNumber: customer?.insurance_policy_number || '',
+            }));
           }} required>
             <option value="">Choose a customer</option>
             {customers.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name || 'Unnamed customer'}{profile.email ? ` — ${profile.email}` : ''}{profile.phone ? ` — ${profile.phone}` : ''}</option>)}
@@ -2281,6 +2309,14 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
           <p className="customer-save-note full-field"><ShieldCheck size={16}/> The customer will be saved and can use Forgot Password to access the client portal.</p>
         </div>}
         {manualBookingForm.customerMode === 'existing' && selectedCustomer && !selectedCustomer.date_of_birth && <label className="full-field missing-dob-field"><span>Date of birth required for deposit</span><input type="date" max={new Date().toISOString().slice(0, 10)} value={manualBookingForm.existingDateOfBirth} onChange={(event) => update('existingDateOfBirth', event.target.value)} required /></label>}
+
+        <div className="booking-divider"><span>Driver &amp; insurance — optional</span></div>
+        <div className="optional-record-fields">
+          <label><span>Driver license number</span><input value={manualBookingForm.driverLicenseNumber} onChange={(event) => update('driverLicenseNumber', limitText(event.target.value, 64))} placeholder="License number" autoComplete="off" /></label>
+          <label><span>License state</span><input value={manualBookingForm.driverLicenseState} onChange={(event) => update('driverLicenseState', limitText(event.target.value.toUpperCase(), 32))} placeholder="CT" autoComplete="off" /></label>
+          <label><span>Insurance company</span><input value={manualBookingForm.insuranceProvider} onChange={(event) => update('insuranceProvider', limitText(event.target.value, 120))} placeholder="Insurance provider" autoComplete="organization" /></label>
+          <label><span>Insurance policy number</span><input value={manualBookingForm.insurancePolicyNumber} onChange={(event) => update('insurancePolicyNumber', limitText(event.target.value, 120))} placeholder="Policy number" autoComplete="off" /></label>
+        </div>
 
         <div className="booking-divider"><span>Reservation</span></div>
         <label className="full-field"><span>Vehicle</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} required><option value="">Choose a vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id} disabled={BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase())}>{vehicle.name} — {money(vehicle.daily_rate)}/day{BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? ` — ${prettyVehicleStatus(vehicle.status)}` : ''}</option>)}</select></label>

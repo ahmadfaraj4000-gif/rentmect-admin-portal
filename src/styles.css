@@ -1110,7 +1110,7 @@ button{
     padding:5px;
     border:1px solid var(--line);
     border-radius:12px;
-    background:rgba(0,0,0,.16)
+    background:#dcece3
 }
 .customer-mode-switch button{
     min-height:44px;
@@ -1118,23 +1118,37 @@ button{
     align-items:center;
     justify-content:center;
     gap:8px;
-    border:0;
+    border:2px solid #2f8f5b!important;
     border-radius:8px;
-    background:transparent;
-    color:var(--admin-muted);
+    background:#2f8f5b!important;
+    color:#fff!important;
     font-weight:900;
     cursor:pointer
 }
 .customer-mode-switch button.active{
-    background:var(--admin-green);
-    color:#fff;
-    box-shadow:0 4px 14px rgba(23,120,72,.24)
+    background:#145c37!important;
+    border-color:#0b3f25!important;
+    color:#fff!important;
+    box-shadow:0 5px 16px rgba(11,63,37,.35), inset 0 0 0 1px rgba(255,255,255,.14)
+}
+.customer-mode-switch button:not(.active):hover{
+    background:#267a4d!important
 }
 .new-customer-fields{
     grid-column:1/-1;
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     gap:10px
+}
+.optional-record-fields{
+    grid-column:1/-1;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:10px;
+    padding:14px;
+    border:1px solid #b9d8c6;
+    border-radius:12px;
+    background:#f1f8f4
 }
 .customer-save-note{
     display:flex!important;
@@ -3797,7 +3811,8 @@ body{
     }
     .manual-booking-layout,
     .manual-booking-form,
-    .new-customer-fields{
+    .new-customer-fields,
+    .optional-record-fields{
         grid-template-columns:1fr!important
     }
     .booking-summary-card{
