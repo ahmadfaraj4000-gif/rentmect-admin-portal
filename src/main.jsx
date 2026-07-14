@@ -1684,6 +1684,26 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     setPaintRange(null);
   }
 
+  function openAvailableWindow(segment, dayIso) {
+    if (selectedType === 'available') {
+      setCalendarHint(`${segment.label}. This part of the day is already available after the turnaround window.`);
+      return;
+    }
+    setPaintModal({
+      mode: 'create',
+      vehicleId: segment.vehicleId,
+      startDate: dayIso,
+      endDate: dayIso,
+      startTime: segment.startTime,
+      endTime: segment.endTime,
+      blockType: selectedType,
+      label: selectedTypeStyle.label,
+      notes: '',
+      error: '',
+      saving: false,
+    });
+  }
+
   function isPreviewed(vehicleId, dayIso) {
     if (!paintRange || paintRange.vehicleId !== vehicleId) return false;
     const [start, end] = [paintRange.startDate, paintRange.endDate].sort();
@@ -1710,8 +1730,8 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       </select>
       <input type="date" value={availabilityBlockForm.start_date} onChange={(event) => updateBlock('start_date', event.target.value)} required />
       <input type="date" value={availabilityBlockForm.end_date} onChange={(event) => updateBlock('end_date', event.target.value)} required />
-      <select value={availabilityBlockForm.start_time} onChange={(event) => updateBlock('start_time', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select>
-      <select value={availabilityBlockForm.end_time} onChange={(event) => updateBlock('end_time', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select>
+      <select value={availabilityBlockForm.start_time} onChange={(event) => updateBlock('start_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.start_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
+      <select value={availabilityBlockForm.end_time} onChange={(event) => updateBlock('end_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.end_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
       <button className="primary-btn"><Plus size={16}/> {editingAvailabilityBlockId ? 'Save Block' : 'Add Block'}</button>
     </form>
 
@@ -1749,6 +1769,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                 rentals: vehicleRentals,
                 blocks: vehicleBlocks,
                 dayIso: day.iso,
+                vehicleId: vehicle.id,
                 availabilityTypes,
               });
               const previewed = isPreviewed(vehicle.id, day.iso);
@@ -1776,6 +1797,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                   onMouseDown={(event) => {
                     event.stopPropagation();
                     if (segment.kind === 'rental') blockedRentalHint(segment.item);
+                    else if (segment.kind === 'available') openAvailableWindow(segment, day.iso);
                     else openBlockEdit(segment.item);
                   }}
                 >
@@ -1855,8 +1877,8 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
         <label><span>Label</span><select value={modal.blockType} onChange={(event) => update('blockType', event.target.value)}>{Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}</select></label>
         <label><span>Start date</span><input type="date" value={modal.startDate} onChange={(event) => update('startDate', event.target.value)} /></label>
         <label><span>End date</span><input type="date" value={modal.endDate} onChange={(event) => update('endDate', event.target.value)} /></label>
-        {!isClear && <label><span>Start time</span><select value={modal.startTime} onChange={(event) => update('startTime', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
-        {!isClear && <label><span>End time</span><select value={modal.endTime} onChange={(event) => update('endTime', event.target.value)}>{timeOptions().map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
+        {!isClear && <label><span>Start time</span><select value={modal.startTime} onChange={(event) => update('startTime', event.target.value)}>{calendarTimeOptions(modal.startTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
+        {!isClear && <label><span>End time</span><select value={modal.endTime} onChange={(event) => update('endTime', event.target.value)}>{calendarTimeOptions(modal.endTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
       </div>
       <div className="availability-modal-swatch"><span className={isClear ? 'clear-swatch' : ''} style={{ backgroundColor: selectedType.color }} />{selectedType.label}</div>
       {modal.error && <p className="form-error">{modal.error}</p>}
@@ -2888,7 +2910,7 @@ function calendarManualBlockLabel(block, dayIso) {
   if (dayIso === block.start_date) return `${block.start_time || '12:00 AM'}–${endTime}`;
   return ['reserved', 'on_road'].includes(blockType) ? `Due ${endTime}` : `Until ${endTime}`;
 }
-function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, availabilityTypes = DEFAULT_AVAILABILITY_TYPES }) {
+function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId, availabilityTypes = DEFAULT_AVAILABILITY_TYPES }) {
   const dayStart = parseRentMeCtDateTime(dayIso, '12:00 AM');
   if (!dayStart) return [];
   const nextDayStart = new Date(dayStart);
@@ -2936,7 +2958,52 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, availabil
     }];
   });
 
-  return [...rentalSegments, ...blockSegments].sort((a, b) => a.left - b.left || b.width - a.width);
+  const occupied = [...rentalSegments, ...blockSegments].sort((a, b) => a.left - b.left || b.width - a.width);
+  if (!occupied.length) return [];
+
+  const gaps = [];
+  let cursor = 0;
+  occupied.forEach((segment, index) => {
+    if (segment.left > cursor + 0.05) {
+      gaps.push(buildAvailableCalendarSegment({ dayIso, vehicleId, left: cursor, width: segment.left - cursor, index }));
+    }
+    cursor = Math.max(cursor, segment.left + segment.width);
+  });
+  if (cursor < 99.95) {
+    gaps.push(buildAvailableCalendarSegment({ dayIso, vehicleId, left: cursor, width: 100 - cursor, index: occupied.length }));
+  }
+  return [...occupied, ...gaps].sort((a, b) => a.left - b.left || (a.kind === 'available' ? 1 : -1));
+}
+function buildAvailableCalendarSegment({ dayIso, vehicleId, left, width, index }) {
+  const startTime = calendarPercentToTime(dayIso, left);
+  const endTime = calendarPercentToTime(dayIso, left + width, true);
+  const endsDay = left + width >= 99.95;
+  const startsDay = left <= 0.05;
+  const label = startsDay
+    ? `Available until ${endTime}`
+    : endsDay
+      ? `Available ${startTime}+`
+      : `Available ${startTime}–${endTime}`;
+  return {
+    id: `available-${vehicleId}-${dayIso}-${index}`,
+    kind: 'available',
+    vehicleId,
+    left,
+    width,
+    startTime,
+    endTime,
+    color: '#eef8f1',
+    label,
+    title: `${label}. Select a calendar color, then click here to apply it to this time window.`,
+  };
+}
+function calendarPercentToTime(dayIso, percent, useEndOfDay = false) {
+  if (useEndOfDay && percent >= 99.95) return '11:59 PM';
+  const dayStart = parseRentMeCtDateTime(dayIso, '12:00 AM');
+  const nextDayStart = new Date(dayStart);
+  nextDayStart.setDate(nextDayStart.getDate() + 1);
+  const date = new Date(dayStart.getTime() + ((nextDayStart.getTime() - dayStart.getTime()) * percent / 100));
+  return formatTimeOnly(date);
 }
 function calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso }) {
   if (!unavailable) return 'calendar-cell open';
@@ -3379,5 +3446,18 @@ function prettyStatus(status) { return String(status || '').replaceAll('_', ' ')
 function docLabel(type) { return type === 'license' ? 'Driver License' : type === 'insurance' ? 'Insurance Policy' : prettyStatus(type); }
 function prettyVehicleStatus(status) { return prettyStatus(status || 'available'); }
 function timeOptions() { const times=[]; for(let h=9; h<=21; h++){ const suffix=h>=12?'PM':'AM'; const dh=h>12?h-12:h; times.push(`${dh}:00 ${suffix}`); } return times; }
+function calendarTimeOptions(currentValue = '') {
+  const times = [];
+  for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    const suffix = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    times.push(`${displayHour}:${String(minute).padStart(2, '0')} ${suffix}`);
+  }
+  times.push('11:59 PM');
+  if (currentValue && !times.includes(currentValue)) times.push(currentValue);
+  return times;
+}
 
 createRoot(document.getElementById('root')).render(<App />);
