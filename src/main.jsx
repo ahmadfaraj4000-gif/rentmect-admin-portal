@@ -1728,7 +1728,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
           {type.label}
         </button>
       ))}
-      <em>Drag across a vehicle row, then confirm or edit the block.</em>
+      <em>Drag across open dates to add a block. Click any colored time segment to edit it.</em>
     </div>
 
     <div className="calendar-scroller">
@@ -1745,51 +1745,43 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
               <span>{prettyVehicleStatus(vehicle.status)}</span>
             </div>
             {days.map((day) => {
-              const dayStart = parseRentMeCtDateTime(day.iso, '12:00 AM');
-              const dayEnd = parseRentMeCtDateTime(day.iso, '11:59 PM');
-              const rental = vehicleRentals.find((r) => rentalBlocksCalendarDay(r, dayStart, dayEnd));
-              const manualBlock = vehicleBlocks.find((block) =>
-                String(block.block_type || '').toLowerCase() !== 'available' &&
-                availabilityBlockTouchesDay(block, dayStart, dayEnd)
-              );
-              const unavailable = vehicleBlocked || Boolean(rental) || Boolean(manualBlock);
-              const blockedUntil = rental ? getRentalBlockedUntil(rental) : null;
-              const returnDayBlockedPercent = rental ? getReturnDayBlockedPercent(rental, day.iso) : null;
+              const segments = vehicleBlocked ? [] : buildCalendarDaySegments({
+                rentals: vehicleRentals,
+                blocks: vehicleBlocks,
+                dayIso: day.iso,
+                availabilityTypes,
+              });
               const previewed = isPreviewed(vehicle.id, day.iso);
-              const rentalTitle = rental
-                ? `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`
-                : '';
-              const title = rental ? rentalTitle : manualBlock ? availabilityBlockTitle(manualBlock) : vehicleBlocked ? prettyVehicleStatus(vehicle.status) : 'Available';
-              const rentalType = rental ? rentalStatusToAvailabilityType(rental.status) : null;
-              const blockColor = manualBlock
-                ? availabilityTypes[manualBlock.block_type]?.color
-                : rentalType
-                  ? availabilityTypes[rentalType]?.color
-                  : null;
               const clearPreview = previewed && selectedType === 'available';
               const previewColor = previewed && !clearPreview ? selectedTypeStyle.color : null;
-              const cellStyle = blockColor || previewColor || returnDayBlockedPercent !== null
-                ? {
-                  '--block-color': previewColor || blockColor,
-                  ...(returnDayBlockedPercent !== null ? { '--return-blocked-percent': `${returnDayBlockedPercent}%` } : {}),
-                }
-                : undefined;
               return <div
-                className={`${calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso: day.iso })} ${previewed ? 'paint-preview' : ''} ${clearPreview ? 'clear-preview' : ''}`}
+                className={`calendar-cell ${vehicleBlocked ? 'maintenance' : segments.length ? 'timeline-day' : 'open'} ${previewed ? 'paint-preview' : ''} ${clearPreview ? 'clear-preview' : ''}`}
                 key={`${vehicle.id}-${day.iso}`}
-                title={title}
-                style={cellStyle}
+                title={vehicleBlocked ? prettyVehicleStatus(vehicle.status) : segments.length ? segments.map((segment) => segment.title).join('\n') : 'Available'}
+                style={previewColor ? { '--block-color': previewColor } : undefined}
                 onMouseDown={() => {
-                  if (rental) return blockedRentalHint(rental);
-                  if (manualBlock) return openBlockEdit(manualBlock);
+                  if (segments.length) return;
                   startPaint(vehicle.id, day.iso);
                 }}
                 onMouseEnter={() => updatePaint(vehicle.id, day.iso)}
-                onMouseUp={() => !manualBlock && !rental && finishPaint(vehicle.id, day.iso)}
+                onMouseUp={() => !segments.length && finishPaint(vehicle.id, day.iso)}
               >
-                {rental && <span>{calendarBlockLabel(rental, day.iso)}</span>}
-                {!rental && manualBlock && <span>{calendarManualBlockLabel(manualBlock, day.iso)}</span>}
-                {!rental && !manualBlock && vehicleBlocked && <span>{prettyVehicleStatus(vehicle.status)}</span>}
+                {segments.map((segment) => <button
+                  type="button"
+                  className={`calendar-time-segment ${segment.kind}`}
+                  key={segment.id}
+                  title={segment.title}
+                  aria-label={`${segment.label}. Click to edit.`}
+                  style={{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: segment.color }}
+                  onMouseDown={(event) => {
+                    event.stopPropagation();
+                    if (segment.kind === 'rental') blockedRentalHint(segment.item);
+                    else openBlockEdit(segment.item);
+                  }}
+                >
+                  <span>{segment.label}</span>
+                </button>)}
+                {vehicleBlocked && <span>{prettyVehicleStatus(vehicle.status)}</span>}
               </div>;
             })}
           </React.Fragment>;
@@ -2889,9 +2881,62 @@ function calendarBlockLabel(rental, dayIso) {
 function calendarManualBlockLabel(block, dayIso) {
   const blockType = String(block?.block_type || '').toLowerCase();
   const fallbackLabel = block?.label || prettyStatus(blockType || 'unavailable');
-  if (!block || dayIso !== block.end_date) return fallbackLabel;
+  if (!block) return fallbackLabel;
+  if (dayIso === block.start_date && dayIso !== block.end_date) return `From ${block.start_time || '12:00 AM'}`;
+  if (dayIso !== block.end_date) return fallbackLabel;
   const endTime = block.end_time || '11:59 PM';
+  if (dayIso === block.start_date) return `${block.start_time || '12:00 AM'}–${endTime}`;
   return ['reserved', 'on_road'].includes(blockType) ? `Due ${endTime}` : `Until ${endTime}`;
+}
+function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, availabilityTypes = DEFAULT_AVAILABILITY_TYPES }) {
+  const dayStart = parseRentMeCtDateTime(dayIso, '12:00 AM');
+  if (!dayStart) return [];
+  const nextDayStart = new Date(dayStart);
+  nextDayStart.setDate(nextDayStart.getDate() + 1);
+  const dayDuration = nextDayStart.getTime() - dayStart.getTime();
+  const toSegmentPosition = (start, end) => {
+    const visibleStart = Math.max(start.getTime(), dayStart.getTime());
+    const visibleEnd = Math.min(end.getTime(), nextDayStart.getTime());
+    return {
+      left: ((visibleStart - dayStart.getTime()) / dayDuration) * 100,
+      width: ((visibleEnd - visibleStart) / dayDuration) * 100,
+    };
+  };
+
+  const rentalSegments = rentals.flatMap((rental) => {
+    const start = parseRentMeCtDateTime(rental.pickup_date, rental.pickup_time);
+    const end = getRentalBlockedUntil(rental);
+    if (!start || !end || start >= nextDayStart || end <= dayStart) return [];
+    const type = rentalStatusToAvailabilityType(rental.status);
+    const blockedUntil = getRentalBlockedUntil(rental);
+    return [{
+      id: `rental-${rental.id}`,
+      kind: 'rental',
+      item: rental,
+      ...toSegmentPosition(start, end),
+      color: availabilityTypes[type]?.color || DEFAULT_AVAILABILITY_TYPES[type]?.color,
+      label: calendarBlockLabel(rental, dayIso),
+      title: `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`,
+    }];
+  });
+
+  const blockSegments = blocks.flatMap((block) => {
+    if (String(block.block_type || '').toLowerCase() === 'available') return [];
+    const start = parseRentMeCtDateTime(block.start_date, block.start_time || '12:00 AM');
+    const end = parseRentMeCtDateTime(block.end_date, block.end_time || '11:59 PM');
+    if (!start || !end || start >= nextDayStart || end <= dayStart) return [];
+    return [{
+      id: `block-${block.id}`,
+      kind: 'manual-block',
+      item: block,
+      ...toSegmentPosition(start, end),
+      color: availabilityTypes[block.block_type]?.color || DEFAULT_AVAILABILITY_TYPES[block.block_type]?.color || '#394852',
+      label: calendarManualBlockLabel(block, dayIso),
+      title: availabilityBlockTitle(block),
+    }];
+  });
+
+  return [...rentalSegments, ...blockSegments].sort((a, b) => a.left - b.left || b.width - a.width);
 }
 function calendarCellClass({ unavailable, vehicleBlocked, rental, manualBlock, dayIso }) {
   if (!unavailable) return 'calendar-cell open';

@@ -157,6 +157,57 @@
     color:#fff!important;
     line-height:1.25!important
 }
+.fleet-calendar .calendar-cell.timeline-day{
+    position:relative!important;
+    overflow:hidden!important;
+    padding:0!important;
+    background:#fbfdfc!important;
+    cursor:default!important
+}
+.calendar-scroller .fleet-calendar{
+    grid-template-columns:230px repeat(28, minmax(112px, 1fr))!important;
+    min-width:3366px!important
+}
+.fleet-calendar .calendar-cell:not(.calendar-head){
+    min-height:82px!important
+}
+.fleet-calendar .calendar-time-segment{
+    position:absolute;
+    top:0;
+    bottom:0;
+    z-index:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-width:2px;
+    margin:0;
+    padding:7px 5px;
+    overflow:hidden;
+    appearance:none;
+    border:0;
+    border-right:1px solid rgba(255,255,255,.45);
+    border-radius:0;
+    color:#fff;
+    cursor:pointer;
+    transition:filter .15s ease, box-shadow .15s ease
+}
+.fleet-calendar .calendar-time-segment span{
+    display:block;
+    overflow:hidden;
+    color:#fff!important;
+    font-size:12px!important;
+    font-weight:950!important;
+    line-height:1.15!important;
+    text-align:center;
+    text-overflow:clip
+}
+.fleet-calendar .calendar-time-segment:hover,
+.fleet-calendar .calendar-time-segment:focus-visible{
+    z-index:3;
+    filter:brightness(1.12);
+    box-shadow:inset 0 0 0 3px rgba(255,255,255,.9), 0 3px 12px rgba(20,49,59,.28);
+    outline:0
+}
 
 /* Final auth layout: centered logo and login form only. */
 .auth-screen.admin-auth-light{
