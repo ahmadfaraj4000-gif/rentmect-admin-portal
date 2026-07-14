@@ -46,6 +46,8 @@ const DOCUMENT_BUCKET = 'rental-documents';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
+const TURNAROUND_OVERRIDE_MARKER = '[TURNAROUND_GRACE_CONFIRMED_RETURNED]';
+const TURNAROUND_AVAILABLE_AT_PATTERN = /\[TURNAROUND_AVAILABLE_AT=([^\]]+)\]/;
 
 const vehicleStatuses = ['available', 'maintenance', 'unavailable', 'inactive'];
 const SYSTEM_VEHICLE_STATUSES = ['rented'];
@@ -414,7 +416,7 @@ function App() {
 
     const { data, error } = await supabase
       .from('rentals')
-      .select('pickup_date, return_date, pickup_time, return_time, status')
+      .select('id, pickup_date, return_date, pickup_time, return_time, status, admin_notes')
       .eq('vehicle_id', vehicleId)
       .in('status', BLOCKING_RENTAL_STATUSES);
 
@@ -1094,6 +1096,29 @@ function App() {
     return { ok: true };
   }
 
+  async function waiveTurnaroundGrace(kind, item, availableAt) {
+    const isRental = kind === 'rental';
+    const table = isRental ? 'rentals' : 'vehicle_availability_blocks';
+    const notesField = isRental ? 'admin_notes' : 'notes';
+    const existingNotes = String(item?.[notesField] || '').trim();
+    const cleanedNotes = existingNotes
+      .replace(TURNAROUND_AVAILABLE_AT_PATTERN, '')
+      .replace(TURNAROUND_OVERRIDE_MARKER, '')
+      .trim();
+    const overrideMarker = `[TURNAROUND_AVAILABLE_AT=${availableAt.toISOString()}]`;
+    const nextNotes = [cleanedNotes, overrideMarker].filter(Boolean).join('\n');
+    const { error } = await supabase.from(table).update({ [notesField]: nextNotes }).eq('id', item.id);
+    if (error) return { ok: false, error: error.message };
+
+    if (isRental) {
+      setRentals((current) => current.map((rental) => rental.id === item.id ? { ...rental, admin_notes: nextNotes } : rental));
+    } else {
+      setAvailabilityBlocks((current) => current.map((block) => block.id === item.id ? { ...block, notes: nextNotes } : block));
+    }
+    notify(`Vehicle availability saved for ${formatTimeOnly(availableAt)}.`, 'success');
+    return { ok: true };
+  }
+
   function editAvailabilityBlock(block) {
     setEditingAvailabilityBlockId(block.id);
     setAvailabilityBlockForm({
@@ -1461,7 +1486,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
-        {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
+        {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} waiveTurnaroundGrace={waiveTurnaroundGrace} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} />}
@@ -1602,7 +1627,7 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }
   </>;
 }
 
-function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
+function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock, waiveTurnaroundGrace }) {
   const days = calendarDays(28);
   const [paintRange, setPaintRange] = useState(null);
   const [paintModal, setPaintModal] = useState(null);
@@ -1704,6 +1729,27 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     });
   }
 
+  function handleGraceSegment(segment, dayIso) {
+    if (selectedType !== 'available') {
+      setCalendarHint(`Protected turnaround until ${formatTimeOnly(segment.standardAvailableAt)}. Select Available, then click this part of the cell if the car is already back.`);
+      return;
+    }
+    setPaintModal({
+      mode: 'grace-override',
+      vehicleId: segment.item.vehicle_id,
+      startDate: dayIso,
+      endDate: dayIso,
+      startTime: formatTimeOnly(segment.standardAvailableAt),
+      endTime: formatTimeOnly(segment.standardAvailableAt),
+      blockType: 'available',
+      label: 'Available',
+      notes: '',
+      graceSegment: segment,
+      error: '',
+      saving: false,
+    });
+  }
+
   function isPreviewed(vehicleId, dayIso) {
     if (!paintRange || paintRange.vehicleId !== vehicleId) return false;
     const [start, end] = [paintRange.startDate, paintRange.endDate].sort();
@@ -1792,12 +1838,13 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                   className={`calendar-time-segment ${segment.kind}`}
                   key={segment.id}
                   title={segment.title}
-                  aria-label={`${segment.label}. Click to edit.`}
+                  aria-label={segment.kind === 'grace' ? `Protected turnaround until ${formatTimeOnly(segment.standardAvailableAt)}. Select Available and click to override after confirming the car is back.` : `${segment.label}. Click to edit.`}
                   style={{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: segment.color }}
                   onMouseDown={(event) => {
                     event.stopPropagation();
                     if (segment.kind === 'rental') blockedRentalHint(segment.item);
                     else if (segment.kind === 'available') openAvailableWindow(segment, day.iso);
+                    else if (segment.kind === 'grace') handleGraceSegment(segment, day.iso);
                     else openBlockEdit(segment.item);
                   }}
                 >
@@ -1817,6 +1864,33 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       availabilityTypes={availabilityTypes}
       onCancel={() => setPaintModal(null)}
       onSave={async (nextModal) => {
+        if (nextModal.mode === 'grace-override') {
+          const availableAt = parseRentMeCtDateTime(nextModal.startDate, nextModal.startTime);
+          const { dueAt, standardAvailableAt, sourceKind, item } = nextModal.graceSegment;
+          if (!availableAt || availableAt < dueAt) {
+            setPaintModal({ ...nextModal, error: `Availability cannot begin before the ${formatTimeOnly(dueAt)} return time.` });
+            return;
+          }
+          if (availableAt >= standardAvailableAt) {
+            const result = await waiveTurnaroundGrace(sourceKind, item, standardAvailableAt);
+            if (!result?.ok) {
+              setPaintModal({ ...nextModal, error: result?.error || 'Unable to restore the standard turnaround time.' });
+              return;
+            }
+            setPaintModal(null);
+            return;
+          }
+          const confirmed = window.confirm(`Confirm the car is physically back before overriding the three-hour grace period.\n\nCalculated availability: ${formatTimeOnly(standardAvailableAt)}\nNew availability: ${formatTimeOnly(availableAt)}\n\nConfirm the car is back and make it available early?`);
+          if (!confirmed) return;
+          setPaintModal({ ...nextModal, saving: true, error: '' });
+          const result = await waiveTurnaroundGrace(sourceKind, item, availableAt);
+          if (!result?.ok) {
+            setPaintModal({ ...nextModal, saving: false, error: result?.error || 'Unable to override the turnaround grace period.' });
+            return;
+          }
+          setPaintModal(null);
+          return;
+        }
         setPaintModal({ ...nextModal, saving: true, error: '' });
         const result = nextModal.mode === 'edit'
           ? await updateAvailabilityBlock(nextModal.id, {
@@ -1859,6 +1933,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   };
   const selectedType = availabilityTypes[modal.blockType] || DEFAULT_AVAILABILITY_TYPES[modal.blockType] || DEFAULT_AVAILABILITY_TYPES.unavailable;
   const isClear = modal.blockType === 'available';
+  const isGraceOverride = modal.mode === 'grace-override';
 
   return <div className="admin-modal-backdrop" role="presentation">
     <form className="admin-modal availability-modal" role="dialog" aria-modal="true" aria-label="Calendar availability block" onSubmit={(event) => {
@@ -1868,15 +1943,16 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
       <div className="admin-modal-header">
         <CalendarClock size={22}/>
         <div>
-          <strong>{modal.mode === 'edit' ? 'Edit Calendar Block' : isClear ? 'Clear Availability Blocks' : 'Confirm Calendar Block'}</strong>
-          <span>{isClear ? 'Available stays clear. This removes manual color blocks in the selected range.' : 'Adjust the vehicle, dates, and label before saving.'}</span>
+          <strong>{isGraceOverride ? 'Set Early Availability' : modal.mode === 'edit' ? 'Edit Calendar Block' : isClear ? 'Clear Availability Blocks' : 'Confirm Calendar Block'}</strong>
+          <span>{isGraceOverride ? `Normally available at ${formatTimeOnly(modal.graceSegment.standardAvailableAt)} after the three-hour buffer.` : isClear ? 'Available stays clear. This removes manual color blocks in the selected range.' : 'Adjust the vehicle, dates, and label before saving.'}</span>
         </div>
       </div>
       <div className="availability-modal-grid">
-        <label><span>Vehicle</span><select value={modal.vehicleId} onChange={(event) => update('vehicleId', event.target.value)}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label>
-        <label><span>Label</span><select value={modal.blockType} onChange={(event) => update('blockType', event.target.value)}>{Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}</select></label>
-        <label><span>Start date</span><input type="date" value={modal.startDate} onChange={(event) => update('startDate', event.target.value)} /></label>
-        <label><span>End date</span><input type="date" value={modal.endDate} onChange={(event) => update('endDate', event.target.value)} /></label>
+        <label><span>Vehicle</span><select value={modal.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={isGraceOverride}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label>
+        {!isGraceOverride && <label><span>Label</span><select value={modal.blockType} onChange={(event) => update('blockType', event.target.value)}>{Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}</select></label>}
+        <label><span>{isGraceOverride ? 'Date' : 'Start date'}</span><input type="date" value={modal.startDate} onChange={(event) => update('startDate', event.target.value)} disabled={isGraceOverride} /></label>
+        {!isGraceOverride && <label><span>End date</span><input type="date" value={modal.endDate} onChange={(event) => update('endDate', event.target.value)} /></label>}
+        {isGraceOverride && <label><span>Available starting</span><select value={modal.startTime} onChange={(event) => update('startTime', event.target.value)}>{calendarTimeOptions(modal.startTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
         {!isClear && <label><span>Start time</span><select value={modal.startTime} onChange={(event) => update('startTime', event.target.value)}>{calendarTimeOptions(modal.startTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
         {!isClear && <label><span>End time</span><select value={modal.endTime} onChange={(event) => update('endTime', event.target.value)}>{calendarTimeOptions(modal.endTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
       </div>
@@ -1884,7 +1960,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
       {modal.error && <p className="form-error">{modal.error}</p>}
       <div className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="primary-btn" disabled={modal.saving}>{modal.saving ? 'Saving...' : isClear ? 'OK - Clear Dates' : 'OK - Apply Changes'}</button>
+        <button type="submit" className="primary-btn" disabled={modal.saving}>{modal.saving ? 'Saving...' : isGraceOverride ? 'Save Availability Time' : isClear ? 'OK - Clear Dates' : 'OK - Apply Changes'}</button>
       </div>
     </form>
   </div>;
@@ -2860,21 +2936,39 @@ function rentalPeriodsOverlap(reservation, rental) {
 
   if (!requestedStart || !requestedEnd || !bookedStart || !bookedEnd) return false;
 
-  const blockedUntil = new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000);
+  const blockedUntil = getTurnaroundBlockedUntil(bookedEnd, rental);
   return requestedStart < blockedUntil && requestedEnd > bookedStart;
 }
 function availabilityBlockOverlapsReservation(block, reservation) {
   const requestedStart = parseRentMeCtDateTime(reservation?.pickupDate, reservation?.pickupTime);
   const requestedEnd = parseRentMeCtDateTime(reservation?.returnDate, reservation?.returnTime);
   const blockStart = parseRentMeCtDateTime(block?.start_date, block?.start_time || '12:00 AM');
-  const blockEnd = parseRentMeCtDateTime(block?.end_date, block?.end_time || '11:59 PM');
+  const blockEnd = getAvailabilityBlockBlockedUntil(block);
   if (!requestedStart || !requestedEnd || !blockStart || !blockEnd) return false;
   return requestedStart < blockEnd && requestedEnd > blockStart;
 }
 function getRentalBlockedUntil(rental) {
   const bookedEnd = parseRentMeCtDateTime(rental?.return_date, rental?.return_time);
   if (!bookedEnd) return null;
-  return new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000);
+  return getTurnaroundBlockedUntil(bookedEnd, rental);
+}
+function getAvailabilityBlockBlockedUntil(block) {
+  const blockEnd = parseRentMeCtDateTime(block?.end_date, block?.end_time || '11:59 PM');
+  if (!blockEnd) return null;
+  const type = String(block?.block_type || '').toLowerCase();
+  if (!['reserved', 'on_road'].includes(type)) return blockEnd;
+  return getTurnaroundBlockedUntil(blockEnd, block);
+}
+function getTurnaroundBlockedUntil(dueAt, item) {
+  const standardAvailableAt = new Date(dueAt.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000);
+  const notes = String(item?.admin_notes || item?.notes || '');
+  const timedOverride = notes.match(TURNAROUND_AVAILABLE_AT_PATTERN)?.[1];
+  if (timedOverride) {
+    const availableAt = new Date(timedOverride);
+    if (!Number.isNaN(availableAt.getTime()) && availableAt >= dueAt && availableAt < standardAvailableAt) return availableAt;
+  }
+  if (notes.includes(TURNAROUND_OVERRIDE_MARKER)) return dueAt;
+  return standardAvailableAt;
 }
 function rentalBlocksCalendarDay(rental, dayStart, dayEnd) {
   const bookedStart = parseRentMeCtDateTime(rental?.pickup_date, rental?.pickup_time);
@@ -2892,12 +2986,11 @@ function availabilityBlockTitle(block) {
   return `${block.label || prettyStatus(block.block_type)} - ${formatDateOnly(block.start_date)} ${block.start_time || ''} to ${formatDateOnly(block.end_date)} ${block.end_time || ''}`.trim();
 }
 function calendarBlockLabel(rental, dayIso) {
-  const blockedUntil = getRentalBlockedUntil(rental);
   if (dayIso === rental.pickup_date && dayIso === rental.return_date) {
-    return `Due ${rental.return_time || '9:00 AM'} · Book after ${formatTimeOnly(blockedUntil)}`;
+    return `${rental.pickup_time || '9:00 AM'}–${rental.return_time || '9:00 AM'}`;
   }
   if (dayIso === rental.pickup_date) return `From ${rental.pickup_time || '9:00 AM'}`;
-  if (dayIso === rental.return_date) return `Due ${rental.return_time || '9:00 AM'} · Book after ${formatTimeOnly(blockedUntil)}`;
+  if (dayIso === rental.return_date) return `Due ${rental.return_time || '9:00 AM'}`;
   return 'Booked';
 }
 function calendarManualBlockLabel(block, dayIso) {
@@ -2927,35 +3020,76 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId
 
   const rentalSegments = rentals.flatMap((rental) => {
     const start = parseRentMeCtDateTime(rental.pickup_date, rental.pickup_time);
-    const end = getRentalBlockedUntil(rental);
-    if (!start || !end || start >= nextDayStart || end <= dayStart) return [];
-    const type = rentalStatusToAvailabilityType(rental.status);
+    const bookedEnd = parseRentMeCtDateTime(rental.return_date, rental.return_time);
     const blockedUntil = getRentalBlockedUntil(rental);
-    return [{
-      id: `rental-${rental.id}`,
-      kind: 'rental',
-      item: rental,
-      ...toSegmentPosition(start, end),
-      color: availabilityTypes[type]?.color || DEFAULT_AVAILABILITY_TYPES[type]?.color,
-      label: calendarBlockLabel(rental, dayIso),
-      title: `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`,
-    }];
+    const standardAvailableAt = bookedEnd ? new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000) : null;
+    if (!start || !bookedEnd || !blockedUntil) return [];
+    const type = rentalStatusToAvailabilityType(rental.status);
+    const color = availabilityTypes[type]?.color || DEFAULT_AVAILABILITY_TYPES[type]?.color;
+    const title = `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`;
+    const segments = [];
+    if (start < nextDayStart && bookedEnd > dayStart) {
+      segments.push({
+        id: `rental-${rental.id}`,
+        kind: 'rental',
+        item: rental,
+        ...toSegmentPosition(start, bookedEnd),
+        color,
+        label: calendarBlockLabel(rental, dayIso),
+        title,
+      });
+    }
+    if (blockedUntil > bookedEnd && bookedEnd < nextDayStart && blockedUntil > dayStart) {
+      segments.push({
+        id: `rental-grace-${rental.id}`,
+        kind: 'grace',
+        sourceKind: 'rental',
+        item: rental,
+        dueAt: bookedEnd,
+        standardAvailableAt,
+        ...toSegmentPosition(bookedEnd, blockedUntil),
+        color: '#f4c95d',
+        label: '',
+        title: `Three-hour turnaround after the ${formatTimeOnly(bookedEnd)} return. Available at ${formatTimeOnly(blockedUntil)}.`,
+      });
+    }
+    return segments;
   });
 
   const blockSegments = blocks.flatMap((block) => {
     if (String(block.block_type || '').toLowerCase() === 'available') return [];
     const start = parseRentMeCtDateTime(block.start_date, block.start_time || '12:00 AM');
-    const end = parseRentMeCtDateTime(block.end_date, block.end_time || '11:59 PM');
-    if (!start || !end || start >= nextDayStart || end <= dayStart) return [];
-    return [{
-      id: `block-${block.id}`,
-      kind: 'manual-block',
-      item: block,
-      ...toSegmentPosition(start, end),
-      color: availabilityTypes[block.block_type]?.color || DEFAULT_AVAILABILITY_TYPES[block.block_type]?.color || '#394852',
-      label: calendarManualBlockLabel(block, dayIso),
-      title: availabilityBlockTitle(block),
-    }];
+    const bookedEnd = parseRentMeCtDateTime(block.end_date, block.end_time || '11:59 PM');
+    const blockedUntil = getAvailabilityBlockBlockedUntil(block);
+    const standardAvailableAt = bookedEnd ? new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000) : null;
+    if (!start || !bookedEnd || !blockedUntil) return [];
+    const segments = [];
+    if (start < nextDayStart && bookedEnd > dayStart) {
+      segments.push({
+        id: `block-${block.id}`,
+        kind: 'manual-block',
+        item: block,
+        ...toSegmentPosition(start, bookedEnd),
+        color: availabilityTypes[block.block_type]?.color || DEFAULT_AVAILABILITY_TYPES[block.block_type]?.color || '#394852',
+        label: calendarManualBlockLabel(block, dayIso),
+        title: availabilityBlockTitle(block),
+      });
+    }
+    if (blockedUntil > bookedEnd && bookedEnd < nextDayStart && blockedUntil > dayStart) {
+      segments.push({
+        id: `block-grace-${block.id}`,
+        kind: 'grace',
+        sourceKind: 'manual-block',
+        item: block,
+        dueAt: bookedEnd,
+        standardAvailableAt,
+        ...toSegmentPosition(bookedEnd, blockedUntil),
+        color: '#f4c95d',
+        label: '',
+        title: `Three-hour turnaround after the ${formatTimeOnly(bookedEnd)} end time. Available at ${formatTimeOnly(blockedUntil)}.`,
+      });
+    }
+    return segments;
   });
 
   const occupied = [...rentalSegments, ...blockSegments].sort((a, b) => a.left - b.left || b.width - a.width);
@@ -2982,7 +3116,7 @@ function buildAvailableCalendarSegment({ dayIso, vehicleId, left, width, index }
   const label = startsDay
     ? `Available until ${endTime}`
     : endsDay
-      ? `Available ${startTime}+`
+      ? `Available at ${startTime}`
       : `Available ${startTime}–${endTime}`;
   return {
     id: `available-${vehicleId}-${dayIso}-${index}`,

@@ -223,6 +223,21 @@
     filter:none;
     box-shadow:inset 0 0 0 3px #2f8f5b
 }
+.fleet-calendar .calendar-time-segment.grace{
+    background:repeating-linear-gradient(135deg,#f4c95d 0,#f4c95d 8px,#e8b93c 8px,#e8b93c 16px)!important;
+    border-right:1px solid #9f7411;
+    color:#4f3906
+}
+.fleet-calendar .calendar-time-segment.grace span{
+    color:#4f3906!important;
+    font-size:10px!important;
+    line-height:1.08!important
+}
+.fleet-calendar .calendar-time-segment.grace:hover,
+.fleet-calendar .calendar-time-segment.grace:focus-visible{
+    filter:brightness(1.04);
+    box-shadow:inset 0 0 0 3px #fff
+}
 
 /* Final auth layout: centered logo and login form only. */
 .auth-screen.admin-auth-light{
