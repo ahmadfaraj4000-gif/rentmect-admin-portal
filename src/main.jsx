@@ -81,6 +81,9 @@ const DEFAULT_VEHICLE_IMAGE_NAMES = new Set([
   'Dodge-Van-451', 'Dodge-Van-452', 'Ford-Escape-650', 'Ford-F350-4X4-191',
   'Kia-Soul-656', 'Mercedes-Benz-C300-677', 'Mercedes-C300-321',
 ]);
+const PUBLIC_FLEET_ASSET_BASE_URL = (
+  import.meta.env.VITE_PUBLIC_FLEET_ASSET_BASE_URL || 'https://rentmect.com/assets'
+).replace(/\/$/, '');
 
 function getAdminVehicleImage(vehicle) {
   if (Array.isArray(vehicle?.image_urls) && vehicle.image_urls[0]) return vehicle.image_urls[0];
@@ -89,7 +92,7 @@ function getAdminVehicleImage(vehicle) {
     .replace(/#/g, '')
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return DEFAULT_VEHICLE_IMAGE_NAMES.has(imageName) ? `/assets/${imageName}.webp` : '';
+  return DEFAULT_VEHICLE_IMAGE_NAMES.has(imageName) ? `${PUBLIC_FLEET_ASSET_BASE_URL}/${imageName}.webp` : '';
 }
 
 async function uploadOptimizedVehicleImages(files) {
@@ -353,6 +356,7 @@ function App() {
   useEffect(() => {
     if (!isAdminUser) return undefined;
     let refreshTimer;
+    let calendarPoll;
     const refreshCalendarSourceOfTruth = () => {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => loadAllData({ silent: true }), 150);
@@ -362,9 +366,11 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, refreshCalendarSourceOfTruth)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, refreshCalendarSourceOfTruth)
       .subscribe();
+    calendarPoll = window.setInterval(refreshCalendarSourceOfTruth, 15 * 1000);
 
     return () => {
       window.clearTimeout(refreshTimer);
+      window.clearInterval(calendarPoll);
       supabase.removeChannel(calendarChannel);
     };
   }, [isAdminUser]);
