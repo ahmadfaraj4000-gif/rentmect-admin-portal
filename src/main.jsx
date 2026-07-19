@@ -19,6 +19,7 @@ import {
   FileSignature,
   FileText,
   Gauge,
+  History,
   ImagePlus,
   KeyRound,
   LogOut,
@@ -44,6 +45,7 @@ import './styles.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CT_TAX_RATE = 0.0635;
+const STANDARD_SECURITY_DEPOSIT = 300;
 const DOCUMENT_BUCKET = 'rental-documents';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
@@ -159,6 +161,7 @@ function App() {
   const [discountCodes, setDiscountCodes] = useState([]);
   const [serviceFees, setServiceFees] = useState([]);
   const [sitePromotions, setSitePromotions] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
   const [editingPromotionId, setEditingPromotionId] = useState('');
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]);
@@ -199,7 +202,7 @@ function App() {
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
   const [vehicleForm, setVehicleForm] = useState({
-    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available', description: '', features: '', image_urls: ''
+    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(STANDARD_SECURITY_DEPOSIT), status: 'available', description: '', features: '', image_urls: ''
   });
   const [discountForm, setDiscountForm] = useState({
     code: '',
@@ -289,6 +292,16 @@ function App() {
   useEffect(() => {
     if (isAdminUser) loadAllData();
   }, [isAdminUser]);
+
+  useEffect(() => {
+    if (!isAdminUser || !session?.user?.id) return;
+    const sessionKey = `rentmect_admin_login_audited_${session.access_token?.slice(-16) || session.user.id}`;
+    if (window.sessionStorage.getItem(sessionKey)) return;
+    window.sessionStorage.setItem(sessionKey, '1');
+    recordAdminAuditEvent('admin.login', 'admin_session', session.user.id, {
+      portal: 'admin',
+    });
+  }, [isAdminUser, session?.user?.id, session?.access_token]);
 
   useEffect(() => {
     if (!isAdminUser) return undefined;
@@ -403,14 +416,29 @@ function App() {
   }
 
   async function signOut() {
+    if (isAdminUser && session?.user?.id) {
+      await recordAdminAuditEvent('admin.logout', 'admin_session', session.user.id, { portal: 'admin' });
+    }
     await supabase.auth.signOut();
     setSession(null);
     setIsAdminUser(false);
   }
 
+  async function recordAdminAuditEvent(action, entityType, entityId, metadata = {}) {
+    const { error } = await supabase.rpc('record_admin_audit_event', {
+      p_action: action,
+      p_entity_type: entityType,
+      p_entity_id: entityId ? String(entityId) : null,
+      p_metadata: metadata,
+    });
+    if (error && !/record_admin_audit_event|schema cache/i.test(error.message || '')) {
+      console.warn('Audit event could not be recorded', error.message);
+    }
+  }
+
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, auditLogsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -491,6 +519,12 @@ function App() {
         .select('*, vehicles(*)')
         .eq('active', true)
         .order('start_date', { ascending: true }),
+
+      supabase
+        .from('admin_audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(750),
     ]);
 
     if (profilesRes.data) setProfiles(profilesRes.data);
@@ -505,6 +539,7 @@ function App() {
     if (serviceFeesRes.data) setServiceFees(serviceFeesRes.data);
     if (sitePromotionsRes.data) setSitePromotions(sitePromotionsRes.data);
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
+    if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
     if (!silent) setLoading(false);
   }
 
@@ -583,7 +618,7 @@ function App() {
         return notify(`Starting mileage cannot be below the vehicle's current mileage (${formatMiles(rental.vehicles.current_mileage)}).`);
       }
 
-      if (rental && !['document_review', 'approved', 'ready_for_pickup'].includes(rental.status)) {
+      if (rental && !options.overrideMissingRequirements && !['document_review', 'approved', 'ready_for_pickup'].includes(rental.status)) {
         const { error: readyError } = await supabase
           .from('rentals')
           .update({ status: 'ready_for_pickup' })
@@ -733,6 +768,8 @@ function App() {
         .update({
           deposit_status: 'held',
           deposit_held_amount: Math.max(Number(rental.deposit_held_amount || 0), Number(rental.security_deposit || 0)),
+          deposit_release_due_at: null,
+          deposit_release_reason: 'Held after return inspection for admin review.',
         })
         .eq('id', rental.id);
       if (depositError) return notify(depositError.message);
@@ -771,6 +808,33 @@ function App() {
     if (inspectionError) return notify(inspectionError.message);
 
     await updateRentalStatus(rental.id, 'completed', { endingMileage: inspection.endingMileage });
+  }
+
+  async function releaseSecurityDeposit(rental) {
+    if (!rental?.id) return;
+    const amount = Number(rental.security_deposit || 0);
+    const confirmed = window.confirm(`Refund ${money(amount)} of the captured Stripe payment to this customer now?`);
+    if (!confirmed) return;
+
+    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+      body: {
+        action: 'release_deposit',
+        rentalId: rental.id,
+        reason: 'Released manually from the admin portal.',
+      },
+    });
+    if (error || data?.error) return notify(data?.error || error.message);
+
+    const nextStatus = data?.status === 'succeeded' || data?.status === 'released' ? 'released' : 'release_pending';
+    setRentals((current) => current.map((item) => item.id === rental.id ? {
+      ...item,
+      deposit_status: nextStatus,
+      deposit_refund_id: data?.refundId || item.deposit_refund_id,
+      deposit_release_due_at: null,
+      deposit_released_at: nextStatus === 'released' ? new Date().toISOString() : item.deposit_released_at,
+    } : item));
+    notify(nextStatus === 'released' ? 'Security deposit refund submitted successfully.' : 'Security deposit refund is processing.', 'success');
+    loadAllData({ silent: true });
   }
 
   async function recordTestPayment(id) {
@@ -878,7 +942,7 @@ function App() {
       plate_number: vehicle.plate_number || '',
       vin: vehicle.vin || '',
       daily_rate: vehicle.daily_rate || '',
-      security_deposit: vehicle.security_deposit || '',
+      security_deposit: String(STANDARD_SECURITY_DEPOSIT),
       description: vehicle.description || '',
       features: listToLines(vehicle.features),
       image_urls: listToLines(vehicle.image_urls),
@@ -901,7 +965,7 @@ function App() {
         ...vehicleFields,
         ...(status ? { status } : {}),
         daily_rate: Number(editVehicleForm.daily_rate || 0),
-        security_deposit: Number(editVehicleForm.security_deposit || 0),
+        security_deposit: STANDARD_SECURITY_DEPOSIT,
         features: linesToList(editVehicleForm.features),
         image_urls: linesToList(editVehicleForm.image_urls),
       })
@@ -1449,6 +1513,11 @@ function App() {
     const directUrl = document.file_url || document.document_url || document.public_url || document.url;
     const path = document.file_path || document.storage_path || document.path;
 
+    recordAdminAuditEvent('document.opened', 'rental_document', document.id, {
+      rental_id: document.rental_id || null,
+      document_type: document.document_type || null,
+    });
+
     if (directUrl) {
       window.open(directUrl, '_blank', 'noopener,noreferrer');
       return;
@@ -1550,12 +1619,12 @@ function App() {
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
       daily_rate: Number(vehicleForm.daily_rate || 0),
-      security_deposit: Number(vehicleForm.security_deposit || 0),
+      security_deposit: STANDARD_SECURITY_DEPOSIT,
       features: linesToList(vehicleForm.features),
       image_urls: linesToList(vehicleForm.image_urls),
     });
     if (error) return notify(error.message);
-    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: '', status: 'available', description: '', features: '', image_urls: '' });
+    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(STANDARD_SECURITY_DEPOSIT), status: 'available', description: '', features: '', image_urls: '' });
     loadAllData();
   }
 
@@ -1604,6 +1673,7 @@ function App() {
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
     { key: 'messages', label: 'Messages', icon: MessageCircle },
+    { key: 'audit', label: 'Audit Log', icon: History },
     { key: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -1703,12 +1773,13 @@ function App() {
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} waiveTurnaroundGrace={waiveTurnaroundGrace} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
+        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
+        {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
         {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
     </div>
@@ -2181,7 +2252,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
+function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
 
@@ -2223,7 +2294,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
       </div>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
+      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
     </Panel>
   </>;
 }
@@ -2242,9 +2313,13 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
             <span>{p.email || p.id}</span>
             <small className="customer-phone">Phone: {p.phone || 'Not provided'}</small>
             <small className={adminCustomerAge(p.date_of_birth) !== null && adminCustomerAge(p.date_of_birth) < 25 ? 'unverified-badge' : 'verified-badge'}>
-              {adminCustomerAge(p.date_of_birth) === null ? 'Age Not Confirmed' : adminCustomerAge(p.date_of_birth) < 25 ? `Under 25 (${adminCustomerAge(p.date_of_birth)}) • $500 deposit` : `Age 25+ (${adminCustomerAge(p.date_of_birth)})`}
+              {adminCustomerAge(p.date_of_birth) === null ? 'Age Not Confirmed' : adminCustomerAge(p.date_of_birth) < 25 ? `Under 25 (${adminCustomerAge(p.date_of_birth)}) • $500 deposit` : `Age 25+ (${adminCustomerAge(p.date_of_birth)}) • $300 deposit`}
             </small>
             <small className={p.phone_verified ? 'verified-badge' : 'unverified-badge'}>{p.phone_verified ? 'Phone Verified' : 'Not Verified'}</small>
+            <small className={p.identity_verification_status === 'verified' ? 'verified-badge' : 'unverified-badge'}>
+              Stripe Identity: {prettyStatus(p.identity_verification_status || 'unverified')}
+              {p.identity_verified_at ? ` • ${new Date(p.identity_verified_at).toLocaleDateString()}` : ''}
+            </small>
             {p.phone_verified_at && <small className="customer-verified-time">Verified: {new Date(p.phone_verified_at).toLocaleString()}</small>}
             <div className={`risk-box ${risk.level}`}>
               <strong>Risk: {prettyStatus(risk.level)}</strong>
@@ -2259,6 +2334,74 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
       })}
     </div>
   </Panel>;
+}
+
+function AuditLog({ auditLogs = [] }) {
+  const [query, setQuery] = useState('');
+  const [entityFilter, setEntityFilter] = useState('all');
+  const [actionFilter, setActionFilter] = useState('all');
+  const entities = [...new Set(auditLogs.map((log) => log.entity_type).filter(Boolean))].sort();
+  const actions = [...new Set(auditLogs.map((log) => log.action).filter(Boolean))].sort();
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleLogs = auditLogs.filter((log) => {
+    if (entityFilter !== 'all' && log.entity_type !== entityFilter) return false;
+    if (actionFilter !== 'all' && log.action !== actionFilter) return false;
+    if (!normalizedQuery) return true;
+    return [log.actor_email, log.actor_user_id, log.action, log.entity_type, log.entity_id, ...(log.changed_fields || [])]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+  });
+
+  return <Panel title="Staff Activity" eyebrow="Audit Log">
+    <p className="muted">Immutable history of staff and admin actions. Sensitive document and payment fields are redacted before storage.</p>
+    <div className="audit-filters">
+      <div className="search-row"><Search size={18}/><input value={query} onChange={(event) => setQuery(limitText(event.target.value, 160))} placeholder="Search staff, action, record ID..." /></div>
+      <select aria-label="Filter audit log by record type" value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)}>
+        <option value="all">All record types</option>
+        {entities.map((entity) => <option key={entity} value={entity}>{prettyStatus(entity)}</option>)}
+      </select>
+      <select aria-label="Filter audit log by action" value={actionFilter} onChange={(event) => setActionFilter(event.target.value)}>
+        <option value="all">All actions</option>
+        {actions.map((action) => <option key={action} value={action}>{auditActionLabel(action)}</option>)}
+      </select>
+    </div>
+    <div className="audit-summary">Showing {visibleLogs.length} of {auditLogs.length} recorded actions</div>
+    <div className="table-list audit-list">
+      {visibleLogs.length === 0 && <p className="muted">No audit entries match this view. New entries appear after the audit migration is installed.</p>}
+      {visibleLogs.map((log) => <article className="data-row audit-row" key={log.id}>
+        <div className="audit-row-main">
+          <strong>{auditActionLabel(log.action)}</strong>
+          <span>{log.actor_email || 'System process'} <em>{log.actor_role ? `• ${prettyStatus(log.actor_role)}` : ''}</em></span>
+          <small>{prettyStatus(log.entity_type || 'record')}{log.entity_id ? ` • ${log.entity_id}` : ''}</small>
+          {log.changed_fields?.length > 0 && <small>Changed: {log.changed_fields.map(prettyStatus).join(', ')}</small>}
+        </div>
+        <div className="audit-row-side">
+          <time dateTime={log.created_at}>{log.created_at ? new Date(log.created_at).toLocaleString() : 'Time unavailable'}</time>
+          {(log.old_values || log.new_values || Object.keys(log.metadata || {}).length > 0) && <details>
+            <summary>View details</summary>
+            <pre>{JSON.stringify({ before: log.old_values || undefined, after: log.new_values || undefined, metadata: log.metadata || undefined }, null, 2)}</pre>
+          </details>}
+        </div>
+      </article>)}
+    </div>
+  </Panel>;
+}
+
+function DepositReleaseStatus({ rental }) {
+  if (!rental?.security_deposit || rental.deposit_status === 'pending') return null;
+  if (rental.deposit_status === 'released') {
+    return <small className="deposit-release-status released">Deposit refunded{rental.deposit_released_at ? ` • ${new Date(rental.deposit_released_at).toLocaleString()}` : ''}</small>;
+  }
+  if (rental.deposit_status === 'release_pending') {
+    return <small className="deposit-release-status pending">Deposit refund is processing with Stripe.</small>;
+  }
+  if (rental.deposit_status === 'held' && rental.deposit_release_due_at) {
+    return <small className="deposit-release-status scheduled">Deposit held • automatic refund scheduled {new Date(rental.deposit_release_due_at).toLocaleString()}</small>;
+  }
+  if (rental.deposit_status === 'held') {
+    return <small className="deposit-release-status held">Deposit held for review; no automatic refund is scheduled.</small>;
+  }
+  return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
 function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes }) {
@@ -2329,7 +2472,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
         <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={vehicleForm.plate_number} onChange={(e)=>update('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
         <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} />
         <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} />
-        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 deposit" title="Security deposit in USD" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} />
+        <input type="number" value={STANDARD_SECURITY_DEPOSIT} title="Standard deposit is fixed at $300 for ages 25+; under-25 deposit is $500." disabled />
         <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
         <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
         <textarea placeholder="Features, one per line" maxLength="1200" value={vehicleForm.features} onChange={(e)=>update('features', e.target.value)} />
@@ -2354,7 +2497,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={editVehicleForm.plate_number} onChange={(e)=>updateEdit('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
           <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
           <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
-          <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 deposit" title="Security deposit in USD" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} />
+          <input type="number" value={STANDARD_SECURITY_DEPOSIT} title="Standard deposit is fixed at $300 for ages 25+; under-25 deposit is $500." disabled />
           <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
             <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
             {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
@@ -2463,7 +2606,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
   const rentalTotal = Number(selectedVehicle?.daily_rate || 0) * days;
   const dateOfBirth = manualBookingForm.customerMode === 'new' ? manualBookingForm.dateOfBirth : selectedCustomer?.date_of_birth || manualBookingForm.existingDateOfBirth;
   const age = adminCustomerAge(dateOfBirth);
-  const deposit = age !== null && age < 25 ? 500 : Number(selectedVehicle?.security_deposit || 0);
+  const deposit = age !== null && age < 25 ? 500 : STANDARD_SECURITY_DEPOSIT;
   const customerName = manualBookingForm.customerMode === 'new'
     ? manualBookingForm.fullName.trim() || 'New customer'
     : selectedCustomer?.full_name || selectedCustomer?.email || 'Choose a customer';
@@ -2821,7 +2964,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
@@ -2839,7 +2982,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
   const canCompleteReturn = Boolean(completeRentalReturn) && rental.status === 'return_initiated';
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
   const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
-  const canOverrideWorkflow = !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && releaseChecklist.vehicle;
+  const canOverrideWorkflow = !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && releaseChecklist.vehicle && releaseChecklist.identity;
   const missingRequirements = getMissingReleaseRequirements(releaseChecklist);
   const canOverrideReady = canOverrideWorkflow && !releaseChecklist.ready;
   const canOverrideActive = canOverrideWorkflow && !releaseChecklist.ready;
@@ -2849,6 +2992,11 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, releaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
+  const canReleaseDeposit = Boolean(releaseSecurityDeposit)
+    && rental.status === 'completed'
+    && rental.payment_provider === 'stripe'
+    && rental.deposit_status === 'held'
+    && Number(rental.security_deposit || 0) > 0;
 
   function submitPickupOverride(startingMileage) {
     updateRentalStatus(rental.id, 'active', {
@@ -2864,6 +3012,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
       <strong>{rental.vehicles?.name || 'Vehicle'}</strong>
       <span>{rental.profiles?.full_name || 'Client'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
       {detailed && <small>{money(rental.rental_total)} rental • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
+      {detailed && <DepositReleaseStatus rental={rental} />}
       {detailed && <MileageSummary rental={rental} />}
       <RentalProgressTracker steps={progressSteps} />
       {detailed && <div className="rental-doc-summary">
@@ -2911,6 +3060,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, recordTes
         {canOverrideReady && <button className="override-action" onClick={() => setOverrideReadyOpen(true)}><ShieldCheck size={15}/> Override Ready</button>}
         {canOverrideActive && <button className="override-action" onClick={() => setPickupModal({ override: true, missingRequirements })}><Car size={15}/> Override Pickup</button>}
         {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
+        {canReleaseDeposit && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> Refund Deposit Now</button>}
       </div>
       <div className="rental-actions-secondary">
         {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
@@ -3217,7 +3367,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       <label><input type="checkbox" checked={inspection.damageChecked} onChange={(event) => update('damageChecked', event.target.checked)} /> Damage checked</label>
       <label className="field-label">Deposit decision
         <select value={inspection.depositDecision} onChange={(event) => update('depositDecision', event.target.value)}>
-          <option value="release">Release deposit after normal review</option>
+          <option value="release">Schedule refund in 7 days (admin can refund sooner)</option>
           <option value="hold">Hold deposit for review</option>
         </select>
       </label>
@@ -3717,6 +3867,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
     const hasLicense = Boolean(latestLicense && latestLicense.status !== 'rejected');
     const hasInsurance = Boolean(latestInsurance && latestInsurance.status !== 'rejected');
     const releaseDocsApproved = latestLicense?.status === 'approved' && latestInsurance?.status === 'approved';
+    const identityVerified = rental.profiles?.identity_verification_status === 'verified';
 
     if (isOverdue(rental.return_date, rental.status)) {
       items.push({ id: `overdue-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Rental overdue', subtitle: `${customer} • ${vehicle}`, detail: `Return was due ${formatRentalDate(rental.return_date, rental.return_time)}`, rental, nextStatus: 'overdue' });
@@ -3741,11 +3892,22 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
     if (!rental.agreement_signed && ['documents_needed', 'document_review', 'approved'].includes(rental.status)) {
       items.push({ id: `unsigned-${rental.id}`, bucket: 'payment_needed', severity: 'warning', title: 'Agreement unsigned', subtitle: `${customer} • ${vehicle}`, detail: 'Customer has not completed agreement signature.', rental });
     }
+    if (!terminal && !identityVerified && paymentPaid) {
+      items.push({
+        id: `identity-${rental.id}`,
+        bucket: 'needs_approval',
+        severity: 'warning',
+        title: 'Stripe Identity required',
+        subtitle: `${customer} • ${vehicle}`,
+        detail: `Status: ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}. Vehicle pickup remains blocked.`,
+        rental,
+      });
+    }
     if ((rental.payment_status || 'pending') !== 'paid' && ['pending', 'documents_needed', 'document_review', 'approved'].includes(rental.status)) {
       items.push({ id: `payment-${rental.id}`, bucket: 'payment_needed', severity: 'warning', title: 'Payment pending', subtitle: `${customer} • ${vehicle}`, detail: `Payment status: ${prettyStatus(rental.payment_status || 'pending')}`, rental, localPaymentAction: true });
     }
     const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at);
-    if (['document_review', 'approved', 'ready_for_pickup'].includes(rental.status) && phoneVerified && rental.agreement_signed && paymentPaid && releaseDocsApproved) {
+    if (['document_review', 'approved', 'ready_for_pickup'].includes(rental.status) && phoneVerified && identityVerified && rental.agreement_signed && paymentPaid && releaseDocsApproved) {
       items.push({ id: `pickup-${rental.id}`, bucket: 'pickup_today', severity: 'info', title: 'Release ready', subtitle: `${customer} • ${vehicle}`, detail: `Approved documents. Open the rental row to record pickup mileage and release ${formatRentalDate(rental.pickup_date, rental.pickup_time)}.`, rental });
     }
     if (rental.status === 'return_initiated') {
@@ -3800,11 +3962,13 @@ function getRentalProgressSteps(rental, rentalDocuments = []) {
   const hasLicense = Boolean(license && license.status !== 'rejected');
   const hasInsurance = Boolean(insurance && insurance.status !== 'rejected');
   const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at);
+  const identityVerified = rental.profiles?.identity_verification_status === 'verified';
   const hasDatesAndVehicle = Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date);
   const agreementSigned = Boolean(rental.agreement_signed);
   const paymentPaid = (rental.payment_status || 'pending') === 'paid';
   const readyForPickup = rental.status === 'ready_for_pickup' || (
     phoneVerified &&
+    identityVerified &&
     hasDatesAndVehicle &&
     agreementSigned &&
     paymentPaid &&
@@ -3814,6 +3978,7 @@ function getRentalProgressSteps(rental, rentalDocuments = []) {
 
   const steps = [
     { key: 'phone', label: 'Phone', complete: phoneVerified, detail: phoneVerified ? 'Phone verified' : 'Phone verification needed' },
+    { key: 'identity', label: 'Identity', complete: identityVerified, detail: identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
     { key: 'vehicle', label: 'Vehicle', complete: hasDatesAndVehicle, detail: hasDatesAndVehicle ? 'Dates and vehicle selected' : 'Dates or vehicle missing' },
     { key: 'agreement', label: 'Agreement', complete: agreementSigned, detail: agreementSigned ? 'Agreement signed' : 'Agreement not signed' },
     { key: 'payment', label: 'Payment', complete: paymentPaid, detail: paymentPaid ? 'Payment complete' : `Payment ${prettyStatus(rental.payment_status || 'pending')}` },
@@ -3834,6 +3999,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
   const insurance = latestDocument(rentalDocuments, 'insurance');
   return {
     phone: Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at),
+    identity: rental.profiles?.identity_verification_status === 'verified',
     vehicle: Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date),
     agreement: Boolean(rental.agreement_signed),
     payment: (rental.payment_status || 'pending') === 'paid',
@@ -3841,6 +4007,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
     insurance: insurance?.status === 'approved',
     ready: Boolean(
       (rental.profiles?.phone_verified || rental.profiles?.phone_verified_at) &&
+      rental.profiles?.identity_verification_status === 'verified' &&
       rental.vehicle_id &&
       rental.pickup_date &&
       rental.return_date &&
@@ -3855,6 +4022,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
 function getMissingReleaseRequirements(releaseChecklist) {
   return [
     !releaseChecklist.phone ? 'phone verification' : '',
+    !releaseChecklist.identity ? 'Stripe Identity verification' : '',
     !releaseChecklist.agreement ? 'signed agreement' : '',
     !releaseChecklist.payment ? 'payment' : '',
     !releaseChecklist.license ? 'driver license' : '',
@@ -3873,6 +4041,7 @@ function getAdminRentalState(rental, releaseChecklist) {
   if (!releaseChecklist.agreement) return { label: 'Agreement Needed', tone: 'warning', next: 'Customer needs to sign the rental agreement.' };
   if (!releaseChecklist.license || !releaseChecklist.insurance) return { label: 'Documents Needed', tone: 'warning', next: 'Approve license and insurance before pickup.' };
   if (!releaseChecklist.phone) return { label: 'Phone Needed', tone: 'warning', next: 'Customer needs phone verification.' };
+  if (!releaseChecklist.identity) return { label: 'Identity Needed', tone: 'warning', next: 'Customer must complete Stripe Identity before pickup.' };
   return { label: prettyStatus(rental.status || 'Pending'), tone: 'info', next: 'Review the checklist for the next missing step.' };
 }
 
@@ -4020,7 +4189,28 @@ function buildPaymentEvents({ rentals, extensionRequests = [] }) {
 
   return [...rentalEvents, ...extensionEvents].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', settings:'Settings' })[tab] || 'Admin Portal'; }
+function auditActionLabel(action) {
+  const labels = {
+    'admin.login': 'Admin signed in',
+    'admin.logout': 'Admin signed out',
+    'document.opened': 'Document opened',
+    'security_deposit.manual_release_requested': 'Admin requested deposit refund',
+    'security_deposit.automatic_release_requested': 'Automatic deposit refund requested',
+    'security_deposit.release_failed': 'Deposit refund failed',
+    'security_deposit.succeeded': 'Deposit refunded',
+    'security_deposit.pending': 'Deposit refund pending',
+    'identity_verification.started': 'Identity verification started',
+    'identity_verification.processing': 'Identity verification processing',
+    'identity_verification.verified': 'Identity verified',
+    'identity_verification.requires_input': 'Identity verification needs retry',
+    'identity_verification.canceled': 'Identity verification canceled',
+    INSERT: 'Record added',
+    UPDATE: 'Record updated',
+    DELETE: 'Record deleted',
+  };
+  return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
+}
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function formatDecimalInput(value) {
   const amount = Number(value || 0);
