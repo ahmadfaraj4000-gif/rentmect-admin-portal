@@ -3527,7 +3527,23 @@ body{
 .vehicle-list-row{
     width:100%;
     text-align:left;
-    cursor:pointer
+    cursor:pointer;
+    align-items:center
+}
+.vehicle-list-row>div:not(.row-actions){
+    display:grid;
+    gap:4px;
+    flex:1;
+    min-width:0
+}
+.vehicle-list-thumbnail{
+    width:88px;
+    height:62px;
+    flex:0 0 88px;
+    object-fit:cover;
+    border:1px solid var(--admin-line);
+    border-radius:5px;
+    background:#f7faf9
 }
 .vehicle-list-row.selected{
     border-color:var(--italy-green)!important;
@@ -3556,6 +3572,32 @@ body{
 .vehicle-detail-form textarea{
     min-height:86px!important;
     grid-column:1 / -1
+}
+.vehicle-photo-upload{
+    grid-column:1 / -1;
+    display:grid;
+    gap:8px;
+    padding:14px;
+    border:1px dashed #91aaa0;
+    border-radius:6px;
+    background:#f6fbf8;
+    color:#173f31;
+    cursor:pointer
+}
+.vehicle-photo-upload>span{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-weight:850
+}
+.vehicle-photo-upload input[type="file"]{
+    width:100%;
+    padding:10px;
+    background:#fff
+}
+.vehicle-photo-upload small{
+    color:#607176;
+    line-height:1.45
 }
 .vehicle-image-preview{
     display:grid;

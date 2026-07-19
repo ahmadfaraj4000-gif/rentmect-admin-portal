@@ -39,6 +39,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { optimizeVehicleImage } from './lib/imageOptimizer';
 import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
@@ -47,6 +48,7 @@ const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Cir
 const CT_TAX_RATE = 0.0635;
 const STANDARD_SECURITY_DEPOSIT = 300;
 const DOCUMENT_BUCKET = 'rental-documents';
+const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
@@ -70,6 +72,51 @@ const SITE_PAGE_OPTIONS = [
   { value: 'index.html', label: 'Home page (index.html)' },
   { value: 'cars.html', label: 'Cars page (cars.html)' },
 ];
+const DEFAULT_VEHICLE_IMAGE_NAMES = new Set([
+  'Audi-A4-002', 'Audi-A4-158', 'Audi-A6-385', 'Audi-A6-473', 'Audi-A8L-YPS',
+  'Audi-Q3-100', 'Audi-Q5-148', 'Audi-Q5-149', 'Audi-Q5-203', 'Audi-Q5-210',
+  'Audi-Q5-225', 'Audi-Q5-234', 'Audi-Q5-474', 'Audi-Q5-997', 'Audi-S3-001',
+  'BMW-328I-004', 'BMW-330I-157', 'BMW-330XI-166', 'Benz-C300-418',
+  'Benz-CLS-AMG-550-224', 'Buick-Encore-649', 'Cadillac-ATS-780',
+  'Dodge-Van-451', 'Dodge-Van-452', 'Ford-Escape-650', 'Ford-F350-4X4-191',
+  'Kia-Soul-656', 'Mercedes-Benz-C300-677', 'Mercedes-C300-321',
+]);
+
+function getAdminVehicleImage(vehicle) {
+  if (Array.isArray(vehicle?.image_urls) && vehicle.image_urls[0]) return vehicle.image_urls[0];
+  const imageName = String(vehicle?.name || '')
+    .trim()
+    .replace(/#/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return DEFAULT_VEHICLE_IMAGE_NAMES.has(imageName) ? `/assets/${imageName}.webp` : '';
+}
+
+async function uploadOptimizedVehicleImages(files) {
+  const selectedFiles = Array.from(files || []);
+  if (!selectedFiles.length) return [];
+  if (selectedFiles.length > 8) throw new Error('Upload no more than 8 vehicle photos at a time.');
+
+  const urls = [];
+  for (const file of selectedFiles) {
+    const optimized = await optimizeVehicleImage(file);
+    const uniqueId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const objectPath = `fleet/${uniqueId}-${optimized.name}`;
+    const { error: uploadError } = await supabase.storage
+      .from(VEHICLE_IMAGE_BUCKET)
+      .upload(objectPath, optimized, {
+        cacheControl: '31536000',
+        contentType: 'image/webp',
+        upsert: false,
+      });
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from(VEHICLE_IMAGE_BUCKET).getPublicUrl(objectPath);
+    if (!data?.publicUrl) throw new Error('The uploaded vehicle photo did not return a public URL.');
+    urls.push(data.publicUrl);
+  }
+  return urls;
+}
 const EMPTY_PROMOTION_FORM = {
   name: '',
   coupon_code: '',
@@ -1775,7 +1822,7 @@ function App() {
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
-        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} />}
+        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
@@ -2404,8 +2451,9 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes }) {
+function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
+  const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const normalizeVehicleField = (key, value) => {
     if (key === 'vin') return normalizeVinInput(value);
     if (key === 'plate_number') return normalizePlateInput(value);
@@ -2435,6 +2483,32 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
     startEditVehicle(vehicle);
   }
 
+  async function addUploadedVehicleImages(files, editing = false) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length) return;
+
+    const currentUrls = linesToList(editing ? editVehicleForm?.image_urls : vehicleForm.image_urls);
+    if (currentUrls.length + selectedFiles.length > 8) {
+      notify('Keep each vehicle to 8 pictures or fewer. Remove an existing URL before uploading more.');
+      return;
+    }
+
+    setImageUploadBusy(true);
+    try {
+      const uploadedUrls = await uploadOptimizedVehicleImages(selectedFiles);
+      const setter = editing ? setEditVehicleForm : setVehicleForm;
+      setter((current) => ({
+        ...current,
+        image_urls: listToLines([...linesToList(current.image_urls), ...uploadedUrls]),
+      }));
+      notify(`${uploadedUrls.length} vehicle ${uploadedUrls.length === 1 ? 'photo' : 'photos'} compressed and uploaded. Save the vehicle to publish.`, 'success');
+    } catch (error) {
+      notify(error?.message || 'Vehicle pictures could not be optimized and uploaded.');
+    } finally {
+      setImageUploadBusy(false);
+    }
+  }
+
   return <section className="content-grid vehicles-layout">
     <Panel title="Fleet" eyebrow="Vehicles">
       {vehicles.map((v) => {
@@ -2442,6 +2516,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
         }}>
+          {getAdminVehicleImage(v) && <img className="vehicle-list-thumbnail" src={getAdminVehicleImage(v)} alt="" loading="lazy" decoding="async" />}
           <div>
             <strong>{v.name}</strong>
             <span>{v.brand} {v.model} • {v.vehicle_type}</span>
@@ -2476,7 +2551,19 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
         <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
         <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
         <textarea placeholder="Features, one per line" maxLength="1200" value={vehicleForm.features} onChange={(e)=>update('features', e.target.value)} />
+        <label className="vehicle-photo-upload">
+          <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Upload vehicle pictures'}</span>
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
+            const files = Array.from(event.target.files || []);
+            event.target.value = '';
+            addUploadedVehicleImages(files, false);
+          }} />
+          <small>JPG, PNG, or WebP. Photos are resized, converted to WebP, and capped at 450 KB before upload.</small>
+        </label>
         <textarea placeholder="Picture URLs, one per line" maxLength="3000" value={vehicleForm.image_urls} onChange={(e)=>update('image_urls', e.target.value)} />
+        {linesToList(vehicleForm.image_urls).length > 0 && <div className="vehicle-image-preview">
+          {linesToList(vehicleForm.image_urls).slice(0, 4).map((url) => <img key={url} src={url} alt={`${vehicleForm.name || 'New vehicle'} inventory`} loading="lazy" />)}
+        </div>}
         <button className="primary-btn"><Plus size={17}/> Add Vehicle</button>
       </form>
     </Panel>
@@ -2504,11 +2591,21 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           </select>
           <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
           <textarea placeholder="Features, one per line e.g. Bluetooth, AWD, backup camera" maxLength="1200" value={editVehicleForm.features} onChange={(e)=>updateEdit('features', e.target.value)} />
+          <label className="vehicle-photo-upload">
+            <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Upload replacement pictures'}</span>
+            <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
+              const files = Array.from(event.target.files || []);
+              event.target.value = '';
+              addUploadedVehicleImages(files, true);
+            }} />
+            <small>JPG, PNG, or WebP. Photos are resized, converted to WebP, and capped at 450 KB before upload.</small>
+          </label>
           <textarea placeholder="Picture URLs, one per line" maxLength="3000" value={editVehicleForm.image_urls} onChange={(e)=>updateEdit('image_urls', e.target.value)} />
         </div>
         <div className="vehicle-image-preview">
           {linesToList(editVehicleForm.image_urls).slice(0, 4).map((url) => <img key={url} src={url} alt={`${editVehicleForm.name || editingVehicle.name} inventory`} loading="lazy" />)}
-          {linesToList(editVehicleForm.image_urls).length === 0 && <span className="vehicle-image-empty">No custom pictures yet</span>}
+          {linesToList(editVehicleForm.image_urls).length === 0 && getAdminVehicleImage(editingVehicle) && <img src={getAdminVehicleImage(editingVehicle)} alt={`${editingVehicle.name} default inventory`} loading="lazy" />}
+          {linesToList(editVehicleForm.image_urls).length === 0 && !getAdminVehicleImage(editingVehicle) && <span className="vehicle-image-empty">No pictures yet</span>}
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" type="button" onClick={cancelEditVehicle}>Cancel</button>
