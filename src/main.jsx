@@ -64,6 +64,32 @@ const DEFAULT_AVAILABILITY_TYPES = {
   on_road: { label: 'On the Road', color: '#2f8f5b' },
   maintenance: { label: 'Maintenance', color: '#171717' },
 };
+const SITE_PAGE_OPTIONS = [
+  { value: 'index.html', label: 'Home page (index.html)' },
+  { value: 'cars.html', label: 'Cars page (cars.html)' },
+];
+const EMPTY_PROMOTION_FORM = {
+  name: '',
+  coupon_code: '',
+  badge_text: 'SPECIAL OFFER',
+  offer_value: '15%',
+  offer_suffix: 'off',
+  popup_kicker: 'Limited-Time Special',
+  popup_title: '',
+  popup_body: '',
+  banner_title: '',
+  banner_body: 'Use code',
+  cta_label: 'Choose Your Car',
+  cta_url: 'cars.html',
+  fine_print: '',
+  starts_at: '',
+  ends_at: '',
+  popup_enabled: true,
+  banner_enabled: true,
+  popup_pages: ['index.html'],
+  banner_pages: ['cars.html'],
+  active: true,
+};
 
 const INSURANCE_RESOURCE_LINKS = [
   { label: 'Bonzah Insurance', detail: 'Rental insurance options', href: 'https://bonzah.com/', recommended: true },
@@ -132,6 +158,9 @@ function App() {
   const [extensionRequests, setExtensionRequests] = useState([]);
   const [discountCodes, setDiscountCodes] = useState([]);
   const [serviceFees, setServiceFees] = useState([]);
+  const [sitePromotions, setSitePromotions] = useState([]);
+  const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
+  const [editingPromotionId, setEditingPromotionId] = useState('');
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState('');
   const [availabilityTypes, setAvailabilityTypes] = useState(() => {
@@ -381,7 +410,7 @@ function App() {
 
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, availabilityBlocksRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -453,6 +482,11 @@ function App() {
         .order('created_at', { ascending: false }),
 
       supabase
+        .from('site_promotions')
+        .select('*')
+        .order('updated_at', { ascending: false }),
+
+      supabase
         .from('vehicle_availability_blocks')
         .select('*, vehicles(*)')
         .eq('active', true)
@@ -469,6 +503,7 @@ function App() {
     if (extensionsRes.data) setExtensionRequests(extensionsRes.data);
     if (discountCodesRes.data) setDiscountCodes(discountCodesRes.data);
     if (serviceFeesRes.data) setServiceFees(serviceFeesRes.data);
+    if (sitePromotionsRes.data) setSitePromotions(sitePromotionsRes.data);
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
     if (!silent) setLoading(false);
   }
@@ -997,6 +1032,103 @@ function App() {
     if (error) return notify(error.message);
     setServiceFees((current) => current.filter((fee) => fee.id !== id));
     notify('Service fee deleted.', 'success');
+  }
+
+  function resetPromotionForm() {
+    setEditingPromotionId('');
+    setPromotionForm({ ...EMPTY_PROMOTION_FORM, popup_pages: ['index.html'], banner_pages: ['cars.html'] });
+  }
+
+  function editSitePromotion(promotion) {
+    setEditingPromotionId(promotion.id);
+    setPromotionForm({
+      ...EMPTY_PROMOTION_FORM,
+      ...promotion,
+      starts_at: formatEasternDateTimeInput(promotion.starts_at),
+      ends_at: formatEasternDateTimeInput(promotion.ends_at),
+      popup_pages: [...(promotion.popup_pages || [])],
+      banner_pages: [...(promotion.banner_pages || [])],
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function saveSitePromotion(event) {
+    event.preventDefault();
+    const couponCode = normalizeCodeInput(promotionForm.coupon_code);
+    if (!promotionForm.name.trim()) return notify('Enter an internal campaign name.');
+    if (couponCode.length < 2) return notify('Enter a coupon code.');
+    if (!promotionForm.ends_at) return notify('Choose when the promotion ends.');
+    if (!promotionForm.popup_enabled && !promotionForm.banner_enabled) return notify('Turn on the popup, the banner, or both.');
+    if (promotionForm.popup_enabled && promotionForm.popup_pages.length === 0) return notify('Choose at least one page for the popup.');
+    if (promotionForm.banner_enabled && promotionForm.banner_pages.length === 0) return notify('Choose at least one page for the banner.');
+
+    const startsAt = promotionForm.starts_at ? easternDateTimeInputToIso(promotionForm.starts_at) : null;
+    const endsAt = easternDateTimeInputToIso(promotionForm.ends_at);
+    if (!endsAt) return notify('Enter a valid ending date and time.');
+    if (startsAt && new Date(endsAt) <= new Date(startsAt)) return notify('The ending time must be after the starting time.');
+
+    const payload = {
+      name: promotionForm.name.trim(),
+      coupon_code: couponCode,
+      badge_text: promotionForm.badge_text.trim() || 'SPECIAL OFFER',
+      offer_value: promotionForm.offer_value.trim() || 'Offer',
+      offer_suffix: promotionForm.offer_suffix.trim(),
+      popup_kicker: promotionForm.popup_kicker.trim() || 'Limited-Time Special',
+      popup_title: promotionForm.popup_title.trim() || promotionForm.name.trim(),
+      popup_body: promotionForm.popup_body.trim() || 'Use the coupon code at checkout.',
+      banner_title: promotionForm.banner_title.trim() || promotionForm.name.trim(),
+      banner_body: promotionForm.banner_body.trim() || 'Use code',
+      cta_label: promotionForm.cta_label.trim() || 'Choose Your Car',
+      cta_url: promotionForm.cta_url.trim() || 'cars.html',
+      fine_print: promotionForm.fine_print.trim() || null,
+      starts_at: startsAt,
+      ends_at: endsAt,
+      popup_enabled: Boolean(promotionForm.popup_enabled),
+      banner_enabled: Boolean(promotionForm.banner_enabled),
+      popup_pages: promotionForm.popup_enabled ? promotionForm.popup_pages : [],
+      banner_pages: promotionForm.banner_enabled ? promotionForm.banner_pages : [],
+      active: Boolean(promotionForm.active),
+    };
+
+    if (payload.popup_enabled && (!promotionForm.popup_title.trim() || !promotionForm.popup_body.trim())) return notify('Enter the popup headline and message.');
+    if (payload.banner_enabled && !promotionForm.banner_title.trim()) return notify('Enter the banner headline.');
+
+    const query = editingPromotionId
+      ? supabase.from('site_promotions').update(payload).eq('id', editingPromotionId).select('*').single()
+      : supabase.from('site_promotions').insert(payload).select('*').single();
+    const { data, error } = await query;
+    if (error) return notify(sitePromotionTableError(error), 'error');
+
+    setSitePromotions((current) => {
+      const next = editingPromotionId
+        ? current.map((promotion) => promotion.id === editingPromotionId ? data : promotion)
+        : [data, ...current];
+      return next.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    });
+    notify(editingPromotionId ? 'Promotion updated on the website.' : 'Promotion created for the website.', 'success');
+    resetPromotionForm();
+  }
+
+  async function toggleSitePromotion(id, active) {
+    const { data, error } = await supabase
+      .from('site_promotions')
+      .update({ active })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) return notify(sitePromotionTableError(error), 'error');
+    setSitePromotions((current) => current.map((promotion) => promotion.id === id ? data : promotion));
+    notify(active ? 'Promotion activated.' : 'Promotion paused and removed from the website.', 'success');
+  }
+
+  async function deleteSitePromotion(id) {
+    const confirmed = window.confirm('Delete this promotion permanently?');
+    if (!confirmed) return;
+    const { error } = await supabase.from('site_promotions').delete().eq('id', id);
+    if (error) return notify(sitePromotionTableError(error), 'error');
+    setSitePromotions((current) => current.filter((promotion) => promotion.id !== id));
+    if (editingPromotionId === id) resetPromotionForm();
+    notify('Promotion deleted.', 'success');
   }
 
   async function createAvailabilityBlock(event) {
@@ -1577,7 +1709,7 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
-        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
     </div>
   );
@@ -2455,6 +2587,15 @@ function SettingsTab({
   createDiscountCode,
   toggleDiscountCode,
   deleteDiscountCode,
+  sitePromotions,
+  promotionForm,
+  setPromotionForm,
+  editingPromotionId,
+  saveSitePromotion,
+  editSitePromotion,
+  resetPromotionForm,
+  toggleSitePromotion,
+  deleteSitePromotion,
   serviceFees,
   serviceFeeForm,
   setServiceFeeForm,
@@ -2472,8 +2613,104 @@ function SettingsTab({
       : value;
     setServiceFeeForm({ ...serviceFeeForm, [key]: normalizedValue });
   };
+  const updatePromotion = (key, value) => setPromotionForm((current) => ({ ...current, [key]: value }));
+  const togglePromotionPage = (surface, page, checked) => {
+    const key = `${surface}_pages`;
+    setPromotionForm((current) => ({
+      ...current,
+      [key]: checked
+        ? [...new Set([...current[key], page])]
+        : current[key].filter((item) => item !== page),
+    }));
+  };
 
   return <section className="settings-grid">
+    <div className="promotion-settings-panel">
+      <Panel title="Website Promotion Manager" eyebrow="Advertising">
+        <p className="muted promotion-manager-intro">Create one campaign, write the popup and banner messages, choose where each appears, and schedule when both automatically disappear. The coupon buttons keep the same tap-to-copy action used on the current website.</p>
+        <form className="portal-form settings-form promotion-form" onSubmit={saveSitePromotion}>
+          <div className="promotion-form-section">
+            <h4>Campaign and coupon</h4>
+            <div className="form-row">
+              <label><span>Campaign name (admin only)</span><input required maxLength="80" placeholder="Labor Day Special" value={promotionForm.name} onChange={(event) => updatePromotion('name', limitText(event.target.value, 80))} /></label>
+              <label><span>Coupon code</span><input required list="promotion-discount-codes" maxLength="32" placeholder="LABORDAY20" value={promotionForm.coupon_code} onChange={(event) => updatePromotion('coupon_code', normalizeCodeInput(event.target.value))} /></label>
+              <datalist id="promotion-discount-codes">{discountCodes.map((code) => <option value={code.code} key={code.id}>{discountLabel(code)}</option>)}</datalist>
+            </div>
+            <div className="form-row promotion-three-column">
+              <label><span>Banner badge</span><input maxLength="32" placeholder="20% OFF" value={promotionForm.badge_text} onChange={(event) => updatePromotion('badge_text', limitText(event.target.value, 32))} /></label>
+              <label><span>Large offer</span><input maxLength="20" placeholder="20%" value={promotionForm.offer_value} onChange={(event) => updatePromotion('offer_value', limitText(event.target.value, 20))} /></label>
+              <label><span>Offer suffix</span><input maxLength="20" placeholder="off" value={promotionForm.offer_suffix} onChange={(event) => updatePromotion('offer_suffix', limitText(event.target.value, 20))} /></label>
+            </div>
+            <div className="form-row">
+              <label><span>Starts (Eastern Time)</span><input type="datetime-local" value={promotionForm.starts_at} onChange={(event) => updatePromotion('starts_at', event.target.value)} /></label>
+              <label><span>Ends and auto-hides (Eastern Time)</span><input required type="datetime-local" value={promotionForm.ends_at} onChange={(event) => updatePromotion('ends_at', event.target.value)} /></label>
+            </div>
+          </div>
+
+          <div className="promotion-surface-grid">
+            <section className={`promotion-surface-card ${promotionForm.popup_enabled ? 'enabled' : ''}`}>
+              <div className="promotion-surface-heading">
+                <div><strong>Popup</strong><small>Uses the homepage popup layout and countdown.</small></div>
+                <label className="checkbox-pill"><input type="checkbox" checked={promotionForm.popup_enabled} onChange={(event) => updatePromotion('popup_enabled', event.target.checked)} /> Show popup</label>
+              </div>
+              <label><span>Small heading</span><input disabled={!promotionForm.popup_enabled} maxLength="60" value={promotionForm.popup_kicker} onChange={(event) => updatePromotion('popup_kicker', limitText(event.target.value, 60))} /></label>
+              <label><span>Popup headline</span><input disabled={!promotionForm.popup_enabled} required={promotionForm.popup_enabled} maxLength="120" placeholder="Your holiday ride just got better." value={promotionForm.popup_title} onChange={(event) => updatePromotion('popup_title', limitText(event.target.value, 120))} /></label>
+              <label><span>Popup message</span><textarea disabled={!promotionForm.popup_enabled} required={promotionForm.popup_enabled} maxLength="280" placeholder="Book before the deadline and use this code at checkout." value={promotionForm.popup_body} onChange={(event) => updatePromotion('popup_body', limitText(event.target.value, 280))} /></label>
+              <fieldset className="promotion-page-picker" disabled={!promotionForm.popup_enabled}>
+                <legend>Put popup on</legend>
+                {SITE_PAGE_OPTIONS.map((page) => <label className="checkbox-pill" key={`popup-${page.value}`}><input type="checkbox" checked={promotionForm.popup_pages.includes(page.value)} onChange={(event) => togglePromotionPage('popup', page.value, event.target.checked)} /> {page.label}</label>)}
+              </fieldset>
+            </section>
+
+            <section className={`promotion-surface-card ${promotionForm.banner_enabled ? 'enabled' : ''}`}>
+              <div className="promotion-surface-heading">
+                <div><strong>Banner</strong><small>Uses the cars-page banner layout and countdown.</small></div>
+                <label className="checkbox-pill"><input type="checkbox" checked={promotionForm.banner_enabled} onChange={(event) => updatePromotion('banner_enabled', event.target.checked)} /> Show banner</label>
+              </div>
+              <label><span>Banner headline</span><input disabled={!promotionForm.banner_enabled} required={promotionForm.banner_enabled} maxLength="120" placeholder="Holiday special ends Monday at midnight" value={promotionForm.banner_title} onChange={(event) => updatePromotion('banner_title', limitText(event.target.value, 120))} /></label>
+              <label><span>Banner supporting text</span><input disabled={!promotionForm.banner_enabled} maxLength="120" placeholder="Use code" value={promotionForm.banner_body} onChange={(event) => updatePromotion('banner_body', limitText(event.target.value, 120))} /></label>
+              <fieldset className="promotion-page-picker" disabled={!promotionForm.banner_enabled}>
+                <legend>Put banner on</legend>
+                {SITE_PAGE_OPTIONS.map((page) => <label className="checkbox-pill" key={`banner-${page.value}`}><input type="checkbox" checked={promotionForm.banner_pages.includes(page.value)} onChange={(event) => togglePromotionPage('banner', page.value, event.target.checked)} /> {page.label}</label>)}
+              </fieldset>
+            </section>
+          </div>
+
+          <div className="promotion-form-section">
+            <h4>Popup button and terms</h4>
+            <div className="form-row">
+              <label><span>Button label</span><input maxLength="60" value={promotionForm.cta_label} onChange={(event) => updatePromotion('cta_label', limitText(event.target.value, 60))} /></label>
+              <label><span>Button destination</span><input maxLength="300" placeholder="cars.html" value={promotionForm.cta_url} onChange={(event) => updatePromotion('cta_url', limitText(event.target.value, 300))} /></label>
+            </div>
+            <label><span>Fine print (optional)</span><textarea maxLength="300" placeholder="Leave blank to show an automatically formatted ending time." value={promotionForm.fine_print} onChange={(event) => updatePromotion('fine_print', limitText(event.target.value, 300))} /></label>
+            <label className="checkbox-pill promotion-active-toggle"><input type="checkbox" checked={promotionForm.active} onChange={(event) => updatePromotion('active', event.target.checked)} /> Publish this promotion when its schedule begins</label>
+          </div>
+
+          <div className="promotion-form-actions">
+            <button className="primary-btn"><Tag size={17}/> {editingPromotionId ? 'Save Promotion Changes' : 'Create Promotion'}</button>
+            {editingPromotionId && <button type="button" className="secondary-btn" onClick={resetPromotionForm}>Cancel Editing</button>}
+          </div>
+        </form>
+
+        <div className="settings-list promotion-list">
+          {sitePromotions.length === 0 && <p className="muted">No promotions yet. Run the site promotions Supabase migration if this is your first time using the manager.</p>}
+          {sitePromotions.map((promotion) => <div className="data-row settings-row promotion-row" key={promotion.id}>
+            <div>
+              <strong>{promotion.name}</strong>
+              <span>{promotion.coupon_code} • {promotionPlacementLabel(promotion)}</span>
+              <small>{promotionScheduleLabel(promotion)}</small>
+            </div>
+            <div className="row-actions">
+              <em className={promotionDisplayStatus(promotion) === 'Live' ? 'active-status' : 'paused-status'}>{promotionDisplayStatus(promotion)}</em>
+              <button type="button" onClick={() => editSitePromotion(promotion)}><Pencil size={15}/> Edit</button>
+              <button type="button" onClick={() => toggleSitePromotion(promotion.id, !promotion.active)}>{promotion.active ? 'Pause' : 'Activate'}</button>
+              <button type="button" className="reject" onClick={() => deleteSitePromotion(promotion.id)}><XCircle size={16}/> Delete</button>
+            </div>
+          </div>)}
+        </div>
+      </Panel>
+    </div>
+
     <Panel title="Discount Codes" eyebrow="Pricing">
       <form className="portal-form settings-form" onSubmit={createDiscountCode}>
         <div className="form-row">
@@ -3107,6 +3344,14 @@ function availabilityTableError(error) {
   const message = error?.message || String(error || 'Unable to save availability block.');
   if (message.includes('vehicle_availability_blocks') && message.includes('schema cache')) {
     return 'Supabase is missing public.vehicle_availability_blocks. Run supabase/admin_pricing_settings.sql in Supabase, then refresh the admin portal.';
+  }
+  return message;
+}
+
+function sitePromotionTableError(error) {
+  const message = error?.message || String(error || 'Unable to save website promotion.');
+  if (message.includes('site_promotions') && (message.includes('schema cache') || message.includes('does not exist'))) {
+    return 'Supabase is missing public.site_promotions. Run supabase/site_promotions.sql in Supabase, then refresh the admin portal.';
   }
   return message;
 }
@@ -3788,6 +4033,70 @@ function discountLabel(code) {
 function formatDateOnly(value) {
   if (!value) return '';
   return new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+}
+function formatEasternDateTimeInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+function easternDateTimeInputToIso(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
+  let guess = target;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(guess)).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+    const rendered = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+    guess += target - rendered;
+  }
+  return new Date(guess).toISOString();
+}
+function promotionPlacementLabel(promotion) {
+  const pageLabel = (page) => page === 'index.html' ? 'Home' : page === 'cars.html' ? 'Cars' : page;
+  const placements = [];
+  if (promotion.popup_enabled) placements.push(`Popup: ${(promotion.popup_pages || []).map(pageLabel).join(', ')}`);
+  if (promotion.banner_enabled) placements.push(`Banner: ${(promotion.banner_pages || []).map(pageLabel).join(', ')}`);
+  return placements.join(' • ') || 'No placement';
+}
+function promotionScheduleLabel(promotion) {
+  const format = (value) => value ? new Date(value).toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }) : 'Now';
+  return `${promotion.starts_at ? `Starts ${format(promotion.starts_at)}` : 'Starts immediately'} • Ends ${format(promotion.ends_at)}`;
+}
+function promotionDisplayStatus(promotion) {
+  if (!promotion.active) return 'Paused';
+  const now = Date.now();
+  const startsAt = promotion.starts_at ? new Date(promotion.starts_at).getTime() : Number.NEGATIVE_INFINITY;
+  const endsAt = new Date(promotion.ends_at).getTime();
+  if (now < startsAt) return 'Scheduled';
+  if (!Number.isFinite(endsAt) || now >= endsAt) return 'Expired';
+  return 'Live';
 }
 function extractSignatureImage(snapshot = '') {
   const match = String(snapshot).match(/Drawn Signature Image:\s*(data:image\/png;base64,[^\s]+)/);
