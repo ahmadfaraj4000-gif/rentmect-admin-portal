@@ -19,6 +19,11 @@ VITE_ADMIN_EMAIL=your_admin_email@example.com
 VITE_RENTMECT_ADDRESS=485 Colt Hwy, Farmington, CT
 ```
 
+Before using **Settings → Website Promotion Manager**, run
+`../supabase/site_promotions.sql` in the connected Supabase project's SQL Editor.
+This creates the promotion table, admin-only write policies, time-limited public
+read policy, and imports the current July 2026 promotion as the first campaign.
+
 ## Deployment
 
 This project uses:
@@ -32,9 +37,22 @@ Run `npm run build` and deploy the full `dist` folder, including `dist/assets`.
 The relative base keeps the built files working whether the portal is hosted at
 `/admin/`, `/rentmect-admin-portal/`, or another subdirectory.
 
+## Staff access and audit log
+
+Each staff member must have their own Supabase Auth user and a matching
+`public.profiles` row whose `role` is `admin`. Do not share credentials: the
+Audit Log uses the authenticated user ID and email to attribute every action.
+
+Before opening the Audit Log or using deposit refunds, run
+`../supabase/admin_audit_and_deposit_controls.sql`. Deploy the updated
+`stripe-web-hook` Edge Function, configure its Stripe secrets, and then run
+`../supabase/security_deposit_release_schedule.sql` after adding the Vault
+values described at the top of that file.
+
 ## Features Included
 
-- Admin login restricted by `VITE_ADMIN_EMAIL`
+- Admin login restricted by each authenticated profile's `admin` role
+- Immutable, redacted staff audit trail with actor, action, record, and time
 - Dashboard metrics
 - Cars out / due soon / overdue monitor
 - Monthly revenue estimate
@@ -49,3 +67,5 @@ The relative base keeps the built files working whether the portal is hosted at
 - Customer/admin message center
 - Mock reservations without Stripe payment
 - Placeholder SMS/email reminder buttons for future Twilio/Resend Edge Functions
+- Scheduled website popup and banner promotion manager with per-page placement
+- Manual Stripe security-deposit refunds and automatic clean-return refunds after seven days
