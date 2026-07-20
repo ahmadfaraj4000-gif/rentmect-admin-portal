@@ -5170,6 +5170,49 @@ body{
     }
 }
 
+/* Keep checkbox controls compact. Generic form-label rules must not turn them into cards. */
+.portal-form label.checkbox-pill,
+.settings-grid label.checkbox-pill,
+.promotion-page-picker label.checkbox-pill{
+    display:inline-flex!important;
+    flex-direction:row!important;
+    align-items:center!important;
+    justify-content:flex-start!important;
+    justify-self:start!important;
+    align-self:start!important;
+    gap:8px!important;
+    width:fit-content!important;
+    max-width:100%!important;
+    min-width:0!important;
+    min-height:36px!important;
+    margin:0!important;
+    padding:8px 10px!important;
+    border:1px solid var(--admin-line)!important;
+    border-radius:10px!important;
+    background:#fff!important;
+    color:var(--admin-ink)!important;
+    font-size:12px!important;
+    font-weight:850!important;
+    line-height:1.25!important;
+    letter-spacing:0!important;
+    text-transform:none!important;
+    box-shadow:none!important;
+    box-sizing:border-box!important;
+}
+
+.portal-form label.checkbox-pill input[type="checkbox"],
+.settings-grid label.checkbox-pill input[type="checkbox"],
+.promotion-page-picker label.checkbox-pill input[type="checkbox"]{
+    flex:0 0 16px!important;
+    width:16px!important;
+    height:16px!important;
+    min-width:16px!important;
+    min-height:16px!important;
+    margin:0!important;
+    padding:0!important;
+    box-shadow:none!important;
+}
+
 /* Separate the sidebar identity from its controls with balanced spacing. */
 .sidebar .brand-block{
     width:100%!important;
