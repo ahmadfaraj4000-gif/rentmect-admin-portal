@@ -68,6 +68,26 @@ const VIN_MAX_LENGTH = 17;
 const PLATE_MAX_LENGTH = 12;
 const MONEY_MAX = 100000;
 const MILEAGE_MAX = 9999999;
+const DEFAULT_MAINTENANCE_INTERVAL = 5000;
+const VEHICLE_FEATURE_GROUPS = [
+  {
+    label: 'Safety',
+    features: ['Backup camera', 'Blind spot warning', 'Lane departure warning', 'Lane keeping assist'],
+  },
+  {
+    label: 'Device connectivity',
+    features: ['Android Auto', 'Apple CarPlay', 'AUX input', 'Bluetooth', 'USB charger', 'USB input'],
+  },
+  {
+    label: 'Convenience',
+    features: ['GPS', 'Keyless entry', 'Heated seats', 'Sunroof'],
+  },
+  {
+    label: 'Additional features',
+    features: ['Convertible', 'Child seat', 'Pet friendly', 'Smoking allowed'],
+  },
+];
+const KNOWN_VEHICLE_FEATURES = new Set(VEHICLE_FEATURE_GROUPS.flatMap((group) => group.features));
 const DEFAULT_AVAILABILITY_TYPES = {
   available: { label: 'Available', color: '#ffffff' },
   unavailable: { label: 'Unavailable', color: '#9f241f' },
@@ -261,7 +281,7 @@ function App() {
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
   const [vehicleForm, setVehicleForm] = useState({
-    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT), status: 'available', description: '', features: '', image_urls: ''
+    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT), status: 'available', description: '', features: '', image_urls: '', original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL), last_maintenance_mileage: ''
   });
   const [discountForm, setDiscountForm] = useState({
     code: '',
@@ -970,6 +990,28 @@ function App() {
     notify(`Vehicle set to ${prettyVehicleStatus(status)}.`, 'success');
   }
 
+  async function markVehicleServiced(vehicle) {
+    const currentMileage = parseMileageInput(vehicle?.current_mileage);
+    if (currentMileage === null) return notify('Record the vehicle’s current mileage before completing maintenance.');
+    const interval = Number(vehicle?.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL);
+    const { error } = await supabase
+      .from('vehicles')
+      .update({
+        last_maintenance_mileage: currentMileage,
+        next_maintenance_mileage: currentMileage + interval,
+        maintenance_completed_at: new Date().toISOString(),
+      })
+      .eq('id', vehicle.id);
+    if (error) return notify(error.message);
+    setVehicles((current) => current.map((item) => item.id === vehicle.id ? {
+      ...item,
+      last_maintenance_mileage: currentMileage,
+      next_maintenance_mileage: currentMileage + interval,
+      maintenance_completed_at: new Date().toISOString(),
+    } : item));
+    notify(`Maintenance recorded. Next service is due at ${formatMiles(currentMileage + interval)}.`, 'success');
+  }
+
   async function updateDamageCase(id, updates) {
     const payload = { ...updates };
     if (payload.status === 'resolved') payload.resolved_at = new Date().toISOString();
@@ -1012,6 +1054,10 @@ function App() {
       vin: vehicle.vin || '',
       daily_rate: vehicle.daily_rate || '',
       security_deposit: String(vehicle.security_deposit ?? DEFAULT_NEW_VEHICLE_DEPOSIT),
+      original_mileage: vehicle.original_mileage ?? vehicle.current_mileage ?? '',
+      current_mileage: vehicle.current_mileage ?? vehicle.original_mileage ?? '',
+      maintenance_interval_miles: String(vehicle.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL),
+      last_maintenance_mileage: vehicle.last_maintenance_mileage ?? vehicle.original_mileage ?? '',
       description: vehicle.description || '',
       features: listToLines(vehicle.features),
       image_urls: listToLines(vehicle.image_urls),
@@ -1027,6 +1073,13 @@ function App() {
   async function saveVehicleEdit(id) {
     if (!editVehicleForm) return;
 
+    const originalMileage = parseMileageInput(editVehicleForm.original_mileage);
+    const currentMileage = parseMileageInput(editVehicleForm.current_mileage);
+    const lastServiceMileage = parseMileageInput(editVehicleForm.last_maintenance_mileage);
+    if (originalMileage === null || currentMileage === null) return notify('Original and current mileage are required.');
+    if (currentMileage < originalMileage) return notify('Current mileage cannot be below the original mileage.');
+    if (lastServiceMileage !== null && lastServiceMileage > currentMileage) return notify('Last service mileage cannot be above the current odometer.');
+
     const { status, ...vehicleFields } = editVehicleForm;
     const { error } = await supabase
       .from('vehicles')
@@ -1035,6 +1088,10 @@ function App() {
         ...(status ? { status } : {}),
         daily_rate: Number(editVehicleForm.daily_rate || 0),
         security_deposit: Number(editVehicleForm.security_deposit || 0),
+        original_mileage: originalMileage,
+        current_mileage: currentMileage,
+        maintenance_interval_miles: Number(editVehicleForm.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL),
+        last_maintenance_mileage: lastServiceMileage,
         features: linesToList(editVehicleForm.features),
         image_urls: linesToList(editVehicleForm.image_urls),
       })
@@ -1734,15 +1791,23 @@ function App() {
 
   async function addVehicle(event) {
     event.preventDefault();
+    const originalMileage = parseMileageInput(vehicleForm.original_mileage);
+    if (originalMileage === null) return notify('Enter the vehicle’s original odometer mileage.');
+    const lastServiceMileage = parseMileageInput(vehicleForm.last_maintenance_mileage);
+    if (lastServiceMileage !== null && lastServiceMileage > originalMileage) return notify('Last service mileage cannot be above the current odometer.');
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
       daily_rate: Number(vehicleForm.daily_rate || 0),
       security_deposit: Number(vehicleForm.security_deposit || 0),
+      original_mileage: originalMileage,
+      current_mileage: originalMileage,
+      maintenance_interval_miles: Number(vehicleForm.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL),
+      last_maintenance_mileage: lastServiceMileage ?? originalMileage,
       features: linesToList(vehicleForm.features),
       image_urls: linesToList(vehicleForm.image_urls),
     });
     if (error) return notify(error.message);
-    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT), status: 'available', description: '', features: '', image_urls: '' });
+    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT), status: 'available', description: '', features: '', image_urls: '', original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL), last_maintenance_mileage: '' });
     loadAllData();
   }
 
@@ -1886,14 +1951,14 @@ function App() {
           <div className="header-actions"><AdminQuickLinks/><button onClick={loadAllData} className="secondary-btn">Refresh</button></div>
         </header>
 
-        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
+        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} vehicles={vehicles} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} waiveTurnaroundGrace={waiveTurnaroundGrace} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
-        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
+        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
@@ -1904,16 +1969,18 @@ function App() {
   );
 }
 
-function Dashboard({ dashboard, rentals, operationsQueue, documents, messages, reports, sendManualReminder, updateRentalStatus, openDocument, markDocument, documentsByRentalId }) {
+function Dashboard({ dashboard, rentals, vehicles, operationsQueue, documents, messages, reports, sendManualReminder, updateRentalStatus, openDocument, markDocument, documentsByRentalId }) {
   const recentRentals = rentals.slice(0, 5);
   const paidRentalIds = new Set(rentals.map((rental) => rental.id));
   const paidDocuments = documents.filter((document) => paidRentalIds.has(document.rental_id || document.rentals?.id));
   const paidMessages = messages.filter((message) => paidRentalIds.has(message.rental_id || message.rentals?.id));
   const paidReports = reports.filter((report) => paidRentalIds.has(report.rental_id || report.rentals?.id));
+  const maintenanceDue = vehicles.filter((vehicle) => getVehicleMaintenanceState(vehicle).due).length;
   return <>
     <section className="metric-grid">
       <Metric icon={Car} label="Cars Out" value={dashboard.active.length} />
       <Metric icon={AlertTriangle} label="Overdue" value={dashboard.overdue.length} danger={dashboard.overdue.length > 0} />
+      <Metric icon={Wrench} label="Maintenance Due" value={maintenanceDue} danger={maintenanceDue > 0} />
       <Metric icon={Banknote} label="Month Revenue" value={money(dashboard.monthRevenue)} />
       <Metric icon={CreditCard} label="Active Deposits" value={money(dashboard.deposits)} />
     </section>
@@ -2524,7 +2591,7 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
+function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, markVehicleServiced, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const normalizeVehicleField = (key, value) => {
@@ -2586,6 +2653,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
     <Panel title="Fleet" eyebrow="Vehicles">
       {vehicles.map((v) => {
         const isSelected = selectedVehicle?.id === v.id;
+        const maintenance = getVehicleMaintenanceState(v);
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
         }}>
@@ -2594,6 +2662,9 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
             <strong>{v.name}</strong>
             <span>{v.brand} {v.model} • {v.vehicle_type}</span>
             <small>Plate: {v.plate_number || 'TBD'} • VIN: {v.vin || 'TBD'} • Mileage: {formatMiles(v.current_mileage)}</small>
+            <small className={`maintenance-summary ${maintenance.due ? 'due' : maintenance.soon ? 'soon' : ''}`}>
+              <Wrench size={13}/> {maintenance.label}
+            </small>
           </div>
           <div className="row-actions">
             <em>{money(v.daily_rate)}/day</em>
@@ -2608,6 +2679,10 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
               event.stopPropagation();
               openVehicleEditor(v);
             }}><Pencil size={15}/> Edit</button>
+            {(maintenance.due || maintenance.soon) && <button className="secondary-btn" type="button" onClick={(event) => {
+              event.stopPropagation();
+              markVehicleServiced(v);
+            }}><Wrench size={15}/> Mark Serviced</button>}
           </div>
         </div>;
       })}
@@ -2622,9 +2697,23 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
         <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} />
         <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} />
         <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="Refundable deposit" title="Base refundable deposit for this vehicle" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} required />
+        <label className="field-label">Original odometer mileage
+          <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.original_mileage} onChange={(e)=>update('original_mileage', e.target.value)} required />
+        </label>
+        <label className="field-label">Maintenance interval
+          <select value={vehicleForm.maintenance_interval_miles} onChange={(e)=>update('maintenance_interval_miles', e.target.value)}>
+            <option value="3000">Every 3,000 miles</option>
+            <option value="5000">Every 5,000 miles</option>
+            <option value="7500">Every 7,500 miles</option>
+            <option value="10000">Every 10,000 miles</option>
+          </select>
+        </label>
+        <label className="field-label">Last service mileage (optional)
+          <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.last_maintenance_mileage} onChange={(e)=>update('last_maintenance_mileage', e.target.value)} placeholder="Defaults to original mileage" />
+        </label>
         <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
         <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
-        <textarea placeholder="Features, one per line" maxLength="1200" value={vehicleForm.features} onChange={(e)=>update('features', e.target.value)} />
+        <VehicleFeatureChecklist value={vehicleForm.features} onChange={(value)=>update('features', value)} />
         <label className="vehicle-photo-upload">
           <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Upload vehicle pictures'}</span>
           <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
@@ -2659,12 +2748,29 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
           <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
           <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="Refundable deposit" title="Base refundable deposit for this vehicle" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} required />
+          <label className="field-label">Original odometer mileage
+            <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.original_mileage} onChange={(e)=>updateEdit('original_mileage', e.target.value)} required />
+          </label>
+          <label className="field-label">Current odometer mileage
+            <input type="number" min={editVehicleForm.original_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.current_mileage} onChange={(e)=>updateEdit('current_mileage', e.target.value)} required />
+          </label>
+          <label className="field-label">Maintenance interval
+            <select value={editVehicleForm.maintenance_interval_miles} onChange={(e)=>updateEdit('maintenance_interval_miles', e.target.value)}>
+              <option value="3000">Every 3,000 miles</option>
+              <option value="5000">Every 5,000 miles</option>
+              <option value="7500">Every 7,500 miles</option>
+              <option value="10000">Every 10,000 miles</option>
+            </select>
+          </label>
+          <label className="field-label">Last service mileage
+            <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.last_maintenance_mileage} onChange={(e)=>updateEdit('last_maintenance_mileage', e.target.value)} />
+          </label>
           <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
             <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
             {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
           </select>
           <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
-          <textarea placeholder="Features, one per line e.g. Bluetooth, AWD, backup camera" maxLength="1200" value={editVehicleForm.features} onChange={(e)=>updateEdit('features', e.target.value)} />
+          <VehicleFeatureChecklist value={editVehicleForm.features} onChange={(value)=>updateEdit('features', value)} />
           <label className="vehicle-photo-upload">
             <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Upload replacement pictures'}</span>
             <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
@@ -2689,6 +2795,42 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
       </div>
     </div>}
   </section>;
+}
+
+function VehicleFeatureChecklist({ value, onChange }) {
+  const features = linesToList(value);
+  const selected = new Set(features);
+  const customFeatures = features.filter((feature) => !KNOWN_VEHICLE_FEATURES.has(feature));
+
+  function emit(nextSelected, nextCustom = customFeatures) {
+    const orderedKnown = VEHICLE_FEATURE_GROUPS
+      .flatMap((group) => group.features)
+      .filter((feature) => nextSelected.has(feature));
+    onChange(listToLines([...orderedKnown, ...nextCustom]));
+  }
+
+  function toggle(feature, checked) {
+    const next = new Set(selected);
+    if (checked) next.add(feature);
+    else next.delete(feature);
+    emit(next);
+  }
+
+  return <fieldset className="vehicle-feature-picker">
+    <legend>Vehicle features</legend>
+    <div className="vehicle-feature-groups">
+      {VEHICLE_FEATURE_GROUPS.map((group) => <section key={group.label}>
+        <strong>{group.label}</strong>
+        {group.features.map((feature) => <label key={feature}>
+          <input type="checkbox" checked={selected.has(feature)} onChange={(event) => toggle(feature, event.target.checked)} />
+          <span>{feature}</span>
+        </label>)}
+      </section>)}
+    </div>
+    <label className="field-label vehicle-custom-features">Other features
+      <textarea placeholder="One per line, for example AWD or third-row seating" maxLength="800" value={listToLines(customFeatures)} onChange={(event) => emit(selected, linesToList(event.target.value))} />
+    </label>
+  </fieldset>;
 }
 
 function Documents({ documents, markDocument, openDocument, deleteDocument }) {
@@ -4340,6 +4482,27 @@ function calculateMilesDriven(startingMileage, endingMileage) {
 function formatMiles(value) {
   if (value === null || value === undefined || value === '') return 'Not recorded';
   return `${Number(value || 0).toLocaleString('en-US')} mi`;
+}
+function getVehicleMaintenanceState(vehicle) {
+  const current = parseMileageInput(vehicle?.current_mileage);
+  const interval = Number(vehicle?.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL);
+  const baseline = parseMileageInput(vehicle?.last_maintenance_mileage)
+    ?? parseMileageInput(vehicle?.original_mileage);
+  const storedNext = parseMileageInput(vehicle?.next_maintenance_mileage);
+  const next = storedNext ?? (baseline === null ? null : baseline + interval);
+
+  if (current === null || next === null) {
+    return { due: false, soon: false, remaining: null, next, label: 'Add mileage and service interval' };
+  }
+
+  const remaining = next - current;
+  if (remaining <= 0) {
+    return { due: true, soon: true, remaining, next, label: `Maintenance due now (${Math.abs(remaining).toLocaleString('en-US')} mi overdue)` };
+  }
+  if (remaining <= 500) {
+    return { due: false, soon: true, remaining, next, label: `Maintenance due in ${remaining.toLocaleString('en-US')} mi` };
+  }
+  return { due: false, soon: false, remaining, next, label: `Next maintenance at ${formatMiles(next)}` };
 }
 
 function customerRiskProfile(profile, rentals, documents, reports) {

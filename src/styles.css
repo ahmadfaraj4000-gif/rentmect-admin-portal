@@ -11,6 +11,65 @@
     --shadow:0 30px 90px rgba(0,0,0,.34)
 }
 
+.vehicle-feature-picker{
+    grid-column:1 / -1;
+    margin:0;
+    padding:16px;
+    border:1px solid var(--admin-line, rgba(255,255,255,.14));
+    border-radius:6px;
+}
+.vehicle-feature-picker legend{
+    padding:0 7px;
+    font-weight:950
+}
+.vehicle-feature-groups{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:18px 28px
+}
+.vehicle-feature-groups section{
+    display:grid;
+    align-content:start;
+    gap:9px
+}
+.vehicle-feature-groups section>strong{
+    margin-bottom:2px
+}
+.vehicle-feature-groups label{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    min-height:24px;
+    cursor:pointer
+}
+.vehicle-feature-groups input[type="checkbox"]{
+    width:17px;
+    height:17px;
+    margin:0;
+    accent-color:#1478ed
+}
+.vehicle-custom-features{
+    display:grid!important;
+    gap:7px!important;
+    margin-top:18px
+}
+.maintenance-summary{
+    display:flex!important;
+    align-items:center;
+    gap:6px
+}
+.maintenance-summary.soon{
+    color:#8a6411!important;
+    font-weight:850
+}
+.maintenance-summary.due{
+    color:#9f241f!important;
+    font-weight:950
+}
+@media (max-width:720px){
+    .vehicle-feature-groups{grid-template-columns:1fr}
+}
+
 /* Website promotion manager */
 .promotion-settings-panel{
     grid-column:1 / -1;
