@@ -33,7 +33,9 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Star,
   Tag,
+  Trash2,
   UserRound,
   Wrench,
   XCircle,
@@ -43,6 +45,7 @@ import { optimizeVehicleImage } from './lib/imageOptimizer';
 import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
+import './vehicle-editor.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CT_TAX_RATE = 0.0635;
@@ -68,6 +71,7 @@ const VIN_MAX_LENGTH = 17;
 const PLATE_MAX_LENGTH = 12;
 const MONEY_MAX = 100000;
 const MILEAGE_MAX = 9999999;
+const MAX_VEHICLE_IMAGES = 20;
 const DEFAULT_MAINTENANCE_INTERVAL = 5000;
 const VEHICLE_FEATURE_GROUPS = [
   {
@@ -1060,7 +1064,11 @@ function App() {
       last_maintenance_mileage: vehicle.last_maintenance_mileage ?? vehicle.original_mileage ?? '',
       description: vehicle.description || '',
       features: listToLines(vehicle.features),
-      image_urls: listToLines(vehicle.image_urls),
+      image_urls: listToLines(
+        Array.isArray(vehicle.image_urls) && vehicle.image_urls.length
+          ? vehicle.image_urls
+          : [getAdminVehicleImage(vehicle)].filter(Boolean)
+      ),
       status: SYSTEM_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? '' : vehicle.status || 'available',
     });
   }
@@ -2601,7 +2609,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
     if (['brand', 'model', 'vehicle_type'].includes(key)) return limitText(value, 40);
     if (key === 'description') return limitText(value, 600);
     if (key === 'features') return limitText(value, 1200);
-    if (key === 'image_urls') return limitText(value, 3000);
+    if (key === 'image_urls') return limitText(value, 8000);
     return value;
   };
   const update = (k, v) => setVehicleForm({ ...vehicleForm, [k]: normalizeVehicleField(k, v) });
@@ -2613,6 +2621,20 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
   useEffect(() => {
     if (!selectedVehicleId && vehicles[0]) setSelectedVehicleId(vehicles[0].id);
   }, [selectedVehicleId, vehicles]);
+
+  useEffect(() => {
+    if (!editingVehicle) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') cancelEditVehicle();
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [editingVehicle?.id]);
 
   function selectVehicle(vehicle) {
     setSelectedVehicleId(vehicle.id);
@@ -2628,8 +2650,8 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
     if (!selectedFiles.length) return;
 
     const currentUrls = linesToList(editing ? editVehicleForm?.image_urls : vehicleForm.image_urls);
-    if (currentUrls.length + selectedFiles.length > 8) {
-      notify('Keep each vehicle to 8 pictures or fewer. Remove an existing URL before uploading more.');
+    if (currentUrls.length + selectedFiles.length > MAX_VEHICLE_IMAGES) {
+      notify(`Keep each vehicle to ${MAX_VEHICLE_IMAGES} pictures or fewer. Remove an existing picture before uploading more.`);
       return;
     }
 
@@ -2715,22 +2737,29 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
         <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
         <VehicleFeatureChecklist value={vehicleForm.features} onChange={(value)=>update('features', value)} />
         <label className="vehicle-photo-upload">
-          <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Upload vehicle pictures'}</span>
+          <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Add vehicle pictures'}</span>
           <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
             const files = Array.from(event.target.files || []);
             event.target.value = '';
             addUploadedVehicleImages(files, false);
           }} />
-          <small>JPG, PNG, or WebP. Photos are resized, converted to WebP, and capped at 450 KB before upload.</small>
+          <small>Upload up to {MAX_VEHICLE_IMAGES}. Every JPG, PNG, or WebP is resized and converted to WebP automatically.</small>
         </label>
-        <textarea placeholder="Picture URLs, one per line" maxLength="3000" value={vehicleForm.image_urls} onChange={(e)=>update('image_urls', e.target.value)} />
-        {linesToList(vehicleForm.image_urls).length > 0 && <div className="vehicle-image-preview">
-          {linesToList(vehicleForm.image_urls).slice(0, 4).map((url) => <img key={url} src={url} alt={`${vehicleForm.name || 'New vehicle'} inventory`} loading="lazy" />)}
-        </div>}
+        <VehiclePhotoManager
+          vehicleName={vehicleForm.name || 'New vehicle'}
+          value={vehicleForm.image_urls}
+          onChange={(urls)=>update('image_urls', listToLines(urls))}
+        />
+        <details className="vehicle-url-editor">
+          <summary>Advanced: edit picture URLs</summary>
+          <textarea placeholder="Picture URLs, one per line" maxLength="8000" value={vehicleForm.image_urls} onChange={(e)=>update('image_urls', e.target.value)} />
+        </details>
         <button className="primary-btn"><Plus size={17}/> Add Vehicle</button>
       </form>
     </Panel>
-    {editingVehicle && editVehicleForm && <div className="admin-modal-backdrop" role="presentation">
+    {editingVehicle && editVehicleForm && <div className="admin-modal-backdrop vehicle-editor-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) cancelEditVehicle();
+    }}>
       <div className="admin-modal vehicle-editor-modal" role="dialog" aria-modal="true" aria-label={`Edit ${editingVehicle.name}`}>
         <div className="admin-modal-header">
           <Car size={22}/>
@@ -2738,56 +2767,68 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
             <strong>Edit Vehicle</strong>
             <span>{editingVehicle.name} • pricing, pictures, features, and inventory details</span>
           </div>
+          <button className="vehicle-editor-close" type="button" onClick={cancelEditVehicle} aria-label="Close vehicle editor"><XCircle size={20}/></button>
         </div>
-        <div className="portal-form vehicle-detail-form">
-          <input placeholder="Vehicle name" maxLength="80" value={editVehicleForm.name} onChange={(e)=>updateEdit('name', e.target.value)} required />
-          <input placeholder="Brand" maxLength="40" value={editVehicleForm.brand} onChange={(e)=>updateEdit('brand', e.target.value)} />
-          <input placeholder="Model" maxLength="40" value={editVehicleForm.model} onChange={(e)=>updateEdit('model', e.target.value)} />
-          <input placeholder="Type e.g. SUV, Luxury Sedan" maxLength="40" value={editVehicleForm.vehicle_type} onChange={(e)=>updateEdit('vehicle_type', e.target.value)} />
-          <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={editVehicleForm.plate_number} onChange={(e)=>updateEdit('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
-          <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
-          <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
-          <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="Refundable deposit" title="Base refundable deposit for this vehicle" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} required />
-          <label className="field-label">Original odometer mileage
-            <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.original_mileage} onChange={(e)=>updateEdit('original_mileage', e.target.value)} required />
-          </label>
-          <label className="field-label">Current odometer mileage
-            <input type="number" min={editVehicleForm.original_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.current_mileage} onChange={(e)=>updateEdit('current_mileage', e.target.value)} required />
-          </label>
-          <label className="field-label">Maintenance interval
-            <select value={editVehicleForm.maintenance_interval_miles} onChange={(e)=>updateEdit('maintenance_interval_miles', e.target.value)}>
-              <option value="3000">Every 3,000 miles</option>
-              <option value="5000">Every 5,000 miles</option>
-              <option value="7500">Every 7,500 miles</option>
-              <option value="10000">Every 10,000 miles</option>
+        <div className="vehicle-editor-scroll">
+          <section className="vehicle-editor-media">
+            <div className="vehicle-editor-section-heading">
+              <div><strong>Vehicle pictures</strong><span>The first picture is used as the featured image.</span></div>
+              <span>{linesToList(editVehicleForm.image_urls).length}/{MAX_VEHICLE_IMAGES}</span>
+            </div>
+            <VehiclePhotoManager
+              vehicleName={editVehicleForm.name || editingVehicle.name}
+              value={editVehicleForm.image_urls}
+              onChange={(urls)=>updateEdit('image_urls', listToLines(urls))}
+            />
+            <label className="vehicle-photo-upload compact">
+              <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing and uploading…' : 'Add more pictures'}</span>
+              <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
+                const files = Array.from(event.target.files || []);
+                event.target.value = '';
+                addUploadedVehicleImages(files, true);
+              }} />
+              <small>Every upload is automatically resized, compressed, and converted to WebP.</small>
+            </label>
+            <details className="vehicle-url-editor">
+              <summary>Advanced: edit picture URLs</summary>
+              <textarea placeholder="Picture URLs, one per line" maxLength="8000" value={editVehicleForm.image_urls} onChange={(e)=>updateEdit('image_urls', e.target.value)} />
+            </details>
+          </section>
+          <div className="portal-form vehicle-detail-form">
+            <input placeholder="Vehicle name" maxLength="80" value={editVehicleForm.name} onChange={(e)=>updateEdit('name', e.target.value)} required />
+            <input placeholder="Brand" maxLength="40" value={editVehicleForm.brand} onChange={(e)=>updateEdit('brand', e.target.value)} />
+            <input placeholder="Model" maxLength="40" value={editVehicleForm.model} onChange={(e)=>updateEdit('model', e.target.value)} />
+            <input placeholder="Type e.g. SUV, Luxury Sedan" maxLength="40" value={editVehicleForm.vehicle_type} onChange={(e)=>updateEdit('vehicle_type', e.target.value)} />
+            <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={editVehicleForm.plate_number} onChange={(e)=>updateEdit('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
+            <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
+            <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
+            <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="Refundable deposit" title="Base refundable deposit for this vehicle" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} required />
+            <label className="field-label">Original odometer mileage
+              <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.original_mileage} onChange={(e)=>updateEdit('original_mileage', e.target.value)} required />
+            </label>
+            <label className="field-label">Current odometer mileage
+              <input type="number" min={editVehicleForm.original_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.current_mileage} onChange={(e)=>updateEdit('current_mileage', e.target.value)} required />
+            </label>
+            <label className="field-label">Maintenance interval
+              <select value={editVehicleForm.maintenance_interval_miles} onChange={(e)=>updateEdit('maintenance_interval_miles', e.target.value)}>
+                <option value="3000">Every 3,000 miles</option>
+                <option value="5000">Every 5,000 miles</option>
+                <option value="7500">Every 7,500 miles</option>
+                <option value="10000">Every 10,000 miles</option>
+              </select>
+            </label>
+            <label className="field-label">Last service mileage
+              <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.last_maintenance_mileage} onChange={(e)=>updateEdit('last_maintenance_mileage', e.target.value)} />
+            </label>
+            <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
+              <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
+              {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
             </select>
-          </label>
-          <label className="field-label">Last service mileage
-            <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.last_maintenance_mileage} onChange={(e)=>updateEdit('last_maintenance_mileage', e.target.value)} />
-          </label>
-          <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
-            <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
-            {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
-          </select>
-          <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
-          <VehicleFeatureChecklist value={editVehicleForm.features} onChange={(value)=>updateEdit('features', value)} />
-          <label className="vehicle-photo-upload">
-            <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Upload replacement pictures'}</span>
-            <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
-              const files = Array.from(event.target.files || []);
-              event.target.value = '';
-              addUploadedVehicleImages(files, true);
-            }} />
-            <small>JPG, PNG, or WebP. Photos are resized, converted to WebP, and capped at 450 KB before upload.</small>
-          </label>
-          <textarea placeholder="Picture URLs, one per line" maxLength="3000" value={editVehicleForm.image_urls} onChange={(e)=>updateEdit('image_urls', e.target.value)} />
+            <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
+            <VehicleFeatureChecklist value={editVehicleForm.features} onChange={(value)=>updateEdit('features', value)} />
+          </div>
         </div>
-        <div className="vehicle-image-preview">
-          {linesToList(editVehicleForm.image_urls).slice(0, 4).map((url) => <img key={url} src={url} alt={`${editVehicleForm.name || editingVehicle.name} inventory`} loading="lazy" />)}
-          {linesToList(editVehicleForm.image_urls).length === 0 && getAdminVehicleImage(editingVehicle) && <img src={getAdminVehicleImage(editingVehicle)} alt={`${editingVehicle.name} default inventory`} loading="lazy" />}
-          {linesToList(editVehicleForm.image_urls).length === 0 && !getAdminVehicleImage(editingVehicle) && <span className="vehicle-image-empty">No pictures yet</span>}
-        </div>
-        <div className="modal-actions">
+        <div className="modal-actions vehicle-editor-actions">
           <button className="secondary-btn" type="button" onClick={cancelEditVehicle}>Cancel</button>
           <button className="reject" type="button" onClick={()=>deleteVehicle(editingVehicle.id)}><XCircle size={16}/> Delete</button>
           <button className="approve" type="button" onClick={()=>saveVehicleEdit(editingVehicle.id)}><CheckCircle2 size={16}/> Save Vehicle</button>
@@ -2795,6 +2836,39 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
       </div>
     </div>}
   </section>;
+}
+
+function VehiclePhotoManager({ vehicleName, value, onChange }) {
+  const urls = linesToList(value);
+
+  function makeFeatured(index) {
+    if (index <= 0) return;
+    const next = [...urls];
+    const [featured] = next.splice(index, 1);
+    next.unshift(featured);
+    onChange(next);
+  }
+
+  function removePicture(index) {
+    onChange(urls.filter((_, pictureIndex) => pictureIndex !== index));
+  }
+
+  if (!urls.length) {
+    return <div className="vehicle-photo-empty"><ImagePlus size={22}/><span>No pictures yet. Add one below.</span></div>;
+  }
+
+  return <div className="vehicle-photo-grid">
+    {urls.map((url, index) => <article className={`vehicle-photo-card ${index === 0 ? 'featured' : ''}`} key={`${url}-${index}`}>
+      <div className="vehicle-photo-frame">
+        <img src={url} alt={`${vehicleName} ${index === 0 ? 'featured' : `picture ${index + 1}`}`} loading="lazy" />
+        {index === 0 && <span className="featured-photo-badge"><Star size={13} fill="currentColor"/> Featured</span>}
+      </div>
+      <div className="vehicle-photo-actions">
+        {index !== 0 && <button type="button" onClick={() => makeFeatured(index)}><Star size={14}/> Set featured</button>}
+        <button type="button" className="remove-photo" onClick={() => removePicture(index)}><Trash2 size={14}/> Remove</button>
+      </div>
+    </article>)}
+  </div>;
 }
 
 function VehicleFeatureChecklist({ value, onChange }) {
@@ -2816,12 +2890,12 @@ function VehicleFeatureChecklist({ value, onChange }) {
     emit(next);
   }
 
-  return <fieldset className="vehicle-feature-picker">
-    <legend>Vehicle features</legend>
+  return <details className="vehicle-feature-picker">
+    <summary><span>Vehicle features</span><small>{selected.size} selected</small></summary>
     <div className="vehicle-feature-groups">
       {VEHICLE_FEATURE_GROUPS.map((group) => <section key={group.label}>
         <strong>{group.label}</strong>
-        {group.features.map((feature) => <label key={feature}>
+        {group.features.map((feature) => <label className="vehicle-feature-option" key={feature}>
           <input type="checkbox" checked={selected.has(feature)} onChange={(event) => toggle(feature, event.target.checked)} />
           <span>{feature}</span>
         </label>)}
@@ -2830,7 +2904,7 @@ function VehicleFeatureChecklist({ value, onChange }) {
     <label className="field-label vehicle-custom-features">Other features
       <textarea placeholder="One per line, for example AWD or third-row seating" maxLength="800" value={listToLines(customFeatures)} onChange={(event) => emit(selected, linesToList(event.target.value))} />
     </label>
-  </fieldset>;
+  </details>;
 }
 
 function Documents({ documents, markDocument, openDocument, deleteDocument }) {

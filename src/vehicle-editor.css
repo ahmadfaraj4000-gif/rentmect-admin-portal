@@ -1,0 +1,56 @@
+/* Loaded after the legacy admin stylesheet so generic modal/mobile rules cannot
+   disable scrolling or hide the persistent vehicle actions. */
+.vehicle-editor-backdrop.admin-modal-backdrop {
+  overflow: hidden !important;
+}
+
+.vehicle-editor-modal.admin-modal {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  width: min(980px, calc(100vw - 32px)) !important;
+  max-width: min(980px, calc(100vw - 32px)) !important;
+  height: min(880px, calc(100dvh - 32px)) !important;
+  max-height: calc(100dvh - 32px) !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+
+.vehicle-editor-modal .vehicle-editor-scroll {
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.vehicle-editor-modal .vehicle-editor-actions {
+  position: relative !important;
+  z-index: 2 !important;
+  display: flex !important;
+  grid-template-columns: none !important;
+  width: 100% !important;
+  flex: 0 0 auto !important;
+}
+
+.vehicle-editor-modal .vehicle-feature-option {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+}
+
+@media (max-width: 800px) {
+  .vehicle-editor-modal.admin-modal {
+    width: calc(100vw - 12px) !important;
+    max-width: calc(100vw - 12px) !important;
+    height: calc(100dvh - 12px) !important;
+    max-height: calc(100dvh - 12px) !important;
+    overflow: hidden !important;
+  }
+
+  .vehicle-editor-modal .vehicle-editor-actions {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
