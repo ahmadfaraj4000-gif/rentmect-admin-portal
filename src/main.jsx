@@ -46,6 +46,7 @@ import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
 import './vehicle-editor.css';
+import './admin-list-details.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CT_TAX_RATE = 0.0635;
@@ -2493,42 +2494,158 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
 }
 
 function Customers({ profiles, rentals, documentsByUserId, documents, reports, openDocument }) {
-  return <Panel title="Client Accounts" eyebrow="Customers">
-    <div className="table-list">
-      {profiles.map((p) => {
-        const customerRentals = rentals.filter((r) => r.user_id === p.id);
-        const count = customerRentals.length;
-        const customerDocuments = documentsByUserId[p.id] || [];
-        const risk = customerRiskProfile(p, customerRentals, customerDocuments, reports.filter((r) => r.user_id === p.id));
-        return <div className="data-row customer-row" key={p.id}>
-          <div>
-            <strong>{p.full_name || 'Unnamed Client'}</strong>
-            <span>{p.email || p.id}</span>
-            <small className="customer-phone">Phone: {p.phone || 'Not provided'}</small>
-            <small>Home address: {p.address || 'Not provided'}</small>
-            <small>Intended vehicle use: {p.intended_vehicle_use || 'Not provided'}</small>
-            <small className={adminCustomerAge(p.date_of_birth) !== null && adminCustomerAge(p.date_of_birth) < 25 ? 'unverified-badge' : 'verified-badge'}>
-              {adminCustomerAge(p.date_of_birth) === null ? 'Age Not Confirmed' : adminCustomerAge(p.date_of_birth) < 25 ? `Under 25 (${adminCustomerAge(p.date_of_birth)}) • $500 deposit` : `Age 25+ (${adminCustomerAge(p.date_of_birth)}) • $300 deposit`}
-            </small>
-            <small className={p.phone_verified ? 'verified-badge' : 'unverified-badge'}>{p.phone_verified ? 'Phone Verified' : 'Not Verified'}</small>
-            <small className={p.identity_verification_status === 'verified' ? 'verified-badge' : 'unverified-badge'}>
-              Stripe Identity: {prettyStatus(p.identity_verification_status || 'unverified')}
-              {p.identity_verified_at ? ` • ${new Date(p.identity_verified_at).toLocaleDateString()}` : ''}
-            </small>
-            {p.phone_verified_at && <small className="customer-verified-time">Verified: {new Date(p.phone_verified_at).toLocaleString()}</small>}
-            <div className={`risk-box ${risk.level}`}>
-              <strong>Risk: {prettyStatus(risk.level)}</strong>
-              <span>{risk.summary}</span>
-              <small>Completed: {risk.completed} • Late/overdue: {risk.late} • Rejected docs: {risk.rejectedDocs} • Open reports: {risk.openReports} • Deposits held: {money(risk.depositsHeld)} • Released: {money(risk.depositsReleased)}</small>
-              {p.admin_notes && <small>Admin notes: {p.admin_notes}</small>}
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const customerProfiles = profiles.filter((profile) => String(profile.role || 'customer').toLowerCase() !== 'admin');
+  const normalizedSearch = customerSearch.trim().toLowerCase();
+  const searchDigits = customerSearch.replace(/\D/g, '');
+  const visibleCustomers = customerProfiles.filter((profile) => {
+    if (!normalizedSearch) return true;
+    const customerRentals = rentals.filter((rental) => rental.user_id === profile.id);
+    const textMatch = [
+      profile.full_name,
+      profile.email,
+      profile.phone,
+      profile.address,
+      profile.customer_status,
+      profile.id,
+      ...customerRentals.flatMap((rental) => [rental.status, rental.vehicles?.name]),
+    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(normalizedSearch));
+    const phoneMatch = searchDigits.length >= 3 && String(profile.phone || '').replace(/\D/g, '').includes(searchDigits);
+    return textMatch || phoneMatch;
+  });
+  const selectedCustomer = customerProfiles.find((profile) => profile.id === selectedCustomerId);
+
+  useEffect(() => {
+    if (!selectedCustomer) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setSelectedCustomerId('');
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [selectedCustomer?.id]);
+
+  return <>
+    <Panel title="Client Accounts" eyebrow="Customers">
+      <div className="list-search-toolbar">
+        <div className="search-row"><Search size={18}/><input value={customerSearch} maxLength="140" onChange={(event)=>setCustomerSearch(limitText(event.target.value, 140))} placeholder="Search name, email, phone, vehicle, status..." /></div>
+        <span>{visibleCustomers.length} of {customerProfiles.length} customers</span>
+      </div>
+      <div className="table-list customer-summary-list">
+        {visibleCustomers.length === 0 && <p className="muted list-empty-state">No customers match “{customerSearch.trim()}”.</p>}
+        {visibleCustomers.map((profile) => {
+          const customerRentals = rentals.filter((rental) => rental.user_id === profile.id);
+          const customerDocuments = documentsByUserId[profile.id] || [];
+          const customerReports = reports.filter((report) => report.user_id === profile.id);
+          const risk = customerRiskProfile(profile, customerRentals, customerDocuments, customerReports);
+          const latestRental = [...customerRentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0))[0];
+          return <article className="customer-summary-row" key={profile.id}>
+            <div className="customer-summary-identity">
+              <span className="customer-initials" aria-hidden="true">{customerInitials(profile.full_name || profile.email)}</span>
+              <div>
+                <strong>{profile.full_name || 'Unnamed Client'}</strong>
+                <span>{profile.email || 'No email saved'}</span>
+                <small>{profile.phone || 'No phone saved'} • {profile.phone_verified ? 'Phone verified' : 'Phone unverified'}</small>
+              </div>
             </div>
-            <DocumentMiniList documents={customerDocuments} openDocument={openDocument} />
+            <div className="customer-summary-activity">
+              <strong>{customerRentals.length} rental{customerRentals.length === 1 ? '' : 's'}</strong>
+              <span>{latestRental?.vehicles?.name || 'No vehicle history'}</span>
+              <small>{latestRental ? `${prettyStatus(latestRental.status)} • ${formatRentalDate(latestRental.pickup_date, latestRental.pickup_time)}` : 'No bookings yet'}</small>
+            </div>
+            <aside className={`customer-risk-summary ${risk.level}`}>
+              <span>{prettyStatus(risk.level)} risk</span>
+              <small>{risk.summary}</small>
+            </aside>
+            <button className="customer-details-button" type="button" onClick={() => setSelectedCustomerId(profile.id)}><Eye size={16}/> Details</button>
+          </article>;
+        })}
+      </div>
+    </Panel>
+    {selectedCustomer && <CustomerDetailsModal
+      profile={selectedCustomer}
+      rentals={rentals.filter((rental) => rental.user_id === selectedCustomer.id)}
+      documents={documentsByUserId[selectedCustomer.id] || []}
+      reports={reports.filter((report) => report.user_id === selectedCustomer.id)}
+      openDocument={openDocument}
+      onClose={() => setSelectedCustomerId('')}
+    />}
+  </>;
+}
+
+function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onClose }) {
+  const risk = customerRiskProfile(profile, rentals, documents, reports);
+  const age = adminCustomerAge(profile.date_of_birth);
+  const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
+
+  return <div className="admin-modal-backdrop customer-details-backdrop" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onClose();
+  }}>
+    <section className="admin-modal customer-details-modal" role="dialog" aria-modal="true" aria-label={`Customer details for ${profile.full_name || profile.email || 'customer'}`}>
+      <header className="admin-modal-header">
+        <UserRound size={22}/>
+        <div><strong>{profile.full_name || 'Unnamed Client'}</strong><span>{profile.email || profile.id}</span></div>
+        <button className="customer-details-close" type="button" onClick={onClose} aria-label="Close customer details"><XCircle size={20}/></button>
+      </header>
+      <div className="customer-details-scroll">
+        <section className="customer-details-overview">
+          <div className={`customer-risk-card ${risk.level}`}>
+            <span>{prettyStatus(risk.level)} risk</span>
+            <strong>{risk.summary}</strong>
+            <small>{risk.completed} completed • {risk.late} late/overdue • {risk.rejectedDocs} rejected documents • {risk.openReports} open reports</small>
           </div>
-          <em>{count} rentals</em>
-        </div>;
-      })}
-    </div>
-  </Panel>;
+          <div className="customer-status-grid">
+            <span className={profile.phone_verified ? 'verified' : 'warning'}><strong>Phone</strong>{profile.phone_verified ? 'Verified' : 'Not verified'}</span>
+            <span className={profile.identity_verification_status === 'verified' ? 'verified' : 'warning'}><strong>Identity</strong>{prettyStatus(profile.identity_verification_status || 'unverified')}</span>
+            <span className={profile.blocked_customer || profile.customer_status === 'blocked' ? 'danger' : 'verified'}><strong>Account</strong>{profile.blocked_customer || profile.customer_status === 'blocked' ? 'Blocked' : prettyStatus(profile.customer_status || 'good')}</span>
+            <span className={age !== null && age < 25 ? 'warning' : 'verified'}><strong>Age</strong>{age === null ? 'Not confirmed' : `${age} years old`}</span>
+          </div>
+        </section>
+
+        <section className="customer-details-section">
+          <h3>Contact and profile</h3>
+          <dl className="customer-detail-grid">
+            <div><dt>Email</dt><dd>{profile.email || 'Not provided'}</dd></div>
+            <div><dt>Phone</dt><dd>{profile.phone || 'Not provided'}</dd></div>
+            <div><dt>Date of birth</dt><dd>{profile.date_of_birth ? new Date(`${profile.date_of_birth}T12:00:00`).toLocaleDateString() : 'Not provided'}</dd></div>
+            <div><dt>Deposit tier</dt><dd>{age === null ? 'Age not confirmed' : age < 25 ? '$500 — under 25' : '$300 — age 25+'}</dd></div>
+            <div className="wide"><dt>Home address</dt><dd>{profile.address || 'Not provided'}</dd></div>
+            <div className="wide"><dt>Intended vehicle use</dt><dd>{profile.intended_vehicle_use || 'Not provided'}</dd></div>
+            <div className="wide"><dt>Admin notes</dt><dd>{profile.admin_notes || 'No admin notes'}</dd></div>
+          </dl>
+        </section>
+
+        <section className="customer-details-section">
+          <div className="customer-section-heading"><h3>Rental history</h3><span>{sortedRentals.length} total</span></div>
+          <div className="customer-rental-history">
+            {sortedRentals.length === 0 && <p className="muted">No rentals yet.</p>}
+            {sortedRentals.map((rental) => <article key={rental.id}>
+              <div><strong>{rental.vehicles?.name || 'Vehicle'}</strong><span>{formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span></div>
+              <span className={`workflow-badge ${['completed', 'paid', 'active'].includes(String(rental.status || '').toLowerCase()) ? 'success' : ''}`}>{prettyStatus(rental.status || 'pending')}</span>
+            </article>)}
+          </div>
+        </section>
+
+        <section className="customer-details-section">
+          <div className="customer-section-heading"><h3>Documents</h3><span>{documents.length} total</span></div>
+          <DocumentMiniList documents={documents} openDocument={openDocument} />
+          {documents.length === 0 && <p className="muted">No uploaded documents.</p>}
+        </section>
+
+        <section className="customer-details-section customer-risk-metrics">
+          <h3>Risk totals</h3>
+          <div><span>Deposits currently held</span><strong>{money(risk.depositsHeld)}</strong></div>
+          <div><span>Deposits released</span><strong>{money(risk.depositsReleased)}</strong></div>
+        </section>
+      </div>
+      <footer className="modal-actions customer-details-actions"><button className="primary-btn" type="button" onClick={onClose}>Done</button></footer>
+    </section>
+  </div>;
 }
 
 function AuditLog({ auditLogs = [] }) {
@@ -2601,6 +2718,7 @@ function DepositReleaseStatus({ rental }) {
 
 function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, markVehicleServiced, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
+  const [vehicleSearch, setVehicleSearch] = useState('');
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const normalizeVehicleField = (key, value) => {
     if (key === 'vin') return normalizeVinInput(value);
@@ -2617,6 +2735,20 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
   const statusOptions = Object.entries(availabilityTypes).map(([key, type]) => [key, type.label]);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0];
   const editingVehicle = vehicles.find((vehicle) => vehicle.id === editingVehicleId);
+  const normalizedVehicleSearch = vehicleSearch.trim().toLowerCase();
+  const visibleVehicles = vehicles.filter((vehicle) => {
+    if (!normalizedVehicleSearch) return true;
+    return [
+      vehicle.name,
+      vehicle.brand,
+      vehicle.model,
+      vehicle.vehicle_type,
+      vehicle.plate_number,
+      vehicle.vin,
+      vehicle.status,
+      ...(Array.isArray(vehicle.features) ? vehicle.features : []),
+    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(normalizedVehicleSearch));
+  });
 
   useEffect(() => {
     if (!selectedVehicleId && vehicles[0]) setSelectedVehicleId(vehicles[0].id);
@@ -2673,7 +2805,12 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
 
   return <section className="content-grid vehicles-layout">
     <Panel title="Fleet" eyebrow="Vehicles">
-      {vehicles.map((v) => {
+      <div className="list-search-toolbar">
+        <div className="search-row"><Search size={18}/><input value={vehicleSearch} maxLength="120" onChange={(event)=>setVehicleSearch(limitText(event.target.value, 120))} placeholder="Search name, plate, VIN, type, feature..." /></div>
+        <span>{visibleVehicles.length} of {vehicles.length} vehicles</span>
+      </div>
+      {visibleVehicles.length === 0 && <p className="muted list-empty-state">No vehicles match “{vehicleSearch.trim()}”.</p>}
+      {visibleVehicles.map((v) => {
         const isSelected = selectedVehicle?.id === v.id;
         const maintenance = getVehicleMaintenanceState(v);
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
@@ -4556,6 +4693,10 @@ function calculateMilesDriven(startingMileage, endingMileage) {
 function formatMiles(value) {
   if (value === null || value === undefined || value === '') return 'Not recorded';
   return `${Number(value || 0).toLocaleString('en-US')} mi`;
+}
+function customerInitials(value) {
+  const parts = String(value || 'Customer').trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'C';
 }
 function getVehicleMaintenanceState(vehicle) {
   const current = parseMileageInput(vehicle?.current_mileage);
