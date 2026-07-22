@@ -47,6 +47,8 @@ import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
 import './vehicle-editor.css';
 import './admin-list-details.css';
+import './emails.css';
+import './final-overrides.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CT_TAX_RATE = 0.0635;
@@ -113,18 +115,31 @@ const DEFAULT_VEHICLE_IMAGE_NAMES = new Set([
   'Dodge-Van-451', 'Dodge-Van-452', 'Ford-Escape-650', 'Ford-F350-4X4-191',
   'Kia-Soul-656', 'Mercedes-Benz-C300-677', 'Mercedes-C300-321',
 ]);
+const DEFAULT_VEHICLE_IMAGES_BY_KEY = new Map(
+  [...DEFAULT_VEHICLE_IMAGE_NAMES].map((name) => [vehicleImageKey(name), name])
+);
 const PUBLIC_FLEET_ASSET_BASE_URL = (
   import.meta.env.VITE_PUBLIC_FLEET_ASSET_BASE_URL || 'https://rentmect.com/assets'
 ).replace(/\/$/, '');
 
 function getAdminVehicleImage(vehicle) {
   if (Array.isArray(vehicle?.image_urls) && vehicle.image_urls[0]) return vehicle.image_urls[0];
-  const imageName = String(vehicle?.name || '')
-    .trim()
-    .replace(/#/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return DEFAULT_VEHICLE_IMAGE_NAMES.has(imageName) ? `${PUBLIC_FLEET_ASSET_BASE_URL}/${imageName}.webp` : '';
+  const imageName = DEFAULT_VEHICLE_IMAGES_BY_KEY.get(vehicleImageKey(vehicle?.name));
+  return imageName ? `${PUBLIC_FLEET_ASSET_BASE_URL}/${imageName}.webp` : '';
+}
+
+function vehicleImageKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function createEmptyVehicleForm() {
+  return {
+    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '',
+    daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT),
+    status: 'available', published: false, description: '', features: '', image_urls: '',
+    original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL),
+    last_maintenance_mileage: '',
+  };
 }
 
 async function uploadOptimizedVehicleImages(files) {
@@ -285,9 +300,7 @@ function App() {
   });
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
-  const [vehicleForm, setVehicleForm] = useState({
-    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT), status: 'available', description: '', features: '', image_urls: '', original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL), last_maintenance_mileage: ''
-  });
+  const [vehicleForm, setVehicleForm] = useState(createEmptyVehicleForm);
   const [discountForm, setDiscountForm] = useState({
     code: '',
     discount_type: 'percentage',
@@ -995,6 +1008,15 @@ function App() {
     notify(`Vehicle set to ${prettyVehicleStatus(status)}.`, 'success');
   }
 
+  async function updateVehiclePublished(id, published) {
+    const { error } = await supabase.from('vehicles').update({ published }).eq('id', id);
+    if (error) return notify(error.message);
+    setVehicles((current) => current.map((vehicle) =>
+      vehicle.id === id ? { ...vehicle, published } : vehicle
+    ));
+    notify(published ? 'Vehicle published to customer-facing fleet views.' : 'Vehicle unpublished and hidden from customer-facing fleet views.', 'success');
+  }
+
   async function markVehicleServiced(vehicle) {
     const currentMileage = parseMileageInput(vehicle?.current_mileage);
     if (currentMileage === null) return notify('Record the vehicle’s current mileage before completing maintenance.');
@@ -1070,6 +1092,7 @@ function App() {
           ? vehicle.image_urls
           : [getAdminVehicleImage(vehicle)].filter(Boolean)
       ),
+      published: vehicle.published !== false,
       status: SYSTEM_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase()) ? '' : vehicle.status || 'available',
     });
   }
@@ -1801,9 +1824,15 @@ function App() {
   async function addVehicle(event) {
     event.preventDefault();
     const originalMileage = parseMileageInput(vehicleForm.original_mileage);
-    if (originalMileage === null) return notify('Enter the vehicle’s original odometer mileage.');
+    if (originalMileage === null) {
+      notify('Enter the vehicle’s original odometer mileage.');
+      return false;
+    }
     const lastServiceMileage = parseMileageInput(vehicleForm.last_maintenance_mileage);
-    if (lastServiceMileage !== null && lastServiceMileage > originalMileage) return notify('Last service mileage cannot be above the current odometer.');
+    if (lastServiceMileage !== null && lastServiceMileage > originalMileage) {
+      notify('Last service mileage cannot be above the current odometer.');
+      return false;
+    }
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
       daily_rate: Number(vehicleForm.daily_rate || 0),
@@ -1815,9 +1844,15 @@ function App() {
       features: linesToList(vehicleForm.features),
       image_urls: linesToList(vehicleForm.image_urls),
     });
-    if (error) return notify(error.message);
-    setVehicleForm({ name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '', daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT), status: 'available', description: '', features: '', image_urls: '', original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL), last_maintenance_mileage: '' });
-    loadAllData();
+    if (error) {
+      notify(error.message);
+      return false;
+    }
+    const wasPublished = vehicleForm.published;
+    setVehicleForm(createEmptyVehicleForm());
+    await loadAllData();
+    notify(wasPublished ? 'Vehicle added and published.' : 'Vehicle added as an unpublished draft.', 'success');
+    return true;
   }
 
   async function sendManualReminder(rental, channel) {
@@ -1864,6 +1899,7 @@ function App() {
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
+    { key: 'emails', label: 'Emails', icon: Mail },
     { key: 'messages', label: 'Messages', icon: MessageCircle },
     { key: 'audit', label: 'Audit Log', icon: History },
     { key: 'settings', label: 'Settings', icon: Settings },
@@ -1967,7 +2003,8 @@ function App() {
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
-        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
+        {activeTab === 'emails' && <EmailsTab profiles={profiles} adminEmail={session.user.email} notify={notify} />}
+        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
@@ -2716,10 +2753,222 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, markVehicleServiced, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
+function EmailsTab({ profiles, adminEmail, notify }) {
+  const [section, setSection] = useState('automated');
+  const [templates, setTemplates] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
+  const [outbox, setOutbox] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [loadingEmails, setLoadingEmails] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [testEmail, setTestEmail] = useState(adminEmail || '');
+  const [composer, setComposer] = useState({
+    name: '', templateId: '', subject: '', preheader: '', htmlBody: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', textBody: '', audienceType: 'marketing_opted_in', selectedUserIds: [], scheduledFor: '',
+  });
+
+  const optedInProfiles = profiles.filter((profile) => profile.email && profile.email_marketing_opt_in && !profile.email_marketing_unsubscribed_at);
+
+  async function loadEmailData(silent = false) {
+    if (!silent) setLoadingEmails(true);
+    const [templatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
+      supabase.from('email_templates').select('*').order('category').order('name'),
+      supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('email_outbox').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('email_delivery_events').select('*').order('event_at', { ascending: false }).limit(200),
+    ]);
+    const firstError = templatesRes.error || campaignsRes.error || outboxRes.error || eventsRes.error;
+    if (firstError) notify(firstError.message);
+    if (templatesRes.data) setTemplates(templatesRes.data);
+    if (campaignsRes.data) setCampaigns(campaignsRes.data);
+    if (outboxRes.data) setOutbox(outboxRes.data);
+    if (eventsRes.data) setEvents(eventsRes.data);
+    setLoadingEmails(false);
+  }
+
+  useEffect(() => {
+    loadEmailData();
+  }, []);
+
+  async function invokeEmailAction(path, body) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-emails/${path}`, {
+      method: 'POST',
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.error) throw new Error(payload.error || `Email request failed (${response.status}).`);
+    return payload;
+  }
+
+  async function toggleAutomation(template) {
+    const { error } = await supabase.from('email_templates').update({ enabled: !template.enabled, version: Number(template.version || 1) + 1 }).eq('id', template.id);
+    if (error) return notify(error.message);
+    setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, enabled: !item.enabled } : item));
+    notify(`${template.name} ${template.enabled ? 'disabled' : 'enabled'}.`, 'success');
+  }
+
+  async function saveTemplate(event) {
+    event.preventDefault();
+    if (!editingTemplate?.name?.trim() || !editingTemplate?.subject?.trim() || !editingTemplate?.html_body?.trim()) return notify('Template name, subject, and body are required.');
+    setBusy(true);
+    const values = {
+      name: editingTemplate.name.trim(),
+      subject: editingTemplate.subject.trim(),
+      preheader: editingTemplate.preheader?.trim() || '',
+      html_body: editingTemplate.html_body,
+      text_body: editingTemplate.text_body || '',
+      enabled: editingTemplate.enabled !== false,
+      version: Number(editingTemplate.version || 0) + 1,
+    };
+    const request = editingTemplate.id
+      ? supabase.from('email_templates').update(values).eq('id', editingTemplate.id)
+      : supabase.from('email_templates').insert({ ...values, template_key: `manual_${Date.now()}`, category: 'manual' });
+    const { error } = await request;
+    setBusy(false);
+    if (error) return notify(error.message);
+    setEditingTemplate(null);
+    await loadEmailData(true);
+    notify('Email template saved.', 'success');
+  }
+
+  async function sendTemplateTest(template = editingTemplate) {
+    if (!template) return;
+    setBusy(true);
+    try {
+      await invokeEmailAction('test', { to: testEmail, subject: template.subject, preheader: template.preheader, htmlBody: template.html_body, textBody: template.text_body });
+      notify(`Test email sent to ${testEmail}.`, 'success');
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function useTemplate(templateId) {
+    const template = templates.find((item) => item.id === templateId);
+    setComposer((current) => ({
+      ...current,
+      templateId,
+      name: current.name || template?.name || '',
+      subject: template?.subject || current.subject,
+      preheader: template?.preheader || '',
+      htmlBody: template?.html_body || current.htmlBody,
+      textBody: template?.text_body || '',
+    }));
+  }
+
+  async function sendCampaign(schedule = false) {
+    if (!composer.name.trim() || !composer.subject.trim() || !composer.htmlBody.trim()) return notify('Campaign name, subject, and body are required.');
+    if (schedule && !composer.scheduledFor) return notify('Choose a scheduled date and time.');
+    const audienceCount = composer.audienceType === 'selected' ? composer.selectedUserIds.length : optedInProfiles.length;
+    if (!audienceCount) return notify('No opted-in customers match this audience.');
+    const action = schedule ? `schedule this email for ${new Date(composer.scheduledFor).toLocaleString()}` : `send this email to the selected audience now`;
+    if (!window.confirm(`Confirm that you want to ${action}. Eligible recipient preview: ${audienceCount}.`)) return;
+    setBusy(true);
+    try {
+      await invokeEmailAction('campaign', {
+        name: composer.name,
+        templateId: composer.templateId || null,
+        subject: composer.subject,
+        preheader: composer.preheader,
+        htmlBody: composer.htmlBody,
+        textBody: composer.textBody,
+        audienceType: composer.audienceType,
+        selectedUserIds: composer.selectedUserIds,
+        scheduledFor: schedule ? new Date(composer.scheduledFor).toISOString() : null,
+      });
+      setComposer({ name: '', templateId: '', subject: '', preheader: '', htmlBody: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', textBody: '', audienceType: 'marketing_opted_in', selectedUserIds: [], scheduledFor: '' });
+      await loadEmailData(true);
+      setSection('history');
+      notify(schedule ? 'Campaign scheduled.' : 'Campaign started.', 'success');
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loadingEmails) return <Panel title="Emails" eyebrow="SendGrid"><p className="muted">Loading email settings…</p></Panel>;
+
+  const automated = templates.filter((template) => template.category === 'automated');
+  const manual = templates.filter((template) => template.category === 'manual');
+  const editorPreview = editingTemplate ? emailAdminPreview(editingTemplate.html_body, editingTemplate.preheader) : '';
+  const composerPreview = emailAdminPreview(composer.htmlBody, composer.preheader);
+
+  return <section className="email-admin-shell">
+    <div className="email-admin-header">
+      <div><p className="eyebrow">Twilio SendGrid</p><h2>Email Center</h2><span>Automated booking emails, reusable templates, broadcasts, and delivery history.</span></div>
+      <div className="email-admin-health"><Mail size={19}/><strong>{optedInProfiles.length}</strong><span>marketing subscribers</span></div>
+    </div>
+    <div className="email-admin-tabs" role="tablist">
+      {[['automated', 'Automated'], ['templates', 'Templates'], ['compose', 'Custom Email'], ['history', 'Delivery History']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
+    </div>
+
+    {section === 'automated' && <div className="email-card-grid">
+      {automated.map((template) => <article className="email-setting-card" key={template.id}>
+        <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Trigger: {prettyStatus(template.trigger_key || 'manual')}</small></div></div>
+        <p>{template.subject}</p>
+        <div className="email-card-actions"><button className="secondary-btn" onClick={() => setEditingTemplate({ ...template })}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
+      </article>)}
+      {!automated.length && <p className="muted">Run the email automation migration to install automated templates.</p>}
+    </div>}
+
+    {section === 'templates' && <Panel title="Reusable Templates" eyebrow="Email Library">
+      <div className="email-section-toolbar"><p className="muted">Create manual templates for announcements, reminders, and customer updates.</p><button className="primary-btn" onClick={() => setEditingTemplate({ name: '', subject: '', preheader: '', html_body: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', text_body: '', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Template</button></div>
+      <div className="email-template-list">{manual.map((template) => <button key={template.id} onClick={() => setEditingTemplate({ ...template })}><Mail size={18}/><span><strong>{template.name}</strong><small>{template.subject}</small></span><em>v{template.version}</em></button>)}</div>
+    </Panel>}
+
+    {section === 'compose' && <div className="email-compose-layout">
+      <Panel title="Create Custom Email" eyebrow="Broadcast">
+        <div className="portal-form email-compose-form">
+          <input placeholder="Campaign name (internal only)" value={composer.name} onChange={(event) => setComposer({ ...composer, name: limitText(event.target.value, 120) })}/>
+          <label className="field-label">Start from template<select value={composer.templateId} onChange={(event) => useTemplate(event.target.value)}><option value="">Blank/custom</option>{manual.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
+          <input placeholder="Email subject" value={composer.subject} onChange={(event) => setComposer({ ...composer, subject: limitText(event.target.value, 200) })}/>
+          <input placeholder="Preview text" value={composer.preheader} onChange={(event) => setComposer({ ...composer, preheader: limitText(event.target.value, 240) })}/>
+          <label className="field-label email-body-field">Email body <small>HTML and variables such as {'{{customer_first_name}}'} are supported.</small><textarea value={composer.htmlBody} onChange={(event) => setComposer({ ...composer, htmlBody: limitText(event.target.value, 30000) })}/></label>
+          <label className="field-label">Audience<select value={composer.audienceType} onChange={(event) => setComposer({ ...composer, audienceType: event.target.value, selectedUserIds: [] })}><option value="marketing_opted_in">All opted-in customers</option><option value="active_rentals">Opted-in customers with active rentals</option><option value="upcoming_pickups">Opted-in customers with upcoming pickups</option><option value="past_customers">Opted-in past customers</option><option value="selected">Selected opted-in customers</option></select></label>
+          {composer.audienceType === 'selected' && <div className="email-recipient-picker">{optedInProfiles.map((profile) => <label key={profile.id}><input type="checkbox" checked={composer.selectedUserIds.includes(profile.id)} onChange={(event) => setComposer({ ...composer, selectedUserIds: event.target.checked ? [...composer.selectedUserIds, profile.id] : composer.selectedUserIds.filter((id) => id !== profile.id) })}/><span>{profile.full_name || profile.email}<small>{profile.email}</small></span></label>)}</div>}
+          <label className="field-label">Schedule (optional)<input type="datetime-local" value={composer.scheduledFor} onChange={(event) => setComposer({ ...composer, scheduledFor: event.target.value })}/></label>
+          <div className="email-send-actions"><button className="secondary-btn" disabled={busy} onClick={() => sendTemplateTest({ subject: composer.subject, preheader: composer.preheader, html_body: composer.htmlBody, text_body: composer.textBody })}><Send size={15}/> Send Test</button><input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)} aria-label="Test recipient"/><button className="secondary-btn" disabled={busy || !composer.scheduledFor} onClick={() => sendCampaign(true)}>Schedule</button><button className="primary-btn" disabled={busy} onClick={() => sendCampaign(false)}><Send size={16}/> Send Now</button></div>
+        </div>
+      </Panel>
+      <Panel title="Preview" eyebrow="Customer View"><iframe className="email-preview-frame" title="Email preview" sandbox="" srcDoc={composerPreview}/></Panel>
+    </div>}
+
+    {section === 'history' && <div className="email-history-grid">
+      <Panel title="Campaigns" eyebrow="Custom Emails"><div className="email-history-list">{campaigns.map((campaign) => <article key={campaign.id}><span className={`email-history-status ${campaign.status}`}>{prettyStatus(campaign.status)}</span><div><strong>{campaign.name}</strong><small>{campaign.subject}</small></div><em>{campaign.sent_count || 0}/{campaign.recipient_count || 0} sent</em></article>)}{!campaigns.length && <p className="muted">No custom campaigns yet.</p>}</div></Panel>
+      <Panel title="Automated Queue" eyebrow="Transactional"><div className="email-history-list">{outbox.map((job) => <article key={job.id}><span className={`email-history-status ${job.status}`}>{prettyStatus(job.status)}</span><div><strong>{prettyStatus(job.email_type)}</strong><small>{job.recipient_email}</small></div><em>{job.sent_at ? new Date(job.sent_at).toLocaleString() : job.last_error || 'Queued'}</em></article>)}{!outbox.length && <p className="muted">No automated emails queued yet.</p>}</div></Panel>
+      <Panel title="Recent Provider Events" eyebrow="SendGrid"><div className="email-history-list">{events.slice(0, 50).map((event) => <article key={event.id}><span className={`email-history-status ${event.event_type}`}>{prettyStatus(event.event_type)}</span><div><strong>{event.email || 'Recipient unavailable'}</strong><small>{event.provider_message_id || 'SendGrid event'}</small></div><em>{new Date(event.event_at).toLocaleString()}</em></article>)}{!events.length && <p className="muted">Delivery events will appear after the SendGrid webhook is connected.</p>}</div></Panel>
+    </div>}
+
+    {editingTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTemplate(null); }}>
+      <form className="admin-modal email-template-modal" onSubmit={saveTemplate}>
+        <div className="admin-modal-header"><Mail size={21}/><div><strong>{editingTemplate.id ? 'Edit Email Template' : 'Add Email Template'}</strong><span>Versioned content sent through Twilio SendGrid</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTemplate(null)}><XCircle size={20}/></button></div>
+        <div className="email-template-editor"><div className="portal-form"><input placeholder="Template name" value={editingTemplate.name} onChange={(event) => setEditingTemplate({ ...editingTemplate, name: limitText(event.target.value, 120) })}/><input placeholder="Subject" value={editingTemplate.subject} onChange={(event) => setEditingTemplate({ ...editingTemplate, subject: limitText(event.target.value, 200) })}/><input placeholder="Preview text" value={editingTemplate.preheader || ''} onChange={(event) => setEditingTemplate({ ...editingTemplate, preheader: limitText(event.target.value, 240) })}/><label className="field-label email-body-field">Email body<textarea value={editingTemplate.html_body} onChange={(event) => setEditingTemplate({ ...editingTemplate, html_body: limitText(event.target.value, 30000) })}/></label><label className="checkbox-pill"><input type="checkbox" checked={editingTemplate.enabled !== false} onChange={(event) => setEditingTemplate({ ...editingTemplate, enabled: event.target.checked })}/> Enabled</label><div className="email-send-actions"><input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)}/><button type="button" className="secondary-btn" disabled={busy} onClick={() => sendTemplateTest()}><Send size={15}/> Send Test</button></div></div><iframe className="email-preview-frame" title="Template preview" sandbox="" srcDoc={editorPreview}/></div>
+        <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Template</button></div>
+      </form>
+    </div>}
+  </section>;
+}
+
+function emailAdminPreview(htmlBody, preheader = '') {
+  const variables = { customer_first_name: 'Alex', customer_name: 'Alex Customer', booking_number: 'A1B2C3D4E5', vehicle_name: 'Ford F-350 4X4 #191', pickup_date: 'Jul 25, 2026', pickup_time: '9:00 AM', return_date: 'Jul 27, 2026', return_time: '9:00 AM', rental_total: '$200.00', tax_amount: '$12.70', deposit_amount: '$300.00', manage_booking_url: 'https://login.rentmect.com', business_address: '12 Holmes Circle, Farmington, CT' };
+  const rendered = String(htmlBody || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => variables[key] || '');
+  return `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif"><div style="display:none">${preheader || ''}</div><table width="100%" cellpadding="0" cellspacing="0" style="padding:18px"><tr><td align="center"><table width="100%" style="max-width:620px;background:#fff;border:1px solid #ddd"><tr><td style="padding:20px 26px;background:#050505;color:#fff;font-size:22px;font-weight:800">RENT ME CT</td></tr><tr><td style="padding:28px;line-height:1.6">${rendered}<hr style="border:0;border-top:1px solid #ddd;margin-top:26px"><small>Rent Me CT · 12 Holmes Circle, Farmington, CT</small></td></tr></table></td></tr></table></body></html>`;
+}
+
+function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, updateVehiclePublished, markVehicleServiced, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const [addVehicleOpen, setAddVehicleOpen] = useState(false);
   const normalizeVehicleField = (key, value) => {
     if (key === 'vin') return normalizeVinInput(value);
     if (key === 'plate_number') return normalizePlateInput(value);
@@ -2768,6 +3017,25 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
     };
   }, [editingVehicle?.id]);
 
+  useEffect(() => {
+    if (!addVehicleOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setAddVehicleOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [addVehicleOpen]);
+
+  function closeAddVehicle() {
+    setAddVehicleOpen(false);
+    setVehicleForm(createEmptyVehicleForm());
+  }
+
   function selectVehicle(vehicle) {
     setSelectedVehicleId(vehicle.id);
   }
@@ -2808,6 +3076,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
       <div className="list-search-toolbar">
         <div className="search-row"><Search size={18}/><input value={vehicleSearch} maxLength="120" onChange={(event)=>setVehicleSearch(limitText(event.target.value, 120))} placeholder="Search name, plate, VIN, type, feature..." /></div>
         <span>{visibleVehicles.length} of {vehicles.length} vehicles</span>
+        <button className="primary-btn add-vehicle-trigger" type="button" onClick={() => setAddVehicleOpen(true)}><Plus size={17}/> Add New Vehicle</button>
       </div>
       {visibleVehicles.length === 0 && <p className="muted list-empty-state">No vehicles match “{vehicleSearch.trim()}”.</p>}
       {visibleVehicles.map((v) => {
@@ -2828,6 +3097,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <div className="row-actions">
             <em>{money(v.daily_rate)}/day</em>
             <small>{money(v.security_deposit)} deposit</small>
+            <span className={`vehicle-publish-badge ${v.published === false ? 'unpublished' : 'published'}`}>{v.published === false ? 'Unpublished' : 'Published'}</span>
             <span className={`fleet-status-badge ${String(v.status || 'available').toLowerCase()}`}>{prettyVehicleStatus(v.status)}</span>
             {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) ? (
               <span className="system-owned-status">System controlled</span>
@@ -2838,6 +3108,10 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
               event.stopPropagation();
               openVehicleEditor(v);
             }}><Pencil size={15}/> Edit</button>
+            <button className="secondary-btn vehicle-publish-btn" type="button" onClick={(event) => {
+              event.stopPropagation();
+              updateVehiclePublished(v.id, v.published === false);
+            }}>{v.published === false ? 'Publish' : 'Unpublish'}</button>
             {(maintenance.due || maintenance.soon) && <button className="secondary-btn" type="button" onClick={(event) => {
               event.stopPropagation();
               markVehicleServiced(v);
@@ -2846,8 +3120,22 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
         </div>;
       })}
     </Panel>
-    <Panel title="Add Vehicle" eyebrow="Fleet Manager">
-      <form className="portal-form" onSubmit={addVehicle}>
+    {addVehicleOpen && <div className="admin-modal-backdrop vehicle-editor-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) closeAddVehicle();
+    }}>
+      <div className="admin-modal vehicle-editor-modal add-vehicle-modal" role="dialog" aria-modal="true" aria-label="Add new vehicle">
+        <div className="admin-modal-header">
+          <Car size={22}/>
+          <div>
+            <strong>Add New Vehicle</strong>
+            <span>Create the inventory record, upload pictures, and choose whether to publish it.</span>
+          </div>
+          <button className="vehicle-editor-close" type="button" onClick={closeAddVehicle} aria-label="Close add vehicle form"><XCircle size={20}/></button>
+        </div>
+        <form className="portal-form vehicle-editor-scroll vehicle-detail-form" onSubmit={async (event) => {
+          const created = await addVehicle(event);
+          if (created) setAddVehicleOpen(false);
+        }}>
         <input placeholder="Vehicle name e.g. Audi Q5 #474" maxLength="80" value={vehicleForm.name} onChange={(e)=>update('name', e.target.value)} required />
         <input placeholder="Brand" maxLength="40" value={vehicleForm.brand} onChange={(e)=>update('brand', e.target.value)} />
         <input placeholder="Model" maxLength="40" value={vehicleForm.model} onChange={(e)=>update('model', e.target.value)} />
@@ -2871,6 +3159,10 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.last_maintenance_mileage} onChange={(e)=>update('last_maintenance_mileage', e.target.value)} placeholder="Defaults to original mileage" />
         </label>
         <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
+        <label className="vehicle-publish-control">
+          <input type="checkbox" checked={vehicleForm.published} onChange={(event)=>update('published', event.target.checked)} />
+          <span><strong>Publish immediately</strong><small>Published vehicles appear in customer-facing fleet views. Leave this off to save a draft.</small></span>
+        </label>
         <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
         <VehicleFeatureChecklist value={vehicleForm.features} onChange={(value)=>update('features', value)} />
         <label className="vehicle-photo-upload">
@@ -2891,9 +3183,13 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <summary>Advanced: edit picture URLs</summary>
           <textarea placeholder="Picture URLs, one per line" maxLength="8000" value={vehicleForm.image_urls} onChange={(e)=>update('image_urls', e.target.value)} />
         </details>
-        <button className="primary-btn"><Plus size={17}/> Add Vehicle</button>
-      </form>
-    </Panel>
+          <div className="modal-actions vehicle-editor-actions add-vehicle-actions">
+            <button className="secondary-btn" type="button" onClick={closeAddVehicle}>Cancel</button>
+            <button className="approve" type="submit"><Plus size={17}/> Add Vehicle</button>
+          </div>
+        </form>
+      </div>
+    </div>}
     {editingVehicle && editVehicleForm && <div className="admin-modal-backdrop vehicle-editor-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) cancelEditVehicle();
     }}>
@@ -2961,6 +3257,10 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
               <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
               {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
             </select>
+            <label className="vehicle-publish-control">
+              <input type="checkbox" checked={editVehicleForm.published} onChange={(event)=>updateEdit('published', event.target.checked)} />
+              <span><strong>Published</strong><small>Turn this off to remove the vehicle from customer-facing fleet views.</small></span>
+            </label>
             <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
             <VehicleFeatureChecklist value={editVehicleForm.features} onChange={(value)=>updateEdit('features', value)} />
           </div>
@@ -4810,7 +5110,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', messages:'Messages', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Customer Emails', messages:'Messages', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function calculateAdminUnder25Deposit(baseDeposit, settings = DEFAULT_UNDER_25_PRICING) {
   const base = Math.max(0, Number(baseDeposit || 0));

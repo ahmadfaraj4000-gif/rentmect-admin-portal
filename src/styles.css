@@ -320,6 +320,122 @@
     }
 }
 
+/* Final fleet/modal and black navigation overrides. */
+.vehicles-layout{grid-template-columns:minmax(0,1fr)!important}
+.list-search-toolbar .add-vehicle-trigger{flex:0 0 auto!important;min-height:42px!important;white-space:nowrap!important}
+.add-vehicle-modal .vehicle-editor-scroll{padding:20px!important;overflow-y:auto!important}
+.add-vehicle-modal .add-vehicle-actions{grid-column:1 / -1!important;margin:4px -20px -20px!important}
+.vehicle-publish-control{grid-column:1 / -1!important;display:flex!important;align-items:flex-start!important;gap:12px!important;padding:13px 14px!important;border:1px solid var(--admin-line)!important;border-radius:6px!important;background:#f6f7f7!important}
+.vehicle-publish-control input{width:18px!important;height:18px!important;min-height:18px!important;margin-top:2px!important}
+.vehicle-publish-control span{display:grid!important;gap:3px!important}
+.vehicle-publish-control small{color:#607176!important;line-height:1.4!important}
+.vehicle-publish-badge{display:inline-flex!important;justify-content:center!important;padding:5px 8px!important;border:1px solid #1f2933!important;border-radius:999px!important;background:#111!important;color:#fff!important;font-size:11px!important;font-style:normal!important;font-weight:900!important}
+.vehicle-publish-badge.unpublished{background:#fff!important;color:#4f5963!important;border-color:#aeb7be!important}
+:root{--admin-sidebar:#050505;--admin-sidebar-active:#262626}
+.sidebar,.sidebar.collapsed{background:#050505!important;border-right-color:#292929!important}
+.sidebar .nav-toggle,.side-nav button,.logout-btn{background:#111!important;color:#fff!important;border-color:#343434!important}
+.sidebar .nav-toggle:hover,.side-nav button:hover,.logout-btn:hover{background:#1d1d1d!important;color:#fff!important;border-color:#555!important}
+.side-nav button.active{background:#2a2a2a!important;color:#fff!important;border-color:#606060!important;box-shadow:inset 4px 0 0 #fff!important}
+.sidebar .nav-toggle svg,.sidebar .nav-toggle span,.side-nav button svg,.side-nav button span,.logout-btn svg,.logout-btn span,.brand-block span{color:#fff!important}
+
+/* Fleet manager: full-width list with create/edit work contained in modals. */
+.vehicles-layout{
+    grid-template-columns:minmax(0,1fr)!important;
+}
+.list-search-toolbar .add-vehicle-trigger{
+    flex:0 0 auto!important;
+    min-height:42px!important;
+    white-space:nowrap!important;
+}
+.add-vehicle-modal .vehicle-editor-scroll{
+    padding:20px!important;
+    overflow-y:auto!important;
+}
+.add-vehicle-modal .add-vehicle-actions{
+    grid-column:1 / -1!important;
+    margin:4px -20px -20px!important;
+}
+.vehicle-publish-control{
+    grid-column:1 / -1!important;
+    display:flex!important;
+    align-items:flex-start!important;
+    gap:12px!important;
+    padding:13px 14px!important;
+    border:1px solid var(--admin-line)!important;
+    border-radius:6px!important;
+    background:#f6f7f7!important;
+}
+.vehicle-publish-control input{
+    width:18px!important;
+    height:18px!important;
+    min-height:18px!important;
+    margin-top:2px!important;
+}
+.vehicle-publish-control span{
+    display:grid!important;
+    gap:3px!important;
+}
+.vehicle-publish-control small{
+    color:#607176!important;
+    line-height:1.4!important;
+}
+.vehicle-publish-badge{
+    display:inline-flex!important;
+    justify-content:center!important;
+    padding:5px 8px!important;
+    border:1px solid #1f2933!important;
+    border-radius:999px!important;
+    background:#111!important;
+    color:#fff!important;
+    font-size:11px!important;
+    font-style:normal!important;
+    font-weight:900!important;
+}
+.vehicle-publish-badge.unpublished{
+    background:#fff!important;
+    color:#4f5963!important;
+    border-color:#aeb7be!important;
+}
+
+/* Final portal navigation palette: black shell with grayscale interaction states. */
+:root{
+    --admin-sidebar:#050505;
+    --admin-sidebar-active:#262626;
+}
+.sidebar,
+.sidebar.collapsed{
+    background:#050505!important;
+    border-right-color:#292929!important;
+}
+.sidebar .nav-toggle,
+.side-nav button,
+.logout-btn{
+    background:#111!important;
+    color:#fff!important;
+    border-color:#343434!important;
+}
+.sidebar .nav-toggle:hover,
+.side-nav button:hover,
+.logout-btn:hover{
+    background:#1d1d1d!important;
+    border-color:#555!important;
+}
+.side-nav button.active{
+    background:#2a2a2a!important;
+    color:#fff!important;
+    border-color:#606060!important;
+    box-shadow:inset 4px 0 0 #fff!important;
+}
+.sidebar .nav-toggle svg,
+.sidebar .nav-toggle span,
+.side-nav button svg,
+.side-nav button span,
+.logout-btn svg,
+.logout-btn span,
+.brand-block span{
+    color:#fff!important;
+}
+
 /* Vehicle editor: compact, scrollable, and gallery-first. */
 .vehicle-editor-backdrop{
     padding:16px!important;

@@ -1,0 +1,59 @@
+.email-admin-shell{display:grid;gap:18px}
+.email-admin-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 24px;background:#fff;border:1px solid var(--admin-line);border-radius:8px}
+.email-admin-header h2{margin:2px 0 5px;font-size:28px}
+.email-admin-header span{color:#607176}
+.email-admin-health{display:grid;grid-template-columns:auto auto;align-items:center;gap:2px 9px;padding:12px 16px;background:#f5f7f7;border:1px solid var(--admin-line);border-radius:7px}
+.email-admin-health svg{grid-row:1 / 3;color:#111}
+.email-admin-health strong{font-size:20px}
+.email-admin-health span{font-size:12px}
+.email-admin-tabs{display:flex;gap:7px;padding:6px;background:#e8eceb;border:1px solid var(--admin-line);border-radius:7px;overflow-x:auto}
+.email-admin-tabs button{min-height:40px;padding:9px 16px;border:1px solid transparent;border-radius:5px;background:transparent;color:#3f4d53;font-weight:850;white-space:nowrap}
+.email-admin-tabs button.active{background:#111;color:#fff;border-color:#111}
+.email-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.email-setting-card{display:grid;gap:14px;padding:18px;background:#fff;border:1px solid var(--admin-line);border-radius:8px}
+.email-setting-card>div:first-child{display:flex;align-items:center;gap:11px}
+.email-setting-card>div:first-child>div{display:grid;gap:3px}
+.email-setting-card small,.email-setting-card p{color:#607176}
+.email-setting-card p{margin:0;line-height:1.45}
+.email-status-dot{width:11px;height:11px;border-radius:999px;background:#a4acb0;box-shadow:0 0 0 4px #edf0f1}
+.email-status-dot.enabled{background:#147a42;box-shadow:0 0 0 4px #dff2e7}
+.email-card-actions,.email-section-toolbar,.email-send-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.email-card-actions{justify-content:flex-end}
+.email-section-toolbar{justify-content:space-between;margin-bottom:14px}
+.email-template-list{display:grid;gap:8px}
+.email-template-list>button{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;width:100%;padding:14px;text-align:left;background:#fff;border:1px solid var(--admin-line);border-radius:6px;color:var(--admin-ink)}
+.email-template-list>button:hover{border-color:#111;background:#f7f7f7}
+.email-template-list span{display:grid;gap:4px}
+.email-template-list small{color:#607176}
+.email-template-list em{font-size:11px;font-style:normal;font-weight:850;color:#607176}
+.email-compose-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:18px;align-items:start}
+.email-compose-form{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
+.email-compose-form>*{min-width:0}
+.email-body-field{grid-column:1 / -1!important}
+.email-body-field textarea{min-height:260px!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace!important;font-size:13px!important;line-height:1.5!important}
+.email-body-field small{color:#607176;font-weight:600}
+.email-recipient-picker{grid-column:1 / -1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:240px;overflow:auto;padding:10px;border:1px solid var(--admin-line);background:#f7f8f8}
+.email-recipient-picker label{display:flex!important;flex-direction:row!important;align-items:center!important;gap:9px!important;padding:10px!important;background:#fff!important;border:1px solid var(--admin-line)!important}
+.email-recipient-picker input{width:17px!important;height:17px!important;min-height:17px!important}
+.email-recipient-picker span{display:grid;gap:2px}
+.email-recipient-picker small{color:#607176}
+.email-send-actions{grid-column:1 / -1;justify-content:flex-end;padding-top:8px}
+.email-send-actions input{max-width:280px}
+.email-preview-frame{width:100%;height:610px;border:1px solid var(--admin-line);border-radius:6px;background:#f3f4f6}
+.email-history-grid{display:grid;gap:18px}
+.email-history-list{display:grid;gap:8px}
+.email-history-list article{display:grid;grid-template-columns:120px minmax(0,1fr) minmax(150px,auto);align-items:center;gap:12px;padding:12px;border:1px solid var(--admin-line);border-radius:6px;background:#fff}
+.email-history-list article>div{display:grid;gap:3px}
+.email-history-list small,.email-history-list em{color:#607176;font-size:12px;font-style:normal}
+.email-history-status{display:inline-flex;justify-content:center;padding:5px 8px;border-radius:999px;background:#e8eceb;color:#34434a;font-size:11px;font-weight:900}
+.email-history-status.sent,.email-history-status.completed,.email-history-status.delivered,.email-history-status.processed{background:#def1e5;color:#145d35}
+.email-history-status.failed,.email-history-status.bounced,.email-history-status.spam{background:#f4dedd;color:#7d201b}
+.email-history-status.scheduled,.email-history-status.pending,.email-history-status.sending,.email-history-status.processing{background:#fff1c9;color:#725400}
+.email-template-modal{width:min(1100px,calc(100vw - 30px))!important;max-width:min(1100px,calc(100vw - 30px))!important;max-height:calc(100dvh - 30px)!important;overflow:hidden!important;padding:0!important;grid-template-rows:auto minmax(0,1fr) auto!important}
+.email-template-modal>.admin-modal-header{padding:16px 19px;border-bottom:1px solid var(--admin-line)}
+.email-template-editor{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.9fr);gap:18px;overflow:auto;padding:18px}
+.email-template-editor .portal-form{align-content:start}
+.email-template-editor .email-preview-frame{height:590px}
+.email-template-modal>.modal-actions{padding:13px 18px;border-top:1px solid var(--admin-line)}
+@media(max-width:900px){.email-card-grid,.email-compose-layout,.email-template-editor{grid-template-columns:1fr}.email-preview-frame,.email-template-editor .email-preview-frame{height:440px}}
+@media(max-width:620px){.email-admin-header{align-items:flex-start;flex-direction:column}.email-card-grid,.email-compose-form,.email-recipient-picker{grid-template-columns:1fr!important}.email-history-list article{grid-template-columns:1fr}.email-send-actions>*{width:100%!important;max-width:none!important}}
