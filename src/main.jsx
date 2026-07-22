@@ -254,6 +254,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [reports, setReports] = useState([]);
   const [extensionRequests, setExtensionRequests] = useState([]);
+  const [rentalCharges, setRentalCharges] = useState([]);
   const [discountCodes, setDiscountCodes] = useState([]);
   const [serviceFees, setServiceFees] = useState([]);
   const [under25Pricing, setUnder25Pricing] = useState(DEFAULT_UNDER_25_PRICING);
@@ -537,7 +538,7 @@ function App() {
 
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalChargesRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -630,6 +631,11 @@ function App() {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(750),
+
+      supabase
+        .from('rental_charge_items')
+        .select('*')
+        .order('created_at', { ascending: false }),
     ]);
 
     if (profilesRes.data) setProfiles(profilesRes.data);
@@ -646,6 +652,7 @@ function App() {
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
     if (under25PricingRes.data) setUnder25Pricing(under25PricingRes.data);
     if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
+    if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
     if (!silent) setLoading(false);
   }
 
@@ -993,6 +1000,39 @@ function App() {
     if (error) return notify(error.message);
     notify('Extension payment recorded and the rental return window is updated.', 'success');
     loadAllData();
+  }
+
+  async function cancelApprovedExtension(id) {
+    const { data, error } = await supabase.rpc('cancel_admin_approved_extension', { p_extension_request_id: id });
+    if (error) return notify(error.message);
+    setExtensionRequests((current) => current.map((request) => request.id === id ? { ...request, ...data } : request));
+    await loadAllData({ silent: true });
+    notify('Approved extension cancelled and its calendar hold released.', 'success');
+  }
+
+  async function addRentalCharge(rentalId, charge) {
+    const { data, error } = await supabase.rpc('admin_add_rental_charge', {
+      p_rental_id: rentalId,
+      p_name: charge.name,
+      p_charge_type: charge.chargeType,
+      p_amount: Number(charge.amount),
+      p_taxable: Boolean(charge.taxable),
+      p_description: charge.description || null,
+    });
+    if (error) {
+      notify(error.message);
+      return false;
+    }
+    setRentalCharges((current) => [data, ...current]);
+    notify('Customer charge added. It is now visible for secure payment in the client portal.', 'success');
+    return true;
+  }
+
+  async function waiveRentalCharge(id) {
+    const { data, error } = await supabase.rpc('admin_waive_rental_charge', { p_charge_id: id });
+    if (error) return notify(error.message);
+    setRentalCharges((current) => current.map((charge) => charge.id === id ? data : charge));
+    notify('Charge waived.', 'success');
   }
 
   async function updateVehicleStatus(id, status) {
@@ -1976,8 +2016,8 @@ function App() {
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
-        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
+        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
         {activeTab === 'emails' && <EmailsTab profiles={profiles} adminEmail={session.user.email} notify={notify} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
@@ -2414,7 +2454,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId }) {
+function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
 
@@ -2442,6 +2482,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
           </div>
           <div className="row-actions">
             <button className="approve" onClick={()=>recordExtensionPayment(request.id)}><CreditCard size={15}/> Record Extension Payment</button>
+            <button className="reject" onClick={()=>cancelApprovedExtension(request.id)}><XCircle size={15}/> Cancel Hold</button>
           </div>
         </div>)}
       </div>
@@ -2456,7 +2497,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
       </div>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />)}</div>
+      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} />)}</div>
     </Panel>
   </>;
 }
@@ -3313,7 +3354,7 @@ function Messages({ rentals, messages, selectedRental, setSelectedRentalId, repl
   </section>;
 }
 
-function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, availabilityBlocks, under25Pricing, createManualBooking, submitting }) {
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, availabilityBlocks, under25Pricing, serviceFees = [], createManualBooking, submitting }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
@@ -3366,6 +3407,9 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
   const markupPercentage = under25 ? Number(under25Pricing?.rental_markup_percentage || 0) : 0;
   const markupAmount = baseRentalTotal * markupPercentage / 100;
   const rentalTotal = baseRentalTotal + markupAmount;
+  const serviceFeeTotal = serviceFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+  const taxableServiceFeeTotal = serviceFees.filter((fee) => fee.taxable).reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+  const taxTotal = (rentalTotal + taxableServiceFeeTotal) * CT_TAX_RATE;
   const baseDeposit = Number(selectedVehicle?.security_deposit || 0);
   const deposit = under25 ? calculateAdminUnder25Deposit(baseDeposit, under25Pricing) : baseDeposit;
   const customerName = manualBookingForm.customerMode === 'new'
@@ -3447,8 +3491,10 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
           <div><dt>Base rental</dt><dd>{money(baseRentalTotal)}</dd></div>
           {under25 && markupAmount > 0 && <div><dt>Under-25 markup ({markupPercentage}%)</dt><dd>{money(markupAmount)}</dd></div>}
           <div><dt>Rental total</dt><dd>{money(rentalTotal)}</dd></div>
-          <div><dt>CT tax</dt><dd>{money(rentalTotal * CT_TAX_RATE)}</dd></div>
+          {serviceFeeTotal > 0 && <div><dt>Booking fees</dt><dd>{money(serviceFeeTotal)}</dd></div>}
+          <div><dt>CT tax</dt><dd>{money(taxTotal)}</dd></div>
           <div><dt>Deposit</dt><dd>{selectedVehicle ? money(deposit) : '—'}</dd></div>
+          <div><dt>Total due</dt><dd>{selectedVehicle ? money(rentalTotal + serviceFeeTotal + taxTotal + deposit) : '—'}</dd></div>
         </dl>
         {under25 && <div className="underage-deposit-note"><ShieldCheck size={17}/><span>Under 25: {money(deposit)} refundable deposit and {markupPercentage}% rental markup</span></div>}
         <p className="summary-note">Payment starts as due. The customer can finish payment and documents in the client portal.</p>
@@ -3769,7 +3815,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
@@ -3816,7 +3862,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
     <div className="rental-row-main">
       <strong>{rental.vehicles?.name || 'Vehicle'}</strong>
       <span>{rental.profiles?.full_name || 'Client'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
-      {detailed && <small>{money(rental.rental_total)} rental • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
+      {detailed && <small>{money(rental.rental_total)} rental • {money(rental.service_fee_total || 0)} booking fees • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
       {detailed && Number(rental.under_25_markup_amount || 0) > 0 && <small>Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup • {money(rental.base_security_deposit)} vehicle deposit adjusted to {money(rental.security_deposit)}</small>}
       {detailed && <small>Intended use: {rental.profiles?.intended_vehicle_use || 'Not provided'}</small>}
       {detailed && <DepositReleaseStatus rental={rental} />}
@@ -3827,7 +3873,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         <DocumentStatusBadge label="Insurance" document={insurance} />
       </div>}
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
-      {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
+      {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} />}
+      {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} />}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
@@ -3875,6 +3922,41 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />
       </div>
     </div>
+  </div>;
+}
+
+function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRentalCharge }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!form.name.trim() || Number(form.amount) <= 0) return;
+    setSaving(true);
+    const saved = await addRentalCharge?.(rental.id, { ...form, name: form.name.trim(), description: form.description.trim() });
+    setSaving(false);
+    if (saved) {
+      setForm({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
+      setOpen(false);
+    }
+  }
+
+  return <div className="rental-charge-manager">
+    <div className="rental-charge-heading"><strong>Fees, tolls &amp; add-ons</strong><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add customer charge</button></div>
+    {charges.length === 0 && <small>No booking-specific charges.</small>}
+    {charges.map((charge) => <div className="extension-action-row" key={charge.id}>
+      <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small></div>
+      {!charge.included_in_initial_payment && ['pending', 'failed'].includes(charge.status) && <button type="button" className="reject" onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button>}
+    </div>)}
+    {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
+      <label><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
+      <label><span>Type</span><select value={form.chargeType} onChange={(event) => setForm({ ...form, chargeType: event.target.value })}><option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
+      <label><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
+      <label><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
+      <label className="checkbox-row"><input type="checkbox" checked={form.taxable} onChange={(event) => setForm({ ...form, taxable: event.target.checked })}/> Apply CT sales tax</label>
+      <button className="approve" disabled={saving}>{saving ? 'Adding…' : 'Add & send to customer portal'}</button>
+    </form>}
   </div>;
 }
 
@@ -4008,7 +4090,7 @@ function RequirementList({ requirements = [] }) {
   </div>;
 }
 
-function RentalExtensionActions({ requests = [], vehicles = [], decideExtension, recordExtensionPayment }) {
+function RentalExtensionActions({ requests = [], vehicles = [], decideExtension, recordExtensionPayment, cancelApprovedExtension }) {
   const activeRequests = requests
     .filter((request) => ['pending', 'approved_pending_payment', 'activated', 'rejected'].includes(request.status))
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
@@ -4034,6 +4116,7 @@ function RentalExtensionActions({ requests = [], vehicles = [], decideExtension,
           {request.status === 'pending' && decideExtension && <button type="button" className="approve" onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="reject" onClick={() => decideExtension(request.id, false)}><XCircle size={14}/> Reject</button>}
           {request.status === 'approved_pending_payment' && recordExtensionPayment && <button type="button" className="approve" onClick={() => recordExtensionPayment(request.id)}><CreditCard size={14}/> Record Payment</button>}
+          {request.status === 'approved_pending_payment' && cancelApprovedExtension && <button type="button" className="reject" onClick={() => cancelApprovedExtension(request.id)}><XCircle size={14}/> Cancel Hold</button>}
         </div>
       </div>;
     })}
