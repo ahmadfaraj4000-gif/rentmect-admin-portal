@@ -647,14 +647,14 @@ function App() {
 
       supabase
         .from('email_templates')
-        .select('id,name,subject,text_body,category,enabled')
+        .select('id,template_key,name,subject,text_body,category,enabled')
         .eq('category', 'manual')
         .eq('enabled', true)
         .order('name'),
 
       supabase
         .from('sms_templates')
-        .select('id,name,body,category,enabled')
+        .select('id,template_key,name,body,category,enabled')
         .eq('category', 'manual')
         .eq('enabled', true)
         .order('name'),
@@ -1048,7 +1048,7 @@ function App() {
       return false;
     }
     setRentalCharges((current) => [data, ...current]);
-    notify('Customer charge added. It is now visible for secure payment in the client portal.', 'success');
+    notify('Charge added. The secure payment-link email was queued, and you can also text the link or charge the saved card now.', 'success');
     return true;
   }
 
@@ -2075,7 +2075,7 @@ function App() {
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} />}
+        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <EmailsTab profiles={profiles} adminEmail={session.user.email} notify={notify} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
@@ -2516,7 +2516,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard }) {
+function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
 
@@ -2559,7 +2559,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
       </div>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} />)}</div>
+      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} />)}</div>
     </Panel>
   </>;
 }
@@ -2662,7 +2662,7 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
   </>;
 }
 
-function renderMessagePreview(value, profile, rental) {
+function renderMessagePreview(value, profile, rental, charge) {
   const firstName = String(profile?.full_name || 'Customer').trim().split(/\s+/)[0];
   const variables = {
     customer_name: profile?.full_name || 'Customer', customer_first_name: firstName,
@@ -2671,16 +2671,20 @@ function renderMessagePreview(value, profile, rental) {
     pickup_time: rental?.pickup_time || 'your scheduled time',
     return_date: rental?.return_date ? formatRentalDate(rental.return_date, rental.return_time).split(' at ')[0] : 'your scheduled date',
     return_time: rental?.return_time || 'your scheduled time',
-    manage_booking_url: import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com',
+    manage_booking_url: charge ? `${import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com'}?billing=1` : import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com',
     business_phone: import.meta.env.VITE_RENTMECT_PHONE || '860-558-6031',
+    charge_name: charge?.name || 'additional rental charge',
+    charge_description: charge?.description || 'Please contact Rent Me CT with any questions.',
+    charge_total: money(charge?.total_amount || 0),
   };
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => variables[key] || '');
 }
 
-function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, onClose }) {
+function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', charge = null, onClose }) {
   const initialChannel = profile.phone && profile.phone_verified ? 'sms' : profile.email ? 'email' : 'sms';
   const [channel, setChannel] = useState(initialChannel);
-  const [templateId, setTemplateId] = useState((initialChannel === 'email' ? emailTemplates : smsTemplates)[0]?.id || '');
+  const initialTemplates = initialChannel === 'email' ? emailTemplates : smsTemplates;
+  const [templateId, setTemplateId] = useState(initialTemplates.find((template) => template.template_key === initialTemplateKey)?.id || initialTemplates[0]?.id || '');
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
   const [rentalId, setRentalId] = useState(sortedRentals[0]?.id || '');
   const [sending, setSending] = useState(false);
@@ -2700,7 +2704,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
   function chooseChannel(nextChannel) {
     setChannel(nextChannel);
     const nextTemplates = nextChannel === 'email' ? emailTemplates : smsTemplates;
-    setTemplateId(nextTemplates[0]?.id || '');
+    setTemplateId(nextTemplates.find((template) => template.template_key === initialTemplateKey)?.id || nextTemplates[0]?.id || '');
     setError('');
   }
 
@@ -2716,13 +2720,13 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-emails/customer`, {
           method: 'POST',
           headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${sessionData.session?.access_token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null }),
+          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload.error) throw new Error(payload.error || `Email request failed (${response.status}).`);
       } else {
         const { data, error: invokeError } = await supabase.functions.invoke('send-rental-due-reminders', {
-          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null },
+          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null },
         });
         if (invokeError || data?.error) throw new Error(data?.error || invokeError?.message || 'Text message failed.');
       }
@@ -2736,8 +2740,8 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
   }
 
   const preview = channel === 'email'
-    ? renderMessagePreview(selectedTemplate?.text_body || selectedTemplate?.subject, profile, selectedRental)
-    : renderMessagePreview(selectedTemplate?.body, profile, selectedRental);
+    ? renderMessagePreview(selectedTemplate?.text_body || selectedTemplate?.subject, profile, selectedRental, charge)
+    : renderMessagePreview(selectedTemplate?.body, profile, selectedRental, charge);
 
   return <div className="admin-modal-backdrop customer-contact-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="admin-modal customer-contact-modal" role="dialog" aria-modal="true" aria-label={`Message ${profile.full_name || 'customer'}`} onSubmit={sendMessage}>
@@ -2756,7 +2760,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
           <label><span>Message template</span><select value={selectedTemplate?.id || ''} onChange={(event) => setTemplateId(event.target.value)} disabled={!templates.length}>{templates.length ? templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>) : <option value="">No templates available</option>}</select></label>
           {sortedRentals.length > 0 && <label><span>Related rental</span><select value={rentalId} onChange={(event) => setRentalId(event.target.value)}><option value="">No specific rental</option>{sortedRentals.map((rental) => <option value={rental.id} key={rental.id}>{rental.vehicles?.name || 'Vehicle'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)}</option>)}</select></label>}
         </div>
-        {channel === 'email' && selectedTemplate?.subject && <div className="contact-subject"><span>Subject</span><strong>{renderMessagePreview(selectedTemplate.subject, profile, selectedRental)}</strong></div>}
+        {channel === 'email' && selectedTemplate?.subject && <div className="contact-subject"><span>Subject</span><strong>{renderMessagePreview(selectedTemplate.subject, profile, selectedRental, charge)}</strong></div>}
         <div className="contact-preview"><div><span>{channel === 'email' ? 'Email' : 'Text'} preview</span><small>{preview.length} characters</small></div><p>{preview || 'Choose a template to preview the message.'}</p></div>
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
@@ -3993,11 +3997,12 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [contactModal, setContactModal] = useState(null);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -4052,7 +4057,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       </div>}
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} />}
-      {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} />}
+      {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
@@ -4083,6 +4088,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
           setCancelModalOpen(false);
         }}
       />}
+      {contactModal && <CustomerContactModal profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.charge ? 'manual_additional_charge_due' : ''} charge={contactModal.charge || null} onClose={() => setContactModal(null)} />}
     </div>
     <div className="row-actions rental-actions">
       <div className="rental-actions-primary">
@@ -4097,13 +4103,15 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       <div className="rental-actions-secondary">
         {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
         {canCancel && <button className="reject" onClick={()=>setCancelModalOpen(true)}><XCircle size={15}/> Cancel</button>}
-        <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />
+        {detailed
+          ? <button type="button" onClick={() => setContactModal({ charge: null })}><MessageCircle size={15}/> Contact Customer</button>
+          : <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />}
       </div>
     </div>
   </div>;
 }
 
-function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard }) {
+function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, sendPaymentLink }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [chargingId, setChargingId] = useState('');
@@ -4129,10 +4137,10 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
 
   return <div className="rental-charge-manager">
     <div className="rental-charge-heading"><strong>Fees, tolls &amp; add-ons</strong><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add customer charge</button></div>
-    {charges.length === 0 && <small>No booking-specific charges.</small>}
+    {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
     {charges.map((charge) => <div className="extension-action-row" key={charge.id}>
       <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
-      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions"><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge saved card'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
+      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge card now'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
     </div>)}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>

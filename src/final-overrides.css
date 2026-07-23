@@ -240,6 +240,30 @@
   padding: 8px 14px !important;
 }
 
+.charge-collection-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  gap: 7px !important;
+}
+
+.charge-collection-actions button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  width: auto !important;
+  min-height: 36px !important;
+  padding: 7px 11px !important;
+  white-space: nowrap !important;
+}
+
+.charge-collection-actions button:first-child {
+  border-color: #111 !important;
+  background: #fff !important;
+  color: #111 !important;
+}
+
 /* Customer row actions and manual communications composer. */
 .customer-summary-row {
   grid-template-columns: minmax(230px, 1.15fr) minmax(170px, .75fr) minmax(180px, .72fr) auto !important;
