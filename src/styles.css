@@ -2006,6 +2006,20 @@ button{
     font-size:12px;
     font-weight:800
 }
+.payment-plan-note{
+    display:flex!important;
+    grid-template-columns:auto 1fr!important;
+    align-items:flex-start;
+    gap:8px!important;
+    margin:0;
+    padding:11px 12px;
+    border:1px solid #bdd3ef;
+    border-radius:9px;
+    background:#eef5ff;
+    color:#1f4f84;
+    font-size:12px;
+    line-height:1.45
+}
 .missing-dob-field{
     padding:12px;
     border:1px solid #d7a927;
@@ -2140,6 +2154,20 @@ button{
     padding:10px 12px;
     border-top:1px solid #d4e5db
 }
+.procedure-payment-plan{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    margin:0 12px 10px;
+    padding:8px 10px;
+    border-radius:8px;
+    background:#eef5ff;
+    color:#1f4f84;
+    font-size:12px
+}
+.procedure-payment-primary{
+    box-shadow:0 0 0 3px rgba(47,143,91,.16)
+}
 .procedure-next{
     display:flex;
     align-items:center;
@@ -2189,9 +2217,170 @@ button{
     color:#5d7168!important;
     font-size:10px!important
 }
+.emergency-exception-action{
+    border-color:#b42318!important;
+    background:#fff1f0!important;
+    color:#9f1f17!important
+}
+.dashboard-emergency-exceptions{
+    display:grid;
+    gap:6px;
+    margin-bottom:16px;
+    padding:12px 14px;
+    border:2px solid #d97706;
+    border-radius:13px;
+    background:#fff7ed;
+    color:#7c2d12
+}
+.dashboard-emergency-exceptions>div{
+    display:flex;
+    align-items:center;
+    gap:8px
+}
+.dashboard-emergency-exceptions>span{
+    padding:6px 8px;
+    border-radius:7px;
+    background:rgba(255,255,255,.7);
+    font-size:11px
+}
+.dashboard-emergency-exceptions>span.expired{
+    background:#fff1f0;
+    color:#9f1f17;
+    font-weight:900
+}
+.emergency-exception-modal{
+    width:min(680px,calc(100vw - 28px));
+    max-height:92vh;
+    overflow:auto
+}
+.emergency-truth-warning{
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    padding:11px;
+    border:1px solid #f0aaa4;
+    border-radius:10px;
+    background:#fff1f0;
+    color:#8f1d16;
+    font-size:12px;
+    font-weight:800
+}
+.emergency-rental-summary{
+    display:grid;
+    gap:3px;
+    padding:10px 0
+}
+.emergency-rental-summary span{
+    color:#667a70;
+    font-size:12px
+}
+.emergency-scope-list{
+    display:grid;
+    gap:7px;
+    margin:0;
+    padding:12px;
+    border:1px solid #e4c1bd;
+    border-radius:10px
+}
+.emergency-scope-list legend{
+    padding:0 6px;
+    color:#6f211b;
+    font-size:12px;
+    font-weight:900
+}
+.emergency-scope-list label{
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    padding:8px;
+    border-radius:8px;
+    background:#fff7f6
+}
+.emergency-scope-list label span{
+    display:grid;
+    gap:2px
+}
+.emergency-scope-list small{
+    color:#8b625f
+}
+.emergency-form-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px
+}
+.danger-confirm-btn{
+    border-color:#9f1f17!important;
+    background:#9f1f17!important;
+    color:#fff!important
+}
+.emergency-exception-banner{
+    display:grid;
+    gap:9px;
+    margin:10px 0;
+    padding:11px;
+    border:2px solid #d97706;
+    border-radius:11px;
+    background:#fff7ed;
+    color:#7c2d12
+}
+.emergency-exception-banner.expired{
+    border-color:#b42318;
+    background:#fff1f0;
+    color:#8f1d16
+}
+.emergency-exception-heading{
+    display:flex;
+    align-items:flex-start;
+    gap:8px
+}
+.emergency-exception-heading>div{
+    display:grid;
+    flex:1;
+    gap:2px
+}
+.emergency-exception-heading span{
+    font-size:11px
+}
+.emergency-exception-scopes{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px
+}
+.emergency-exception-scopes>div{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:7px;
+    padding:7px 8px;
+    border-radius:7px;
+    background:rgba(255,255,255,.72);
+    font-size:10px
+}
+.emergency-exception-scopes span{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    font-weight:900
+}
+.emergency-exception-scopes em{
+    font-style:normal
+}
+.emergency-exception-scopes .resolved{
+    color:#16633d
+}
+.emergency-exception-scopes button{
+    border:1px solid #5b8f70;
+    border-radius:6px;
+    background:#e7f4ec;
+    color:#145c37;
+    font-size:9px;
+    font-weight:900
+}
 @media(max-width:760px){
     .procedure-step-grid{grid-template-columns:1fr 1fr}
     .manual-booking-focus-banner{align-items:flex-start;flex-wrap:wrap}
+    .emergency-form-grid,
+    .emergency-exception-scopes{grid-template-columns:1fr}
 }
 .insurance-links-card{
     padding:18px;
