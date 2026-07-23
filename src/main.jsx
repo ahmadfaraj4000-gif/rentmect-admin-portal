@@ -255,6 +255,8 @@ function App() {
   const [reports, setReports] = useState([]);
   const [extensionRequests, setExtensionRequests] = useState([]);
   const [rentalCharges, setRentalCharges] = useState([]);
+  const [customerEmailTemplates, setCustomerEmailTemplates] = useState([]);
+  const [smsTemplates, setSmsTemplates] = useState([]);
   const [discountCodes, setDiscountCodes] = useState([]);
   const [serviceFees, setServiceFees] = useState([]);
   const [under25Pricing, setUnder25Pricing] = useState(DEFAULT_UNDER_25_PRICING);
@@ -264,10 +266,16 @@ function App() {
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
   const [editingPromotionId, setEditingPromotionId] = useState('');
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState('');
   const [availabilityTypes, setAvailabilityTypes] = useState(() => {
     try {
-      return { ...DEFAULT_AVAILABILITY_TYPES, ...JSON.parse(window.localStorage.getItem('rentmect_availability_types') || '{}') };
+      const saved = JSON.parse(window.localStorage.getItem('rentmect_availability_types') || '{}');
+      const validSaved = Object.fromEntries(Object.entries(saved || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, {
+        label: String(value.label || prettyStatus(key)),
+        color: String(value.color || DEFAULT_AVAILABILITY_TYPES[key]?.color || '#171717'),
+      }]));
+      return { ...DEFAULT_AVAILABILITY_TYPES, ...validSaved };
     } catch {
       return DEFAULT_AVAILABILITY_TYPES;
     }
@@ -538,7 +546,7 @@ function App() {
 
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalChargesRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -636,6 +644,20 @@ function App() {
         .from('rental_charge_items')
         .select('*')
         .order('created_at', { ascending: false }),
+
+      supabase
+        .from('email_templates')
+        .select('id,name,subject,text_body,category,enabled')
+        .eq('category', 'manual')
+        .eq('enabled', true)
+        .order('name'),
+
+      supabase
+        .from('sms_templates')
+        .select('id,name,body,category,enabled')
+        .eq('category', 'manual')
+        .eq('enabled', true)
+        .order('name'),
     ]);
 
     if (profilesRes.data) setProfiles(profilesRes.data);
@@ -653,6 +675,8 @@ function App() {
     if (under25PricingRes.data) setUnder25Pricing(under25PricingRes.data);
     if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
     if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
+    if (customerEmailTemplatesRes.data) setCustomerEmailTemplates(customerEmailTemplatesRes.data);
+    if (smsTemplatesRes.data) setSmsTemplates(smsTemplatesRes.data);
     if (!silent) setLoading(false);
   }
 
@@ -1463,7 +1487,7 @@ function App() {
     notify('Promotion deleted.', 'success');
   }
 
-  async function createAvailabilityBlock(event) {
+  async function saveAvailabilityBlock(event) {
     event.preventDefault();
     const vehicleId = availabilityBlockForm.vehicle_id || vehicles[0]?.id;
     if (!vehicleId) return notify('Choose a vehicle to block.');
@@ -1508,8 +1532,8 @@ function App() {
       start_time: availabilityBlockForm.start_time || '9:00 AM',
       end_time: availabilityBlockForm.end_time || '9:00 AM',
       block_type: selectedType,
-      label: availabilityBlockForm.label.trim() || availabilityTypes[selectedType]?.label || prettyStatus(selectedType),
-      notes: availabilityBlockForm.notes.trim() || null,
+      label: String(availabilityBlockForm.label ?? '').trim() || String(availabilityTypes[selectedType]?.label || prettyStatus(selectedType)),
+      notes: String(availabilityBlockForm.notes ?? '').trim() || null,
       active: true,
     };
 
@@ -1549,6 +1573,18 @@ function App() {
     notify(editingAvailabilityBlockId ? 'Availability block updated.' : 'Availability block added.', 'success');
   }
 
+  async function createAvailabilityBlock(event) {
+    if (availabilitySaving) return;
+    setAvailabilitySaving(true);
+    try {
+      await saveAvailabilityBlock(event);
+    } catch (saveError) {
+      notify(saveError instanceof Error ? saveError.message : 'The calendar block could not be saved.', 'error');
+    } finally {
+      setAvailabilitySaving(false);
+    }
+  }
+
   async function createAvailabilityPaintBlock({ vehicleId, startDate, endDate, blockType, startTime, endTime, label, notes }) {
     if (!vehicleId || !startDate || !endDate) return;
     const sortedDates = [startDate, endDate].sort();
@@ -1571,11 +1607,11 @@ function App() {
       vehicle_id: vehicleId,
       start_date: sortedDates[0],
       end_date: sortedDates[1],
-      start_time: startTime || '12:00 AM',
-      end_time: endTime || '11:59 PM',
-      block_type: type,
-      label: label || availabilityTypes[type]?.label || prettyStatus(type),
-      notes: notes || 'Painted from fleet calendar',
+      start_time: String(startTime || '12:00 AM'),
+      end_time: String(endTime || '11:59 PM'),
+      block_type: String(type),
+      label: String(label || availabilityTypes[type]?.label || prettyStatus(type)),
+      notes: String(notes || 'Painted from fleet calendar'),
       active: true,
     };
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1606,11 +1642,11 @@ function App() {
       vehicle_id: updates.vehicle_id,
       start_date: updates.start_date,
       end_date: updates.end_date,
-      start_time: updates.start_time || '12:00 AM',
-      end_time: updates.end_time || '11:59 PM',
-      block_type: updates.block_type || 'unavailable',
-      label: updates.label || availabilityTypes[updates.block_type]?.label || prettyStatus(updates.block_type),
-      notes: updates.notes || null,
+      start_time: String(updates.start_time || '12:00 AM'),
+      end_time: String(updates.end_time || '11:59 PM'),
+      block_type: String(updates.block_type || 'unavailable'),
+      label: String(updates.label || availabilityTypes[updates.block_type]?.label || prettyStatus(updates.block_type || 'unavailable')),
+      notes: String(updates.notes ?? '').trim() || null,
       active: true,
     };
 
@@ -2037,10 +2073,10 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} vehicles={vehicles} operationsQueue={operationsQueue} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
-        {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
+        {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} />}
-        {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} />}
+        {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <EmailsTab profiles={profiles} adminEmail={session.user.email} notify={notify} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
@@ -2182,7 +2218,7 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }
   </>;
 }
 
-function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
+function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilitySaving, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
   const days = calendarDays(28);
   const [paintRange, setPaintRange] = useState(null);
   const [paintModal, setPaintModal] = useState(null);
@@ -2317,7 +2353,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       <input type="date" value={availabilityBlockForm.end_date} onChange={(event) => updateBlock('end_date', event.target.value)} required />
       <select value={availabilityBlockForm.start_time} onChange={(event) => updateBlock('start_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.start_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
       <select value={availabilityBlockForm.end_time} onChange={(event) => updateBlock('end_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.end_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
-      <button className="primary-btn"><Plus size={16}/> {editingAvailabilityBlockId ? 'Save Block' : 'Add Block'}</button>
+      <button className="primary-btn" disabled={availabilitySaving}><Plus size={16}/> {availabilitySaving ? 'Saving…' : editingAvailabilityBlockId ? 'Save Block' : 'Add Block'}</button>
     </form>
 
     <div className="availability-legend" aria-label="Calendar paint colors">
@@ -2404,8 +2440,9 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       onCancel={() => setPaintModal(null)}
       onSave={async (nextModal) => {
         setPaintModal({ ...nextModal, saving: true, error: '' });
-        const result = nextModal.mode === 'edit'
-          ? await updateAvailabilityBlock(nextModal.id, {
+        try {
+          const result = nextModal.mode === 'edit'
+            ? await updateAvailabilityBlock(nextModal.id, {
             vehicle_id: nextModal.vehicleId,
             start_date: nextModal.startDate,
             end_date: nextModal.endDate,
@@ -2414,8 +2451,8 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
             block_type: nextModal.blockType,
             label: nextModal.label,
             notes: nextModal.notes,
-          })
-          : await createAvailabilityPaintBlock({
+            })
+            : await createAvailabilityPaintBlock({
             vehicleId: nextModal.vehicleId,
             startDate: nextModal.startDate,
             endDate: nextModal.endDate,
@@ -2424,12 +2461,15 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
             endTime: nextModal.endTime,
             label: nextModal.label,
             notes: nextModal.notes,
-          });
-        if (!result?.ok) {
-          setPaintModal({ ...nextModal, saving: false, error: result?.error || 'Unable to save this calendar block.' });
-          return;
+            });
+          if (!result?.ok) {
+            setPaintModal({ ...nextModal, saving: false, error: result?.error || 'Unable to save this calendar block.' });
+            return;
+          }
+          setPaintModal(null);
+        } catch (saveError) {
+          setPaintModal({ ...nextModal, saving: false, error: saveError instanceof Error ? saveError.message : 'Unable to save this calendar block.' });
         }
-        setPaintModal(null);
       }}
     />}
   </Panel>;
@@ -2524,9 +2564,10 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
   </>;
 }
 
-function Customers({ profiles, rentals, documentsByUserId, documents, reports, openDocument }) {
+function Customers({ profiles, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [contactCustomerId, setContactCustomerId] = useState('');
   const customerProfiles = profiles.filter((profile) => String(profile.role || 'customer').toLowerCase() !== 'admin');
   const normalizedSearch = customerSearch.trim().toLowerCase();
   const searchDigits = customerSearch.replace(/\D/g, '');
@@ -2546,6 +2587,7 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
     return textMatch || phoneMatch;
   });
   const selectedCustomer = customerProfiles.find((profile) => profile.id === selectedCustomerId);
+  const contactCustomer = customerProfiles.find((profile) => profile.id === contactCustomerId);
 
   useEffect(() => {
     if (!selectedCustomer) return undefined;
@@ -2593,7 +2635,10 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
               <span>{prettyStatus(risk.level)} risk</span>
               <small>{risk.summary}</small>
             </aside>
-            <button className="customer-details-button" type="button" onClick={() => setSelectedCustomerId(profile.id)}><Eye size={16}/> Details</button>
+            <div className="customer-row-actions">
+              <button className="customer-message-button" type="button" onClick={() => setContactCustomerId(profile.id)}><Send size={15}/> Message</button>
+              <button className="customer-details-button" type="button" onClick={() => setSelectedCustomerId(profile.id)}><Eye size={16}/> Details</button>
+            </div>
           </article>;
         })}
       </div>
@@ -2606,7 +2651,105 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
       openDocument={openDocument}
       onClose={() => setSelectedCustomerId('')}
     />}
+    {contactCustomer && <CustomerContactModal
+      profile={contactCustomer}
+      rentals={rentals.filter((rental) => rental.user_id === contactCustomer.id)}
+      emailTemplates={emailTemplates}
+      smsTemplates={smsTemplates}
+      notify={notify}
+      onClose={() => setContactCustomerId('')}
+    />}
   </>;
+}
+
+function renderMessagePreview(value, profile, rental) {
+  const firstName = String(profile?.full_name || 'Customer').trim().split(/\s+/)[0];
+  const variables = {
+    customer_name: profile?.full_name || 'Customer', customer_first_name: firstName,
+    vehicle_name: rental?.vehicles?.name || 'your rental vehicle',
+    pickup_date: rental?.pickup_date ? formatRentalDate(rental.pickup_date, rental.pickup_time).split(' at ')[0] : 'your scheduled date',
+    pickup_time: rental?.pickup_time || 'your scheduled time',
+    return_date: rental?.return_date ? formatRentalDate(rental.return_date, rental.return_time).split(' at ')[0] : 'your scheduled date',
+    return_time: rental?.return_time || 'your scheduled time',
+    manage_booking_url: import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com',
+    business_phone: import.meta.env.VITE_RENTMECT_PHONE || '860-558-6031',
+  };
+  return String(value || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => variables[key] || '');
+}
+
+function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, onClose }) {
+  const [channel, setChannel] = useState('sms');
+  const [templateId, setTemplateId] = useState(smsTemplates[0]?.id || '');
+  const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
+  const [rentalId, setRentalId] = useState(sortedRentals[0]?.id || '');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const templates = channel === 'email' ? emailTemplates : smsTemplates;
+  const selectedTemplate = templates.find((template) => template.id === templateId) || templates[0];
+  const selectedRental = sortedRentals.find((rental) => rental.id === rentalId);
+
+  function chooseChannel(nextChannel) {
+    setChannel(nextChannel);
+    const nextTemplates = nextChannel === 'email' ? emailTemplates : smsTemplates;
+    setTemplateId(nextTemplates[0]?.id || '');
+    setError('');
+  }
+
+  async function sendMessage(event) {
+    event.preventDefault();
+    if (!selectedTemplate) return setError(`No enabled ${channel === 'email' ? 'email' : 'text'} templates are available.`);
+    setSending(true);
+    setError('');
+    try {
+      if (channel === 'email') {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-emails/customer`, {
+          method: 'POST',
+          headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${sessionData.session?.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.error) throw new Error(payload.error || `Email request failed (${response.status}).`);
+      } else {
+        const { data, error: invokeError } = await supabase.functions.invoke('send-rental-due-reminders', {
+          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null },
+        });
+        if (invokeError || data?.error) throw new Error(data?.error || invokeError?.message || 'Text message failed.');
+      }
+      notify(`${channel === 'email' ? 'Email' : 'Text message'} sent to ${profile.full_name || 'customer'}.`, 'success');
+      onClose();
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : 'Message could not be sent.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const preview = channel === 'email'
+    ? renderMessagePreview(selectedTemplate?.text_body || selectedTemplate?.subject, profile, selectedRental)
+    : renderMessagePreview(selectedTemplate?.body, profile, selectedRental);
+
+  return <div className="admin-modal-backdrop customer-contact-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <form className="admin-modal customer-contact-modal" role="dialog" aria-modal="true" aria-label={`Message ${profile.full_name || 'customer'}`} onSubmit={sendMessage}>
+      <header className="admin-modal-header">
+        <MessageCircle size={21}/><div><strong>Contact customer</strong><span>{profile.full_name || 'Unnamed Client'}</span></div>
+        <button className="customer-details-close" type="button" onClick={onClose} aria-label="Close"><XCircle size={20}/></button>
+      </header>
+      <div className="customer-contact-body">
+        <div className="contact-channel-toggle" role="group" aria-label="Message channel">
+          <button type="button" className={channel === 'sms' ? 'active' : ''} onClick={() => chooseChannel('sms')}><MessageCircle size={16}/> Text</button>
+          <button type="button" className={channel === 'email' ? 'active' : ''} onClick={() => chooseChannel('email')}><Mail size={16}/> Email</button>
+        </div>
+        <div className="contact-destination"><strong>{channel === 'email' ? profile.email || 'No email saved' : profile.phone || 'No phone saved'}</strong><span>{channel === 'sms' && !profile.phone_verified ? 'Phone must be verified before sending.' : 'Sent through the configured Rent Me CT account.'}</span></div>
+        <label><span>Template</span><select value={selectedTemplate?.id || ''} onChange={(event) => setTemplateId(event.target.value)} disabled={!templates.length}>{templates.length ? templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>) : <option value="">No templates available</option>}</select></label>
+        <label><span>Related rental</span><select value={rentalId} onChange={(event) => setRentalId(event.target.value)}><option value="">No specific rental</option>{sortedRentals.map((rental) => <option value={rental.id} key={rental.id}>{rental.vehicles?.name || 'Vehicle'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)}</option>)}</select></label>
+        {channel === 'email' && selectedTemplate?.subject && <div className="contact-subject"><span>Subject</span><strong>{renderMessagePreview(selectedTemplate.subject, profile, selectedRental)}</strong></div>}
+        <div className="contact-preview"><span>Message preview</span><p>{preview || 'Choose a template to preview the message.'}</p></div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+      </div>
+      <footer className="customer-contact-actions"><button type="button" onClick={onClose}>Cancel</button><button className="approve" disabled={sending || !selectedTemplate}>{sending ? 'Sending…' : `Send ${channel === 'email' ? 'email' : 'text'}`}</button></footer>
+    </form>
+  </div>;
 }
 
 function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onClose }) {
@@ -3979,10 +4122,10 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
       {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions"><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge saved card'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
     </div>)}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
-      <label><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
-      <label><span>Type</span><select value={form.chargeType} onChange={(event) => setForm({ ...form, chargeType: event.target.value })}><option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
-      <label><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
-      <label><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
+      <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
+      <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => setForm({ ...form, chargeType: event.target.value })}><option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
+      <label className="charge-amount-field"><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
+      <label className="charge-description-field"><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
       <label className="checkbox-row"><input type="checkbox" checked={form.taxable} onChange={(event) => setForm({ ...form, taxable: event.target.checked })}/> Apply CT sales tax</label>
       <button className="approve" disabled={saving}>{saving ? 'Adding…' : 'Add & send to customer portal'}</button>
     </form>}

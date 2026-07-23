@@ -152,3 +152,256 @@
     width: 100% !important;
   }
 }
+
+/* Compact, aligned rental charge editor. */
+.rental-charge-manager {
+  margin-top: 14px !important;
+  padding: 14px !important;
+  border: 1px solid var(--admin-line) !important;
+  border-radius: 8px !important;
+  background: #fafbfa !important;
+}
+
+.rental-charge-heading {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin-bottom: 10px !important;
+}
+
+.rental-charge-heading > button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: auto !important;
+  min-height: 36px !important;
+  padding: 7px 12px !important;
+  border: 1px solid #111 !important;
+  border-radius: 6px !important;
+  background: #111 !important;
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 850 !important;
+}
+
+.rental-charge-form.portal-form {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 3fr) minmax(150px, 1.25fr) minmax(130px, 1fr) !important;
+  align-items: end !important;
+  gap: 12px !important;
+  margin-top: 12px !important;
+  padding: 14px !important;
+  border: 1px solid var(--admin-line) !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+}
+
+.rental-charge-form label {
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+.rental-charge-form input,
+.rental-charge-form select {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 42px !important;
+  min-height: 42px !important;
+}
+
+.rental-charge-form .charge-description-field {
+  grid-column: 1 / -1 !important;
+}
+
+.rental-charge-form .checkbox-row {
+  display: inline-flex !important;
+  align-items: center !important;
+  align-self: center !important;
+  gap: 8px !important;
+  width: max-content !important;
+  min-height: 38px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.rental-charge-form .checkbox-row input {
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 0 !important;
+}
+
+.rental-charge-form > button {
+  justify-self: end !important;
+  width: auto !important;
+  min-height: 40px !important;
+  padding: 8px 14px !important;
+}
+
+/* Customer row actions and manual communications composer. */
+.customer-summary-row {
+  grid-template-columns: minmax(230px, 1.15fr) minmax(170px, .75fr) minmax(180px, .72fr) auto !important;
+}
+
+.customer-row-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 7px !important;
+}
+
+.customer-message-button,
+.customer-details-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  width: auto !important;
+  min-height: 36px !important;
+  padding: 8px 11px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  white-space: nowrap !important;
+}
+
+.customer-message-button {
+  border: 1px solid #111 !important;
+  background: #111 !important;
+  color: #fff !important;
+}
+
+.customer-contact-modal.admin-modal {
+  width: min(640px, calc(100vw - 32px)) !important;
+  max-width: 640px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+
+.customer-contact-modal > .admin-modal-header {
+  align-items: center !important;
+  padding: 15px 18px !important;
+  border-bottom: 1px solid var(--admin-line) !important;
+}
+
+.customer-contact-body {
+  display: grid !important;
+  gap: 13px !important;
+  padding: 18px !important;
+}
+
+.contact-channel-toggle {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 5px !important;
+  padding: 4px !important;
+  border-radius: 7px !important;
+  background: #ecefee !important;
+}
+
+.contact-channel-toggle button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  min-height: 38px !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: #445057 !important;
+  font-weight: 850 !important;
+}
+
+.contact-channel-toggle button.active {
+  background: #111 !important;
+  color: #fff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .18) !important;
+}
+
+.contact-destination,
+.contact-subject {
+  display: grid !important;
+  gap: 3px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--admin-line) !important;
+  border-radius: 6px !important;
+  background: #f7f8f8 !important;
+}
+
+.contact-destination span,
+.contact-subject span,
+.contact-preview > span {
+  color: var(--admin-muted) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+.customer-contact-body label {
+  display: grid !important;
+  gap: 6px !important;
+  margin: 0 !important;
+}
+
+.customer-contact-body label > span {
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+}
+
+.customer-contact-body select {
+  width: 100% !important;
+  min-height: 42px !important;
+}
+
+.contact-preview {
+  display: grid !important;
+  gap: 7px !important;
+  padding: 12px !important;
+  border: 1px solid var(--admin-line) !important;
+  border-left: 4px solid #111 !important;
+  border-radius: 6px !important;
+  background: #fff !important;
+}
+
+.contact-preview p {
+  margin: 0 !important;
+  color: var(--admin-ink) !important;
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  white-space: pre-wrap !important;
+}
+
+.customer-contact-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  padding: 13px 18px !important;
+  border-top: 1px solid var(--admin-line) !important;
+  background: #f7f8f8 !important;
+}
+
+.customer-contact-actions button {
+  width: auto !important;
+  min-height: 38px !important;
+  padding: 8px 14px !important;
+}
+
+@media (max-width: 1050px) {
+  .customer-summary-row {
+    grid-template-columns: minmax(220px, 1fr) minmax(170px, .7fr) auto !important;
+  }
+  .customer-risk-summary { display: none !important; }
+}
+
+@media (max-width: 760px) {
+  .rental-charge-heading { align-items: flex-start !important; }
+  .rental-charge-form.portal-form { grid-template-columns: 1fr !important; }
+  .rental-charge-form .charge-description-field { grid-column: auto !important; }
+  .rental-charge-form > button { justify-self: stretch !important; width: 100% !important; }
+  .customer-summary-row { grid-template-columns: 1fr !important; gap: 10px !important; }
+  .customer-row-actions { justify-content: stretch !important; }
+  .customer-row-actions button { flex: 1 1 0 !important; }
+}
