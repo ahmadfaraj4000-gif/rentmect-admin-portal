@@ -26,6 +26,16 @@
 .email-template-list span{display:grid;gap:4px}
 .email-template-list small{color:#607176}
 .email-template-list em{font-size:11px;font-style:normal;font-weight:850;color:#607176}
+.contact-text-template-list small{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.45}
+.contact-text-template-modal{width:min(760px,calc(100vw - 30px))!important;max-width:min(760px,calc(100vw - 30px))!important;padding:0!important;overflow:hidden!important}
+.contact-text-template-modal>.admin-modal-header{padding:16px 19px;border-bottom:1px solid var(--admin-line)}
+.contact-text-template-editor{display:grid!important;grid-template-columns:1fr!important;padding:20px!important}
+.contact-text-template-editor .full-field{grid-column:1/-1}
+.contact-text-template-editor textarea{min-height:190px!important;line-height:1.55!important}
+.contact-text-template-editor label>small{color:#607176;font-weight:650}
+.contact-variable-help{display:grid;gap:7px;padding:12px;border:1px solid #ccd8d4;border-radius:7px;background:#f5f8f7;color:#344b43;font-size:12px}
+.contact-variable-help span{overflow-wrap:anywhere;color:#607176;line-height:1.65}
+.contact-text-template-modal>.modal-actions{padding:13px 18px;border-top:1px solid var(--admin-line)}
 .email-compose-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:18px;align-items:start}
 .email-compose-form{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
 .email-compose-form>*{min-width:0}

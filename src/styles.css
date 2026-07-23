@@ -2023,6 +2023,119 @@ button{
     display:grid;
     gap:14px
 }
+.archived-customer-note{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    width:max-content;
+    max-width:100%;
+    padding:6px 8px;
+    border-radius:7px;
+    background:#fff0d4;
+    color:#7a4b00!important;
+    font-weight:800
+}
+.admin-booking-procedure{
+    margin-top:12px;
+    border:1px solid #b9d8c6;
+    border-radius:12px;
+    background:#f7fbf8
+}
+.admin-booking-procedure summary{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:11px 12px;
+    color:#173227;
+    cursor:pointer;
+    font-weight:900
+}
+.admin-booking-procedure summary span{
+    flex:1
+}
+.admin-booking-procedure summary em{
+    color:#2f8f5b;
+    font-size:11px;
+    font-style:normal
+}
+.procedure-step-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:7px;
+    padding:0 12px 10px
+}
+.procedure-step-grid>div{
+    display:flex;
+    align-items:flex-start;
+    gap:7px;
+    min-width:0;
+    padding:8px;
+    border:1px solid #ead7aa;
+    border-radius:8px;
+    background:#fff9e8;
+    color:#8a5a00
+}
+.procedure-step-grid>div.complete{
+    border-color:#b9d8c6;
+    background:#e7f4ec;
+    color:#145c37
+}
+.procedure-step-grid span{
+    display:grid;
+    min-width:0
+}
+.procedure-step-grid strong{
+    font-size:12px
+}
+.procedure-step-grid small{
+    overflow:hidden;
+    color:inherit!important;
+    font-size:10px;
+    text-overflow:ellipsis
+}
+.procedure-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    padding:10px 12px;
+    border-top:1px solid #d4e5db
+}
+.procedure-actions button,
+.procedure-upload{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:34px;
+    padding:7px 10px;
+    border:1px solid #a8cdb7;
+    border-radius:7px;
+    background:#fff;
+    color:#145c37;
+    font-size:11px;
+    font-weight:900;
+    cursor:pointer
+}
+.procedure-actions button:disabled,
+.procedure-upload:has(input:disabled){
+    cursor:not-allowed;
+    opacity:.5
+}
+.procedure-upload input{
+    position:absolute;
+    width:1px;
+    height:1px;
+    opacity:0;
+    pointer-events:none
+}
+.procedure-safety-note{
+    display:block;
+    padding:0 12px 11px;
+    color:#5d7168!important;
+    font-size:10px!important
+}
+@media(max-width:760px){
+    .procedure-step-grid{grid-template-columns:1fr 1fr}
+}
 .insurance-links-card{
     padding:18px;
     border:1px solid #b9d8c6;

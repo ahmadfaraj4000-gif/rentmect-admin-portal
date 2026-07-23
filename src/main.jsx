@@ -51,6 +51,7 @@ import './emails.css';
 import './final-overrides.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
+const CLIENT_PORTAL_URL = (import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com').replace(/\/$/, '');
 const CT_TAX_RATE = 0.0635;
 const DEFAULT_NEW_VEHICLE_DEPOSIT = 300;
 const DEFAULT_UNDER_25_PRICING = {
@@ -305,6 +306,7 @@ function App() {
     returnDate: '',
     pickupTime: '9:00 AM',
     returnTime: '9:00 AM',
+    onboardingDelivery: 'email',
   });
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
@@ -1874,6 +1876,7 @@ function App() {
         returnDate: manualBookingForm.returnDate,
         pickupTime: manualBookingForm.pickupTime,
         returnTime: manualBookingForm.returnTime,
+        onboardingDelivery: manualBookingForm.onboardingDelivery,
       },
     });
     setManualBookingSubmitting(false);
@@ -1889,10 +1892,77 @@ function App() {
       return notify(detail);
     }
 
-    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM' });
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'email' });
     await loadAllData({ silent: true });
-    setActiveTab('calendar');
-    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'} — it is now on the calendar.`, 'success');
+    setRentalFilter('needs_action');
+    setActiveTab('rentals');
+    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ' — the secure completion link was emailed.' : ' — open its procedure console to finish the checklist.'}`, 'success');
+    if (data?.onboardingWarning) notify(`Booking was saved, but the completion email was not sent: ${data.onboardingWarning}`);
+  }
+
+  async function sendBookingCompletionLink(rental, delivery = 'email') {
+    const { data, error } = await supabase.functions.invoke('admin-manual-booking', {
+      body: { action: 'create_onboarding_link', rentalId: rental.id, delivery },
+    });
+    if (error || data?.error) {
+      notify(data?.error || error?.message || 'Could not create the secure customer link.');
+      return null;
+    }
+    if (delivery === 'copy') {
+      try {
+        await navigator.clipboard.writeText(data.onboardingUrl);
+        notify('Secure customer completion link copied. Treat it like a password and send it only to the customer.', 'success');
+      } catch {
+        window.prompt('Copy this secure customer completion link:', data.onboardingUrl);
+      }
+    } else {
+      notify('Secure customer completion link emailed.', 'success');
+    }
+    return data.onboardingUrl;
+  }
+
+  async function uploadAdminBookingDocument(rental, documentType, file) {
+    if (!rental?.id || !rental?.user_id || !file) return false;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const path = `${rental.user_id}/${documentType}/admin-${rental.id}-${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from(DOCUMENT_BUCKET).upload(path, file, { upsert: false });
+    if (uploadError) return notify(uploadError.message);
+    const { data, error } = await supabase.from('rental_documents').insert({
+      user_id: rental.user_id,
+      rental_id: rental.id,
+      document_type: documentType,
+      file_path: path,
+      status: 'pending_review',
+    }).select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').single();
+    if (error) {
+      await supabase.storage.from(DOCUMENT_BUCKET).remove([path]);
+      return notify(error.message);
+    }
+    setDocuments((current) => [data, ...current]);
+    notify(`${docLabel(documentType)} uploaded for review. Approve it only after checking the image and expiration details.`, 'success');
+    return true;
+  }
+
+  async function createAdminPaymentLink(rental, mode = 'copy') {
+    const successUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_success`;
+    const cancelUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_cancelled`;
+    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+      body: { action: 'admin_create_checkout', rentalId: rental.id, successUrl, cancelUrl },
+    });
+    if (error || data?.error || !data?.url) {
+      notify(data?.error || error?.message || 'Payment cannot start until verification, documents, and the agreement are complete.');
+      return null;
+    }
+    if (mode === 'open') window.open(data.url, '_blank', 'noopener,noreferrer');
+    else {
+      try {
+        await navigator.clipboard.writeText(data.url);
+        notify('Secure Stripe payment link copied.', 'success');
+      } catch {
+        window.prompt('Copy this secure Stripe payment link:', data.url);
+      }
+    }
+    return data.url;
   }
 
   async function addVehicle(event) {
@@ -1973,7 +2043,7 @@ function App() {
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
-    { key: 'emails', label: 'Emails', icon: Mail },
+    { key: 'emails', label: 'Contact Center', icon: MessageCircle },
     { key: 'messages', label: 'Messages', icon: MessageCircle },
     { key: 'audit', label: 'Audit Log', icon: History },
     { key: 'settings', label: 'Settings', icon: Settings },
@@ -2075,9 +2145,9 @@ function App() {
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
+        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
-        {activeTab === 'emails' && <EmailsTab profiles={profiles} adminEmail={session.user.email} notify={notify} />}
+        {activeTab === 'emails' && <ContactCenterTab profiles={profiles} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
@@ -2516,7 +2586,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify }) {
+function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
 
@@ -2559,7 +2629,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
       </div>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} />)}</div>
+      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
     </Panel>
   </>;
 }
@@ -2907,15 +2977,17 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function EmailsTab({ profiles, adminEmail, notify }) {
+function ContactCenterTab({ profiles, adminEmail, notify, onTemplatesChanged }) {
   const [section, setSection] = useState('automated');
   const [templates, setTemplates] = useState([]);
+  const [textTemplates, setTextTemplates] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [outbox, setOutbox] = useState([]);
   const [events, setEvents] = useState([]);
   const [loadingEmails, setLoadingEmails] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState(null);
+  const [editingTextTemplate, setEditingTextTemplate] = useState(null);
   const [testEmail, setTestEmail] = useState(adminEmail || '');
   const [composer, setComposer] = useState({
     name: '', templateId: '', subject: '', preheader: '', htmlBody: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', textBody: '', audienceType: 'marketing_opted_in', selectedUserIds: [], scheduledFor: '',
@@ -2925,15 +2997,17 @@ function EmailsTab({ profiles, adminEmail, notify }) {
 
   async function loadEmailData(silent = false) {
     if (!silent) setLoadingEmails(true);
-    const [templatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
+    const [templatesRes, textTemplatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
       supabase.from('email_templates').select('*').order('category').order('name'),
+      supabase.from('sms_templates').select('*').order('category').order('name'),
       supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('email_outbox').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('email_delivery_events').select('*').order('event_at', { ascending: false }).limit(200),
     ]);
-    const firstError = templatesRes.error || campaignsRes.error || outboxRes.error || eventsRes.error;
+    const firstError = templatesRes.error || textTemplatesRes.error || campaignsRes.error || outboxRes.error || eventsRes.error;
     if (firstError) notify(firstError.message);
     if (templatesRes.data) setTemplates(templatesRes.data);
+    if (textTemplatesRes.data) setTextTemplates(textTemplatesRes.data);
     if (campaignsRes.data) setCampaigns(campaignsRes.data);
     if (outboxRes.data) setOutbox(outboxRes.data);
     if (eventsRes.data) setEvents(eventsRes.data);
@@ -2989,7 +3063,30 @@ function EmailsTab({ profiles, adminEmail, notify }) {
     if (error) return notify(error.message);
     setEditingTemplate(null);
     await loadEmailData(true);
+    await onTemplatesChanged?.();
     notify('Email template saved.', 'success');
+  }
+
+  async function saveTextTemplate(event) {
+    event.preventDefault();
+    if (!editingTextTemplate?.name?.trim() || !editingTextTemplate?.body?.trim()) return notify('Text template name and message are required.');
+    setBusy(true);
+    const values = {
+      name: editingTextTemplate.name.trim(),
+      body: editingTextTemplate.body.trim(),
+      enabled: editingTextTemplate.enabled !== false,
+      version: Number(editingTextTemplate.version || 0) + 1,
+    };
+    const request = editingTextTemplate.id
+      ? supabase.from('sms_templates').update(values).eq('id', editingTextTemplate.id)
+      : supabase.from('sms_templates').insert({ ...values, template_key: `manual_${Date.now()}`, category: 'manual' });
+    const { error } = await request;
+    setBusy(false);
+    if (error) return notify(error.message);
+    setEditingTextTemplate(null);
+    await loadEmailData(true);
+    await onTemplatesChanged?.();
+    notify('Text template saved.', 'success');
   }
 
   async function sendTemplateTest(template = editingTemplate) {
@@ -3049,7 +3146,7 @@ function EmailsTab({ profiles, adminEmail, notify }) {
     }
   }
 
-  if (loadingEmails) return <Panel title="Emails" eyebrow="SendGrid"><p className="muted">Loading email settings…</p></Panel>;
+  if (loadingEmails) return <Panel title="Customer Contact" eyebrow="Email & Text"><p className="muted">Loading contact templates and delivery settings…</p></Panel>;
 
   const automated = templates.filter((template) => template.category === 'automated');
   const manual = templates.filter((template) => template.category === 'manual');
@@ -3058,11 +3155,11 @@ function EmailsTab({ profiles, adminEmail, notify }) {
 
   return <section className="email-admin-shell">
     <div className="email-admin-header">
-      <div><p className="eyebrow">Twilio SendGrid</p><h2>Email Center</h2><span>Automated booking emails, reusable templates, broadcasts, and delivery history.</span></div>
-      <div className="email-admin-health"><Mail size={19}/><strong>{optedInProfiles.length}</strong><span>marketing subscribers</span></div>
+      <div><p className="eyebrow">Email &amp; SMS</p><h2>Customer Contact Center</h2><span>Update every customer email and text template, send broadcasts, and review delivery history.</span></div>
+      <div className="email-admin-health"><MessageCircle size={19}/><strong>{templates.length + textTemplates.length}</strong><span>contact templates</span></div>
     </div>
     <div className="email-admin-tabs" role="tablist">
-      {[['automated', 'Automated'], ['templates', 'Templates'], ['compose', 'Custom Email'], ['history', 'Delivery History']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
+      {[['automated', 'Automated Emails'], ['templates', 'Email Templates'], ['texts', 'Text Templates'], ['compose', 'Custom Email'], ['history', 'Delivery History']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
     </div>
 
     {section === 'automated' && <div className="email-card-grid">
@@ -3077,6 +3174,14 @@ function EmailsTab({ profiles, adminEmail, notify }) {
     {section === 'templates' && <Panel title="Reusable Templates" eyebrow="Email Library">
       <div className="email-section-toolbar"><p className="muted">Create manual templates for announcements, reminders, and customer updates.</p><button className="primary-btn" onClick={() => setEditingTemplate({ name: '', subject: '', preheader: '', html_body: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', text_body: '', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Template</button></div>
       <div className="email-template-list">{manual.map((template) => <button key={template.id} onClick={() => setEditingTemplate({ ...template })}><Mail size={18}/><span><strong>{template.name}</strong><small>{template.subject}</small></span><em>v{template.version}</em></button>)}</div>
+    </Panel>}
+
+    {section === 'texts' && <Panel title="All Text Message Templates" eyebrow="SMS Library">
+      <div className="email-section-toolbar"><p className="muted">Edit every automated and manual text used throughout the admin portal. Variables such as {'{{customer_first_name}}'}, {'{{vehicle_name}}'}, and {'{{manage_booking_url}}'} are preserved when messages are sent.</p><button className="primary-btn" onClick={() => setEditingTextTemplate({ name: '', body: 'Hi {{customer_first_name}}, ', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Text Template</button></div>
+      <div className="email-template-list contact-text-template-list">
+        {textTemplates.map((template) => <button key={template.id} onClick={() => setEditingTextTemplate({ ...template })}><MessageCircle size={18}/><span><strong>{template.name}</strong><small>{template.body}</small></span><em>{prettyStatus(template.category)} • v{template.version}</em></button>)}
+        {!textTemplates.length && <p className="muted">Run the customer communications migration to install text templates.</p>}
+      </div>
     </Panel>}
 
     {section === 'compose' && <div className="email-compose-layout">
@@ -3107,6 +3212,19 @@ function EmailsTab({ profiles, adminEmail, notify }) {
         <div className="admin-modal-header"><Mail size={21}/><div><strong>{editingTemplate.id ? 'Edit Email Template' : 'Add Email Template'}</strong><span>Versioned content sent through Twilio SendGrid</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTemplate(null)}><XCircle size={20}/></button></div>
         <div className="email-template-editor"><div className="portal-form"><input placeholder="Template name" value={editingTemplate.name} onChange={(event) => setEditingTemplate({ ...editingTemplate, name: limitText(event.target.value, 120) })}/><input placeholder="Subject" value={editingTemplate.subject} onChange={(event) => setEditingTemplate({ ...editingTemplate, subject: limitText(event.target.value, 200) })}/><input placeholder="Preview text" value={editingTemplate.preheader || ''} onChange={(event) => setEditingTemplate({ ...editingTemplate, preheader: limitText(event.target.value, 240) })}/><label className="field-label email-body-field">Email body<textarea value={editingTemplate.html_body} onChange={(event) => setEditingTemplate({ ...editingTemplate, html_body: limitText(event.target.value, 30000) })}/></label><label className="checkbox-pill"><input type="checkbox" checked={editingTemplate.enabled !== false} onChange={(event) => setEditingTemplate({ ...editingTemplate, enabled: event.target.checked })}/> Enabled</label><div className="email-send-actions"><input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)}/><button type="button" className="secondary-btn" disabled={busy} onClick={() => sendTemplateTest()}><Send size={15}/> Send Test</button></div></div><iframe className="email-preview-frame" title="Template preview" sandbox="" srcDoc={editorPreview}/></div>
         <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Template</button></div>
+      </form>
+    </div>}
+
+    {editingTextTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTextTemplate(null); }}>
+      <form className="admin-modal contact-text-template-modal" onSubmit={saveTextTemplate}>
+        <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTextTemplate(null)}><XCircle size={20}/></button></div>
+        <div className="portal-form contact-text-template-editor">
+          <label><span>Template name</span><input required maxLength="120" value={editingTextTemplate.name || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, name: limitText(event.target.value, 120) })}/></label>
+          <label className="full-field"><span>Text message</span><textarea required maxLength="1600" value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, 1600) })}/><small>{String(editingTextTemplate.body || '').length}/1600 characters. Longer messages may be delivered as multiple SMS segments.</small></label>
+          <label className="checkbox-pill full-field"><input type="checkbox" checked={editingTextTemplate.enabled !== false} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, enabled: event.target.checked })}/> Enabled for admin use</label>
+          <div className="contact-variable-help full-field"><strong>Available variables</strong><span>{'{{customer_first_name}}'} · {'{{vehicle_name}}'} · {'{{pickup_date}}'} · {'{{pickup_time}}'} · {'{{return_date}}'} · {'{{return_time}}'} · {'{{manage_booking_url}}'} · {'{{business_phone}}'} · {'{{charge_name}}'} · {'{{charge_total}}'}</span></div>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTextTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Text Template</button></div>
       </form>
     </div>}
   </section>;
@@ -3657,6 +3775,8 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => updateSchedule('returnDate', event.target.value)} required /></label>
         <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => updateSchedule('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
         <label className="full-field vehicle-availability-field"><span>Vehicle availability</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={!reservationWindowReady} required><option value="">{reservationWindowReady ? 'Choose an available vehicle' : 'Choose pickup and return dates first'}</option>{vehicleChoices.map(({ vehicle, availability }) => <option key={vehicle.id} value={vehicle.id} disabled={!availability.available}>{availability.available ? '✓ Available' : '✕ Unavailable'} — {vehicle.name} — {money(vehicle.daily_rate)}/day{!availability.available ? ` — ${availability.reason}` : ''}</option>)}</select></label>
+        <label className="full-field"><span>Customer completion</span><select value={manualBookingForm.onboardingDelivery} onChange={(event) => update('onboardingDelivery', event.target.value)}><option value="email">Email a secure completion link now</option><option value="none">Do not email yet — I will assist or send it later</option></select></label>
+        <p className="customer-save-note full-field"><ShieldCheck size={17}/> The customer must personally verify phone and identity and sign the agreement. You can upload documents they provide and start Stripe payment after every prerequisite passes.</p>
         {reservationWindowReady && <div className="vehicle-availability-legend full-field"><span className="available"><CheckCircle2 size={16}/> Available for these exact times</span><span className="unavailable"><XCircle size={16}/> Unavailable vehicles are blocked</span></div>}
         {selectedVehicleAvailability && !selectedVehicleAvailability.available && <div className="vehicle-selection-warning full-field"><AlertTriangle size={17}/>{selectedVehicleAvailability.reason}</div>}
         <button className="primary-btn full-field" disabled={submitting || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : 'Create Booking'}</button>
@@ -3997,7 +4117,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
@@ -4044,7 +4164,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   return <div className="data-row rental-row">
     <div className="rental-row-main">
       <strong>{rental.vehicles?.name || 'Vehicle'}</strong>
-      <span>{rental.profiles?.full_name || 'Client'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
+      <span>{rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable')} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
+      {detailed && rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
       {detailed && <small>{money(rental.rental_total)} rental • {money(rental.service_fee_total || 0)} booking fees • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
       {detailed && Number(rental.under_25_markup_amount || 0) > 0 && <small>Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup • {money(rental.base_security_deposit)} vehicle deposit adjusted to {money(rental.security_deposit)}</small>}
       {detailed && <small>Intended use: {rental.profiles?.intended_vehicle_use || 'Not provided'}</small>}
@@ -4056,6 +4177,14 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         <DocumentStatusBadge label="Insurance" document={insurance} />
       </div>}
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
+      {detailed && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && !rental.customer_auth_deleted_at && <AdminBookingProcedure
+        rental={rental}
+        checklist={releaseChecklist}
+        documents={documentsForProgress}
+        sendBookingCompletionLink={sendBookingCompletionLink}
+        uploadAdminBookingDocument={uploadAdminBookingDocument}
+        createAdminPaymentLink={createAdminPaymentLink}
+      />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} />}
       {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
@@ -4111,6 +4240,48 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   </div>;
 }
 
+function AdminBookingProcedure({ rental, checklist, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+  const [busy, setBusy] = useState('');
+  const prerequisitesForPayment = checklist.phone && checklist.identity && checklist.agreement && checklist.license && checklist.insurance;
+  const steps = [
+    ['Phone', checklist.phone, 'Customer completes by secure link'],
+    ['Identity', checklist.identity, 'Customer completes Stripe Identity'],
+    ['License', checklist.license, 'Customer or admin uploads; admin reviews'],
+    ['Insurance', checklist.insurance, 'Required for this rental; admin reviews'],
+    ['Agreement', checklist.agreement, 'Customer must personally sign'],
+    ['Payment', checklist.payment, 'Stripe Checkout or recorded local payment'],
+  ];
+
+  async function run(key, callback) {
+    setBusy(key);
+    try { await callback(); } finally { setBusy(''); }
+  }
+
+  function upload(type, event) {
+    const file = event.target.files?.[0];
+    if (file) run(`upload-${type}`, () => uploadAdminBookingDocument?.(rental, type, file));
+    event.target.value = '';
+  }
+
+  return <details className="admin-booking-procedure" open>
+    <summary><ClipboardList size={16}/><span>Booking procedure console</span><em>{steps.filter(([, complete]) => complete).length}/{steps.length} complete</em></summary>
+    <div className="procedure-step-grid">
+      {steps.map(([label, complete, detail]) => <div className={complete ? 'complete' : ''} key={label}>
+        {complete ? <CheckCircle2 size={16}/> : <Clock size={16}/>}
+        <span><strong>{label}</strong><small>{complete ? 'Complete' : detail}</small></span>
+      </div>)}
+    </div>
+    <div className="procedure-actions">
+      <button type="button" disabled={Boolean(busy)} onClick={() => run('email', () => sendBookingCompletionLink?.(rental, 'email'))}><Mail size={15}/>{busy === 'email' ? ' Sending…' : ' Email secure checklist'}</button>
+      <button type="button" disabled={Boolean(busy)} onClick={() => run('copy', () => sendBookingCompletionLink?.(rental, 'copy'))}><ExternalLink size={15}/> Copy secure checklist link</button>
+      <label className="procedure-upload"><FileText size={15}/>{busy === 'upload-license' ? ' Uploading…' : ' Upload license'}<input type="file" accept="image/*,.pdf" disabled={Boolean(busy)} onChange={(event) => upload('license', event)}/></label>
+      <label className="procedure-upload"><ShieldCheck size={15}/>{busy === 'upload-insurance' ? ' Uploading…' : ' Upload insurance'}<input type="file" accept="image/*,.pdf" disabled={Boolean(busy)} onChange={(event) => upload('insurance', event)}/></label>
+      {!checklist.payment && <button type="button" className="approve" disabled={Boolean(busy) || !prerequisitesForPayment} title={!prerequisitesForPayment ? 'Phone, identity, approved documents, and agreement are required first.' : ''} onClick={() => run('payment', () => createAdminPaymentLink?.(rental, 'open'))}><CreditCard size={15}/>{busy === 'payment' ? ' Starting…' : ' Open secure payment'}</button>}
+    </div>
+    <small className="procedure-safety-note">Secure checklist links sign the customer in. Share only with the named customer. Never mark identity or agreement complete on their behalf.</small>
+  </details>;
+}
+
 function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, sendPaymentLink }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4140,7 +4311,7 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
     {charges.map((charge) => <div className="extension-action-row" key={charge.id}>
       <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
-      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge card now'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
+      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge saved card'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
     </div>)}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
@@ -5056,10 +5227,10 @@ function getRentalProgressSteps(rental, rentalDocuments = []) {
     { key: 'phone', label: 'Phone', complete: phoneVerified, detail: phoneVerified ? 'Phone verified' : 'Phone verification needed' },
     { key: 'identity', label: 'Identity', complete: identityVerified, detail: identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
     { key: 'vehicle', label: 'Vehicle', complete: hasDatesAndVehicle, detail: hasDatesAndVehicle ? 'Dates and vehicle selected' : 'Dates or vehicle missing' },
-    { key: 'agreement', label: 'Agreement', complete: agreementSigned, detail: agreementSigned ? 'Agreement signed' : 'Agreement not signed' },
-    { key: 'payment', label: 'Payment', complete: paymentPaid, detail: paymentPaid ? 'Payment complete' : `Payment ${prettyStatus(rental.payment_status || 'pending')}` },
     { key: 'license', label: 'License', complete: hasLicense, detail: hasLicense ? `Driver license ${prettyStatus(license.status)}` : 'Driver license missing' },
     { key: 'insurance', label: 'Insurance', complete: hasInsurance, detail: hasInsurance ? `Insurance ${prettyStatus(insurance.status)}` : 'Insurance missing' },
+    { key: 'agreement', label: 'Agreement', complete: agreementSigned, detail: agreementSigned ? 'Agreement signed' : 'Agreement not signed' },
+    { key: 'payment', label: 'Payment', complete: paymentPaid, detail: paymentPaid ? 'Payment complete' : `Payment ${prettyStatus(rental.payment_status || 'pending')}` },
     { key: 'ready', label: 'Ready', complete: readyForPickup, detail: readyForPickup ? 'Ready for pickup' : 'Not ready for pickup' },
   ];
 
@@ -5113,11 +5284,11 @@ function getAdminRentalState(rental, releaseChecklist) {
   if (rental.status === 'overdue') return { label: 'Overdue', tone: 'danger', next: 'Contact customer or wait for return confirmation.' };
   if (rental.status === 'active') return { label: 'Car Out', tone: 'info', next: 'Customer has the vehicle. Watch return and extension requests.' };
   if (releaseChecklist.ready) return { label: 'Ready For Pickup', tone: 'success', next: 'Mark vehicle picked up when the customer gets the keys.' };
-  if (!releaseChecklist.payment) return { label: 'Payment Needed', tone: 'warning', next: 'Record payment or wait for online payment.' };
-  if (!releaseChecklist.agreement) return { label: 'Agreement Needed', tone: 'warning', next: 'Customer needs to sign the rental agreement.' };
-  if (!releaseChecklist.license || !releaseChecklist.insurance) return { label: 'Documents Needed', tone: 'warning', next: 'Approve license and insurance before pickup.' };
   if (!releaseChecklist.phone) return { label: 'Phone Needed', tone: 'warning', next: 'Customer needs phone verification.' };
   if (!releaseChecklist.identity) return { label: 'Identity Needed', tone: 'warning', next: 'Customer must complete Stripe Identity before pickup.' };
+  if (!releaseChecklist.license || !releaseChecklist.insurance) return { label: 'Documents Needed', tone: 'warning', next: 'Upload and approve license and insurance before pickup.' };
+  if (!releaseChecklist.agreement) return { label: 'Agreement Needed', tone: 'warning', next: 'Customer needs to sign the rental agreement.' };
+  if (!releaseChecklist.payment) return { label: 'Payment Needed', tone: 'warning', next: 'Open Stripe Checkout or record an eligible local payment.' };
   return { label: prettyStatus(rental.status || 'Pending'), tone: 'info', next: 'Review the checklist for the next missing step.' };
 }
 
@@ -5311,7 +5482,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Customer Emails', messages:'Messages', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Customer Contact Center', messages:'Messages', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function calculateAdminUnder25Deposit(baseDeposit, settings = DEFAULT_UNDER_25_PRICING) {
   const base = Math.max(0, Number(baseDeposit || 0));
