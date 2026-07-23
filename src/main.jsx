@@ -2678,8 +2678,9 @@ function renderMessagePreview(value, profile, rental) {
 }
 
 function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, onClose }) {
-  const [channel, setChannel] = useState('sms');
-  const [templateId, setTemplateId] = useState(smsTemplates[0]?.id || '');
+  const initialChannel = profile.phone && profile.phone_verified ? 'sms' : profile.email ? 'email' : 'sms';
+  const [channel, setChannel] = useState(initialChannel);
+  const [templateId, setTemplateId] = useState((initialChannel === 'email' ? emailTemplates : smsTemplates)[0]?.id || '');
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
   const [rentalId, setRentalId] = useState(sortedRentals[0]?.id || '');
   const [sending, setSending] = useState(false);
@@ -2687,6 +2688,14 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
   const templates = channel === 'email' ? emailTemplates : smsTemplates;
   const selectedTemplate = templates.find((template) => template.id === templateId) || templates[0];
   const selectedRental = sortedRentals.find((rental) => rental.id === rentalId);
+  const destination = channel === 'email' ? profile.email : profile.phone;
+  const canSendToDestination = channel === 'email' ? Boolean(profile.email) : Boolean(profile.phone && profile.phone_verified);
+
+  useEffect(() => {
+    const closeOnEscape = (event) => event.key === 'Escape' && !sending && onClose();
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [sending, onClose]);
 
   function chooseChannel(nextChannel) {
     setChannel(nextChannel);
@@ -2697,6 +2706,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
 
   async function sendMessage(event) {
     event.preventDefault();
+    if (!canSendToDestination) return setError(channel === 'email' ? 'Add an email address before sending.' : 'Add and verify a phone number before sending a text.');
     if (!selectedTemplate) return setError(`No enabled ${channel === 'email' ? 'email' : 'text'} templates are available.`);
     setSending(true);
     setError('');
@@ -2731,8 +2741,9 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
 
   return <div className="admin-modal-backdrop customer-contact-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="admin-modal customer-contact-modal" role="dialog" aria-modal="true" aria-label={`Message ${profile.full_name || 'customer'}`} onSubmit={sendMessage}>
-      <header className="admin-modal-header">
-        <MessageCircle size={21}/><div><strong>Contact customer</strong><span>{profile.full_name || 'Unnamed Client'}</span></div>
+      <header className="admin-modal-header customer-contact-header">
+        <span className="customer-contact-icon"><MessageCircle size={20}/></span>
+        <div><small>Customer communication</small><strong>Send a message</strong><span>{profile.full_name || 'Unnamed Client'}{profile.email ? ` • ${profile.email}` : ''}</span></div>
         <button className="customer-details-close" type="button" onClick={onClose} aria-label="Close"><XCircle size={20}/></button>
       </header>
       <div className="customer-contact-body">
@@ -2740,14 +2751,16 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
           <button type="button" className={channel === 'sms' ? 'active' : ''} onClick={() => chooseChannel('sms')}><MessageCircle size={16}/> Text</button>
           <button type="button" className={channel === 'email' ? 'active' : ''} onClick={() => chooseChannel('email')}><Mail size={16}/> Email</button>
         </div>
-        <div className="contact-destination"><strong>{channel === 'email' ? profile.email || 'No email saved' : profile.phone || 'No phone saved'}</strong><span>{channel === 'sms' && !profile.phone_verified ? 'Phone must be verified before sending.' : 'Sent through the configured Rent Me CT account.'}</span></div>
-        <label><span>Template</span><select value={selectedTemplate?.id || ''} onChange={(event) => setTemplateId(event.target.value)} disabled={!templates.length}>{templates.length ? templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>) : <option value="">No templates available</option>}</select></label>
-        <label><span>Related rental</span><select value={rentalId} onChange={(event) => setRentalId(event.target.value)}><option value="">No specific rental</option>{sortedRentals.map((rental) => <option value={rental.id} key={rental.id}>{rental.vehicles?.name || 'Vehicle'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)}</option>)}</select></label>
+        <div className={`contact-destination ${canSendToDestination ? 'ready' : 'missing'}`}><span className="contact-status-dot"/><div><strong>{destination || `No ${channel === 'email' ? 'email address' : 'phone number'} saved`}</strong><span>{canSendToDestination ? `Ready to send by ${channel === 'email' ? 'SendGrid' : 'Twilio'}` : channel === 'sms' && profile.phone ? 'This number must be verified before texting.' : `Add a ${channel === 'email' ? 'customer email address' : 'verified customer phone number'} first.`}</span></div></div>
+        <div className={`contact-field-grid ${sortedRentals.length ? '' : 'single'}`}>
+          <label><span>Message template</span><select value={selectedTemplate?.id || ''} onChange={(event) => setTemplateId(event.target.value)} disabled={!templates.length}>{templates.length ? templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>) : <option value="">No templates available</option>}</select></label>
+          {sortedRentals.length > 0 && <label><span>Related rental</span><select value={rentalId} onChange={(event) => setRentalId(event.target.value)}><option value="">No specific rental</option>{sortedRentals.map((rental) => <option value={rental.id} key={rental.id}>{rental.vehicles?.name || 'Vehicle'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)}</option>)}</select></label>}
+        </div>
         {channel === 'email' && selectedTemplate?.subject && <div className="contact-subject"><span>Subject</span><strong>{renderMessagePreview(selectedTemplate.subject, profile, selectedRental)}</strong></div>}
-        <div className="contact-preview"><span>Message preview</span><p>{preview || 'Choose a template to preview the message.'}</p></div>
+        <div className="contact-preview"><div><span>{channel === 'email' ? 'Email' : 'Text'} preview</span><small>{preview.length} characters</small></div><p>{preview || 'Choose a template to preview the message.'}</p></div>
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
-      <footer className="customer-contact-actions"><button type="button" onClick={onClose}>Cancel</button><button className="approve" disabled={sending || !selectedTemplate}>{sending ? 'Sending…' : `Send ${channel === 'email' ? 'email' : 'text'}`}</button></footer>
+      <footer className="customer-contact-actions"><span>{canSendToDestination ? `Will send to ${destination}` : 'A valid destination is required.'}</span><div><button className="contact-cancel" type="button" onClick={onClose}>Cancel</button><button className="contact-send" disabled={sending || !selectedTemplate || !canSendToDestination}><Send size={15}/>{sending ? 'Sending…' : `Send ${channel === 'email' ? 'email' : 'text'}`}</button></div></footer>
     </form>
   </div>;
 }
