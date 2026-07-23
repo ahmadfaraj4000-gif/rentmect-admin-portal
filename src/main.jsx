@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
+  ArrowRight,
   Banknote,
   CalendarClock,
   CalendarDays,
@@ -140,6 +141,16 @@ function createEmptyVehicleForm() {
     original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL),
     last_maintenance_mileage: '',
   };
+}
+
+function adminBookingDateOffset(days = 0) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 async function uploadOptimizedVehicleImages(files) {
@@ -283,6 +294,7 @@ function App() {
   });
 
   const [selectedRentalId, setSelectedRentalId] = useState('');
+  const [manualBookingFocusId, setManualBookingFocusId] = useState('');
   const [replyText, setReplyText] = useState('');
 
   const [editingVehicleId, setEditingVehicleId] = useState('');
@@ -302,11 +314,11 @@ function App() {
     insuranceProvider: '',
     insurancePolicyNumber: '',
     vehicleId: '',
-    pickupDate: '',
-    returnDate: '',
+    pickupDate: adminBookingDateOffset(0),
+    returnDate: adminBookingDateOffset(1),
     pickupTime: '9:00 AM',
     returnTime: '9:00 AM',
-    onboardingDelivery: 'email',
+    onboardingDelivery: 'both',
   });
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
@@ -483,7 +495,7 @@ function App() {
     );
     const overdue = paidRentals.filter((r) => isOverdue(r.return_date, r.status));
     const monthRevenue = paidRentals
-      .filter((r) => isThisMonth(r.created_at) && !['cancelled'].includes(r.status))
+      .filter((r) => isThisMonth(r.paid_at || r.created_at) && r.payment_status === 'paid' && !['cancelled'].includes(r.status))
       .reduce((sum, r) => sum + Number(r.rental_total || 0) + Number(r.tax_amount || 0), 0);
     const deposits = paidRentals
       .filter((r) => ['ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'].includes(r.status))
@@ -757,18 +769,11 @@ function App() {
         return notify(`Starting mileage cannot be below the vehicle's current mileage (${formatMiles(rental.vehicles.current_mileage)}).`);
       }
 
-      if (rental && !options.overrideMissingRequirements && !['document_review', 'approved', 'ready_for_pickup'].includes(rental.status)) {
-        const { error: readyError } = await supabase
-          .from('rentals')
-          .update({ status: 'ready_for_pickup' })
-          .eq('id', id);
-        if (readyError) return notify(readyError.message);
-      }
       const { data, error } = await supabase.rpc('admin_mark_rental_active', {
         p_rental_id: id,
         p_starting_mileage: startingMileage,
-        p_override_missing_requirements: Boolean(options.overrideMissingRequirements),
-        p_missing_requirements: options.missingRequirements || [],
+        p_override_missing_requirements: false,
+        p_missing_requirements: [],
       });
       if (error) return notify(error.message);
       if (data) {
@@ -786,25 +791,6 @@ function App() {
         applyLocalStatus({ starting_mileage: startingMileage }, { current_mileage: startingMileage });
       }
       notify('Rental marked active.', 'success');
-      return;
-    }
-
-    if (status === 'ready_for_pickup' && options.overrideMissingRequirements) {
-      const { data, error } = await supabase.rpc('admin_override_rental_ready_for_pickup', {
-        p_rental_id: id,
-        p_missing_requirements: options.missingRequirements || [],
-      });
-      if (error) return notify(error.message);
-      if (data) {
-        setRentals((current) => current.map((item) =>
-          item.id === id
-            ? { ...item, ...data }
-            : item
-        ));
-      } else {
-        applyLocalStatus();
-      }
-      notify('Rental override marked ready for pickup.', 'success');
       return;
     }
 
@@ -976,7 +962,12 @@ function App() {
     loadAllData({ silent: true });
   }
 
-  async function recordTestPayment(id) {
+  async function recordTestPayment(rental) {
+    const id = rental?.id;
+    if (!id) return;
+    const total = Number(rental.rental_total || 0) + Number(rental.service_fee_total || 0) + Number(rental.tax_amount || 0) + Number(rental.security_deposit || 0);
+    const confirmed = window.confirm(`Record ${money(total)} as received outside Stripe? This marks the rental and deposit paid. Use only after confirming the customer actually paid.`);
+    if (!confirmed) return;
     const { data, error } = await supabase.rpc('record_admin_local_rental_payment', {
       p_rental_id: id,
     });
@@ -1008,6 +999,12 @@ function App() {
   }
 
   async function decideExtension(id, approve) {
+    const request = extensionRequests.find((item) => item.id === id);
+    const customer = request?.rentals?.profiles?.full_name || 'this customer';
+    const action = approve
+      ? `Approve the extension for ${customer} through ${formatRentalDate(request?.requested_return_date, request?.requested_return_time)}? The dates will be held while payment is pending.`
+      : `Reject this extension request for ${customer}?`;
+    if (!window.confirm(action)) return;
     const { data, error } = await supabase.rpc('decide_admin_rental_extension', {
       p_extension_request_id: id,
       p_approve: approve,
@@ -1020,6 +1017,8 @@ function App() {
   }
 
   async function recordExtensionPayment(id) {
+    const request = extensionRequests.find((item) => item.id === id);
+    if (!window.confirm(`Record ${money(request?.extension_total_amount || 0)} as received outside Stripe and activate this extension?`)) return;
     const { error } = await supabase.rpc('record_admin_local_rental_extension_payment', {
       p_extension_request_id: id,
     });
@@ -1029,6 +1028,8 @@ function App() {
   }
 
   async function cancelApprovedExtension(id) {
+    const request = extensionRequests.find((item) => item.id === id);
+    if (!window.confirm(`Cancel this approved extension${request?.rentals?.profiles?.full_name ? ` for ${request.rentals.profiles.full_name}` : ''} and release its calendar hold?`)) return;
     const { data, error } = await supabase.rpc('cancel_admin_approved_extension', { p_extension_request_id: id });
     if (error) return notify(error.message);
     setExtensionRequests((current) => current.map((request) => request.id === id ? { ...request, ...data } : request));
@@ -1904,12 +1905,15 @@ function App() {
       return notify(detail);
     }
 
-    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: '', returnDate: '', pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'email' });
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(1), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both' });
     await loadAllData({ silent: true });
+    setManualBookingFocusId(data?.rental?.id || '');
+    setSelectedRentalId(data?.rental?.id || '');
     setRentalFilter('needs_action');
     setActiveTab('rentals');
-    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ' — the secure completion link was emailed.' : ' — open its procedure console to finish the checklist.'}`, 'success');
-    if (data?.onboardingWarning) notify(`Booking was saved, but the completion email was not sent: ${data.onboardingWarning}`);
+    const deliveredBy = (data?.deliveryChannels || []).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
+    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ` — secure completion link sent by ${deliveredBy}.` : ' — finish it in the focused procedure console.'}`, 'success');
+    if (data?.onboardingWarning) notify(`Booking was saved, but one delivery method needs attention: ${data.onboardingWarning}`);
   }
 
   async function sendBookingCompletionLink(rental, delivery = 'email') {
@@ -1928,7 +1932,9 @@ function App() {
         window.prompt('Copy this secure customer completion link:', data.onboardingUrl);
       }
     } else {
-      notify('Secure customer completion link emailed.', 'success');
+      const channels = (data.deliveryChannels || [delivery]).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
+      notify(`Secure customer completion link sent by ${channels}.`, 'success');
+      if (data.onboardingWarning) notify(`One delivery method needs attention: ${data.onboardingWarning}`);
     }
     return data.onboardingUrl;
   }
@@ -2156,7 +2162,7 @@ function App() {
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
@@ -2227,7 +2233,7 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
         </div>
         <div className="row-actions">
           <em>{item.severity}</em>
-          {item.rental && item.localPaymentAction && <button className="approve" onClick={() => recordTestPayment(item.rental.id)}><CreditCard size={16}/> Record Local Payment</button>}
+          {item.rental && item.localPaymentAction && <small>Complete verification and document review in Rental Manager before recording payment.</small>}
           {item.rental && item.nextStatus && <button className="approve" onClick={() => updateRentalStatus(item.rental.id, item.nextStatus)}><CheckCircle2 size={16}/> {prettyStatus(item.nextStatus)}</button>}
           {item.extension && item.extension.status === 'pending' && <button className="approve" onClick={() => decideExtension(item.extension.id, true)}><CheckCircle2 size={16}/> Approve</button>}
           {item.extension && item.extension.status === 'pending' && <button className="reject" onClick={() => decideExtension(item.extension.id, false)}><XCircle size={16}/> Decline</button>}
@@ -2596,12 +2602,13 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function Rentals({ rentals, focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
   const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
+  const displayedRentals = focusRentalId ? rentals.filter((rental) => rental.id === focusRentalId) : rentals;
 
   return <>
-    <Panel title="Extension Requests" eyebrow="Return Changes">
+    {!focusRentalId && <Panel title="Extension Requests" eyebrow="Return Changes">
       <div className="table-list">
         {pendingExtensions.length === 0 && <p className="muted">No pending extension requests.</p>}
         {pendingExtensions.map((request) => <div className="data-row" key={request.id}>
@@ -2620,7 +2627,7 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
           <div>
             <strong>{request.rentals?.vehicles?.name || 'Vehicle'} extension approved</strong>
             <span>{request.rentals?.profiles?.full_name || 'Client'} • payment required before {formatRentalDate(request.requested_return_date, request.requested_return_time)} activates</span>
-            <small>{money(request.extension_total_amount)} due for {request.extension_days || 1} extension day(s)</small>
+            <small>{money(request.extension_total_amount)} due for {request.extension_days || 1} extension day(s){Number(request.extension_deposit_amount || 0) > 0 ? ` • includes ${money(request.extension_deposit_amount)} replacement deposit` : ''}</small>
           </div>
           <div className="row-actions">
             <button className="approve" onClick={()=>recordExtensionPayment(request.id)}><CreditCard size={15}/> Record Extension Payment</button>
@@ -2628,8 +2635,10 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
           </div>
         </div>)}
       </div>
-    </Panel>
+    </Panel>}
     <Panel title="All Rentals" eyebrow="Reservations">
+      {focusRentalId && <div className="manual-booking-focus-banner"><CheckCircle2 size={20}/><div><strong>Manual booking created</strong><span>Finish this customer’s required steps below. The payment controls unlock only after verification, approved documents, and agreement.</span></div><button type="button" className="secondary-btn" onClick={clearRentalFocus}>Show All Rentals</button></div>}
+      {!focusRentalId && <>
       <div className="filter-pills" role="group" aria-label="Rental filters">
         {rentalFilterOptions().map((filter) => (
           <button type="button" key={filter.key} className={rentalFilter === filter.key ? 'active' : ''} onClick={() => setRentalFilter(filter.key)}>
@@ -2638,8 +2647,9 @@ function Rentals({ rentals, search, setSearch, rentalFilter, setRentalFilter, up
         ))}
       </div>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
-      {rentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{rentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
+      </>}
+      {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
     </Panel>
   </>;
 }
@@ -3778,7 +3788,8 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
   const vehicleChoices = vehicles.map((vehicle) => ({
     vehicle,
     availability: manualBookingVehicleAvailability(vehicle, reservationWindow, rentals, availabilityBlocks, reservationWindowReady),
-  }));
+  })).sort((a, b) => Number(b.availability.available) - Number(a.availability.available)
+    || String(a.vehicle.name || '').localeCompare(String(b.vehicle.name || '')));
   const selectedVehicleAvailability = vehicleChoices.find((choice) => choice.vehicle.id === manualBookingForm.vehicleId)?.availability;
   const baseRentalTotal = Number(selectedVehicle?.daily_rate || 0) * days;
   const dateOfBirth = manualBookingForm.customerMode === 'new' ? manualBookingForm.dateOfBirth : selectedCustomer?.date_of_birth || manualBookingForm.existingDateOfBirth;
@@ -3800,6 +3811,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
     <Panel title="Create a Booking" eyebrow="Admin Booking">
       <p className="muted">Choose an existing customer or add a new one, then select the car and exact pickup and return times.</p>
       <form className="portal-form manual-booking-form" onSubmit={createManualBooking}>
+        <div className="booking-divider"><span>1. Customer</span></div>
         <div className="customer-mode-switch" role="group" aria-label="Customer type">
           <button type="button" className={manualBookingForm.customerMode === 'existing' ? 'active' : ''} onClick={() => chooseCustomerMode('existing')}><UserRound size={17}/> Existing customer</button>
           <button type="button" className={manualBookingForm.customerMode === 'new' ? 'active' : ''} onClick={() => chooseCustomerMode('new')}><Plus size={17}/> Add new customer</button>
@@ -3830,7 +3842,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
             }));
             }}><strong>{customer.full_name || 'Unnamed customer'}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>No customers match that search.</p>}
           </div>}
-          {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}</span></div>}
+          {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}<small>{selectedCustomer.email || 'Email missing'} • {selectedCustomer.phone || 'Phone missing'} • {selectedCustomer.phone_verified ? 'Phone verified' : 'Phone verification needed'} • {String(selectedCustomer.identity_verification_status || '').toLowerCase() === 'verified' ? 'Identity verified' : 'Identity verification needed'}</small></span></div>}
         </div> : <div className="new-customer-fields">
           <label><span>Full name</span><input value={manualBookingForm.fullName} onChange={(event) => update('fullName', limitText(event.target.value, 120))} autoComplete="name" placeholder="Customer name" required /></label>
           <label><span>Email</span><input type="email" value={manualBookingForm.email} onChange={(event) => update('email', limitText(event.target.value, 200))} autoComplete="email" placeholder="customer@email.com" required /></label>
@@ -3841,25 +3853,29 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         </div>}
         {manualBookingForm.customerMode === 'existing' && selectedCustomer && !selectedCustomer.date_of_birth && <label className="full-field missing-dob-field"><span>Date of birth required for deposit</span><input type="date" max={new Date().toISOString().slice(0, 10)} value={manualBookingForm.existingDateOfBirth} onChange={(event) => update('existingDateOfBirth', event.target.value)} required /></label>}
 
-        <div className="booking-divider"><span>Driver &amp; insurance — optional</span></div>
-        <div className="optional-record-fields">
+        <details className="optional-record-details full-field">
+          <summary>2. Optional saved license &amp; insurance details</summary>
+          <p>These notes do not replace the required document uploads or admin approval.</p>
+          <div className="optional-record-fields">
           <label><span>Driver license number</span><input value={manualBookingForm.driverLicenseNumber} onChange={(event) => update('driverLicenseNumber', limitText(event.target.value, 64))} placeholder="License number" autoComplete="off" /></label>
           <label><span>License state</span><input value={manualBookingForm.driverLicenseState} onChange={(event) => update('driverLicenseState', limitText(event.target.value.toUpperCase(), 32))} placeholder="CT" autoComplete="off" /></label>
           <label><span>Insurance company</span><input value={manualBookingForm.insuranceProvider} onChange={(event) => update('insuranceProvider', limitText(event.target.value, 120))} placeholder="Insurance provider" autoComplete="organization" /></label>
           <label><span>Insurance policy number</span><input value={manualBookingForm.insurancePolicyNumber} onChange={(event) => update('insurancePolicyNumber', limitText(event.target.value, 120))} placeholder="Policy number" autoComplete="off" /></label>
-        </div>
+          </div>
+        </details>
 
-        <div className="booking-divider"><span>Reservation</span></div>
+        <div className="booking-divider"><span>3. Reservation</span></div>
         <label><span>Pickup date</span><input type="date" value={manualBookingForm.pickupDate} onChange={(event) => updateSchedule('pickupDate', event.target.value)} required /></label>
         <label><span>Pickup time</span><select value={manualBookingForm.pickupTime} onChange={(event) => updateSchedule('pickupTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.pickupTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
         <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => updateSchedule('returnDate', event.target.value)} required /></label>
         <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => updateSchedule('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
         <label className="full-field vehicle-availability-field"><span>Vehicle availability</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={!reservationWindowReady} required><option value="">{reservationWindowReady ? 'Choose an available vehicle' : 'Choose pickup and return dates first'}</option>{vehicleChoices.map(({ vehicle, availability }) => <option key={vehicle.id} value={vehicle.id} disabled={!availability.available}>{availability.available ? '✓ Available' : '✕ Unavailable'} — {vehicle.name} — {money(vehicle.daily_rate)}/day{!availability.available ? ` — ${availability.reason}` : ''}</option>)}</select></label>
-        <label className="full-field"><span>Customer completion</span><select value={manualBookingForm.onboardingDelivery} onChange={(event) => update('onboardingDelivery', event.target.value)}><option value="email">Email a secure completion link now</option><option value="none">Do not email yet — I will assist or send it later</option></select></label>
+        <div className="booking-divider"><span>4. Send next steps</span></div>
+        <label className="full-field"><span>Send the customer’s secure completion link</span><select value={manualBookingForm.onboardingDelivery} onChange={(event) => update('onboardingDelivery', event.target.value)}><option value="both">Email + text now (recommended)</option><option value="text">Text only</option><option value="email">Email only</option><option value="none">Do not send yet — I will send it later</option></select></label>
         <p className="customer-save-note full-field"><ShieldCheck size={17}/> The customer must personally verify phone and identity and sign the agreement. You can upload documents they provide and start Stripe payment after every prerequisite passes.</p>
         {reservationWindowReady && <div className="vehicle-availability-legend full-field"><span className="available"><CheckCircle2 size={16}/> Available for these exact times</span><span className="unavailable"><XCircle size={16}/> Unavailable vehicles are blocked</span></div>}
         {selectedVehicleAvailability && !selectedVehicleAvailability.available && <div className="vehicle-selection-warning full-field"><AlertTriangle size={17}/>{selectedVehicleAvailability.reason}</div>}
-        <button className="primary-btn full-field" disabled={submitting || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : 'Create Booking'}</button>
+        <button className="primary-btn full-field" disabled={submitting || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : manualBookingForm.onboardingDelivery === 'none' ? 'Create Booking' : 'Create Booking & Send Next Steps'}</button>
       </form>
     </Panel>
 
@@ -4199,7 +4215,6 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
 
 function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
-  const [overrideReadyOpen, setOverrideReadyOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [contactModal, setContactModal] = useState(null);
@@ -4215,11 +4230,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
     : rentalDocuments;
   const canCompleteReturn = Boolean(completeRentalReturn) && rental.status === 'return_initiated';
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
+  const canRecordExternalPayment = releaseChecklist.phone && releaseChecklist.identity && releaseChecklist.agreement && releaseChecklist.license && releaseChecklist.insurance;
   const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
-  const canOverrideWorkflow = !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && releaseChecklist.vehicle && releaseChecklist.identity;
-  const missingRequirements = getMissingReleaseRequirements(releaseChecklist);
-  const canOverrideReady = canOverrideWorkflow && !releaseChecklist.ready;
-  const canOverrideActive = canOverrideWorkflow && !releaseChecklist.ready;
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
@@ -4235,8 +4247,6 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   function submitPickupOverride(startingMileage) {
     updateRentalStatus(rental.id, 'active', {
       startingMileage,
-      overrideMissingRequirements: Boolean(pickupModal?.override),
-      missingRequirements: pickupModal?.missingRequirements || [],
     });
     setPickupModal(null);
   }
@@ -4270,22 +4280,11 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
-      {overrideReadyOpen && <RentalOverrideModal
-        title="Override Ready For Pickup"
-        actionLabel="Mark Ready"
-        rental={rental}
-        missingRequirements={missingRequirements}
-        onCancel={() => setOverrideReadyOpen(false)}
-        onConfirm={() => {
-          updateRentalStatus(rental.id, 'ready_for_pickup', { overrideMissingRequirements: true, missingRequirements });
-          setOverrideReadyOpen(false);
-        }}
-      />}
       {pickupModal && <PickupOverrideModal
         rental={rental}
         defaultMileage={defaultPickupMileage}
-        missingRequirements={pickupModal.missingRequirements}
-        override={pickupModal.override}
+        missingRequirements={[]}
+        override={false}
         onCancel={() => setPickupModal(null)}
         onConfirm={submitPickupOverride}
       />}
@@ -4302,10 +4301,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
     <div className="row-actions rental-actions">
       <div className="rental-actions-primary">
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
-        {recordTestPayment && rental.payment_status !== 'paid' && <button className="approve" onClick={()=>recordTestPayment(rental.id)}><CreditCard size={15}/> Record Local Payment</button>}
-        {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({ override: false, missingRequirements: [] })}><Car size={15}/> Mark Vehicle Picked Up</button>}
-        {canOverrideReady && <button className="override-action" onClick={() => setOverrideReadyOpen(true)}><ShieldCheck size={15}/> Override Ready</button>}
-        {canOverrideActive && <button className="override-action" onClick={() => setPickupModal({ override: true, missingRequirements })}><Car size={15}/> Override Pickup</button>}
+        {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button className="approve" onClick={()=>recordTestPayment(rental)}><CreditCard size={15}/> Record External Payment</button>}
+        {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
         {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
         {canReleaseDeposit && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> Refund Deposit Now</button>}
       </div>
@@ -4331,6 +4328,7 @@ function AdminBookingProcedure({ rental, checklist, sendBookingCompletionLink, u
     ['Agreement', checklist.agreement, 'Customer must personally sign'],
     ['Payment', checklist.payment, 'Stripe Checkout or recorded local payment'],
   ];
+  const nextStep = steps.find(([, complete]) => !complete);
 
   async function run(key, callback) {
     setBusy(key);
@@ -4351,8 +4349,11 @@ function AdminBookingProcedure({ rental, checklist, sendBookingCompletionLink, u
         <span><strong>{label}</strong><small>{complete ? 'Complete' : detail}</small></span>
       </div>)}
     </div>
+    {nextStep && <div className="procedure-next"><ArrowRight size={15}/><span><strong>Next required step: {nextStep[0]}</strong> — {nextStep[2]}</span></div>}
     <div className="procedure-actions">
-      <button type="button" disabled={Boolean(busy)} onClick={() => run('email', () => sendBookingCompletionLink?.(rental, 'email'))}><Mail size={15}/>{busy === 'email' ? ' Sending…' : ' Email secure checklist'}</button>
+      <button type="button" className="approve procedure-send-primary" disabled={Boolean(busy)} onClick={() => run('both', () => sendBookingCompletionLink?.(rental, 'both'))}><Send size={15}/>{busy === 'both' ? ' Sending…' : ' Send checklist by email + text'}</button>
+      <button type="button" disabled={Boolean(busy)} onClick={() => run('text', () => sendBookingCompletionLink?.(rental, 'text'))}><MessageCircle size={15}/>{busy === 'text' ? ' Sending…' : ' Text only'}</button>
+      <button type="button" disabled={Boolean(busy)} onClick={() => run('email', () => sendBookingCompletionLink?.(rental, 'email'))}><Mail size={15}/>{busy === 'email' ? ' Sending…' : ' Email only'}</button>
       <button type="button" disabled={Boolean(busy)} onClick={() => run('copy', () => sendBookingCompletionLink?.(rental, 'copy'))}><ExternalLink size={15}/> Copy secure checklist link</button>
       <label className="procedure-upload"><FileText size={15}/>{busy === 'upload-license' ? ' Uploading…' : ' Upload license'}<input type="file" accept="image/*,.pdf" disabled={Boolean(busy)} onChange={(event) => upload('license', event)}/></label>
       <label className="procedure-upload"><ShieldCheck size={15}/>{busy === 'upload-insurance' ? ' Uploading…' : ' Upload insurance'}<input type="file" accept="image/*,.pdf" disabled={Boolean(busy)} onChange={(event) => upload('insurance', event)}/></label>
