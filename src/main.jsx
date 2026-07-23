@@ -1837,6 +1837,18 @@ function App() {
     loadAllData();
   }
 
+  async function selectCommunicationThread(rental) {
+    if (!rental?.id) return;
+    setSelectedRentalId(rental.id);
+    const unreadIds = messages
+      .filter((message) => message.user_id === rental.user_id && message.sender_role !== 'admin' && !message.read_by_admin)
+      .map((message) => message.id);
+    if (!unreadIds.length) return;
+    setMessages((current) => current.map((message) => unreadIds.includes(message.id) ? { ...message, read_by_admin: true } : message));
+    const { error } = await supabase.from('rental_messages').update({ read_by_admin: true }).in('id', unreadIds);
+    if (error) notify(error.message);
+  }
+
   async function createManualBooking(event) {
     event.preventDefault();
     const vehicle = vehicles.find((item) => item.id === manualBookingForm.vehicleId);
@@ -2043,8 +2055,7 @@ function App() {
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
-    { key: 'emails', label: 'Contact Center', icon: MessageCircle },
-    { key: 'messages', label: 'Messages', icon: MessageCircle },
+    { key: 'emails', label: 'Communications', icon: MessageCircle },
     { key: 'audit', label: 'Audit Log', icon: History },
     { key: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -2147,11 +2158,10 @@ function App() {
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={filteredRentals} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
-        {activeTab === 'emails' && <ContactCenterTab profiles={profiles} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
+        {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
-        {activeTab === 'messages' && <Messages rentals={rentals} messages={messages} selectedRental={selectedRental} setSelectedRentalId={setSelectedRentalId} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
         {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
@@ -2977,8 +2987,11 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function ContactCenterTab({ profiles, adminEmail, notify, onTemplatesChanged }) {
-  const [section, setSection] = useState('automated');
+function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply, adminEmail, notify, onTemplatesChanged }) {
+  const [section, setSection] = useState('inbox');
+  const [templateChannel, setTemplateChannel] = useState('email');
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactProfile, setContactProfile] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [textTemplates, setTextTemplates] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -2994,6 +3007,14 @@ function ContactCenterTab({ profiles, adminEmail, notify, onTemplatesChanged }) 
   });
 
   const optedInProfiles = profiles.filter((profile) => profile.email && profile.email_marketing_opt_in && !profile.email_marketing_unsubscribed_at);
+  const contactableProfiles = profiles
+    .filter((profile) => profile.role !== 'admin' && (profile.email || profile.phone))
+    .filter((profile) => {
+      const query = contactSearch.trim().toLowerCase();
+      if (!query) return true;
+      return [profile.full_name, profile.email, profile.phone].filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
+    })
+    .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
 
   async function loadEmailData(silent = false) {
     if (!silent) setLoadingEmails(true);
@@ -3039,6 +3060,14 @@ function ContactCenterTab({ profiles, adminEmail, notify, onTemplatesChanged }) 
     const { error } = await supabase.from('email_templates').update({ enabled: !template.enabled, version: Number(template.version || 1) + 1 }).eq('id', template.id);
     if (error) return notify(error.message);
     setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, enabled: !item.enabled } : item));
+    notify(`${template.name} ${template.enabled ? 'disabled' : 'enabled'}.`, 'success');
+  }
+
+  async function toggleTextAutomation(template) {
+    const { error } = await supabase.from('sms_templates').update({ enabled: !template.enabled, version: Number(template.version || 1) + 1 }).eq('id', template.id);
+    if (error) return notify(error.message);
+    setTextTemplates((current) => current.map((item) => item.id === template.id ? { ...item, enabled: !item.enabled, version: Number(item.version || 1) + 1 } : item));
+    await onTemplatesChanged?.();
     notify(`${template.name} ${template.enabled ? 'disabled' : 'enabled'}.`, 'success');
   }
 
@@ -3146,42 +3175,64 @@ function ContactCenterTab({ profiles, adminEmail, notify, onTemplatesChanged }) 
     }
   }
 
-  if (loadingEmails) return <Panel title="Customer Contact" eyebrow="Email & Text"><p className="muted">Loading contact templates and delivery settings…</p></Panel>;
+  if (loadingEmails) return <Panel title="Communications" eyebrow="Inbox, Email & Text"><p className="muted">Loading conversations, templates, and delivery settings…</p></Panel>;
 
   const automated = templates.filter((template) => template.category === 'automated');
   const manual = templates.filter((template) => template.category === 'manual');
+  const automatedTexts = textTemplates.filter((template) => template.category === 'automated');
+  const manualTexts = textTemplates.filter((template) => template.category === 'manual');
   const editorPreview = editingTemplate ? emailAdminPreview(editingTemplate.html_body, editingTemplate.preheader) : '';
   const composerPreview = emailAdminPreview(composer.htmlBody, composer.preheader);
 
   return <section className="email-admin-shell">
     <div className="email-admin-header">
-      <div><p className="eyebrow">Email &amp; SMS</p><h2>Customer Contact Center</h2><span>Update every customer email and text template, send broadcasts, and review delivery history.</span></div>
-      <div className="email-admin-health"><MessageCircle size={19}/><strong>{templates.length + textTemplates.length}</strong><span>contact templates</span></div>
+      <div><p className="eyebrow">Customer Communications</p><h2>Communications</h2><span>Reply to customers, send direct email or text, manage templates and automations, and review delivery.</span></div>
+      <div className="email-admin-health"><MessageCircle size={19}/><strong>{messages.filter((message) => !message.read_by_admin && message.sender_role !== 'admin').length}</strong><span>unread messages</span></div>
     </div>
     <div className="email-admin-tabs" role="tablist">
-      {[['automated', 'Automated Emails'], ['templates', 'Email Templates'], ['texts', 'Text Templates'], ['compose', 'Custom Email'], ['history', 'Delivery History']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
+      {[['inbox', 'Inbox'], ['contact', 'Contact Customer'], ['templates', 'Templates'], ['automated', 'Automations'], ['compose', 'Campaigns'], ['history', 'History']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
     </div>
+
+    {section === 'inbox' && <CommunicationsInbox rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={onSelectThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
+
+    {section === 'contact' && <Panel title="Contact a Customer" eyebrow="One-to-One Email or Text">
+      <div className="communications-contact-toolbar"><div className="search-row"><Search size={18}/><input value={contactSearch} maxLength="140" onChange={(event) => setContactSearch(limitText(event.target.value, 140))} placeholder="Search customer name, email, or phone…" /></div><span>{contactableProfiles.length} customers</span></div>
+      <div className="communications-customer-list">
+        {contactableProfiles.map((profile) => {
+          const customerRentals = rentals.filter((rental) => rental.user_id === profile.id);
+          return <article key={profile.id}><div className="communications-customer-avatar">{String(profile.full_name || profile.email || 'C').trim().charAt(0).toUpperCase()}</div><div><strong>{profile.full_name || 'Unnamed customer'}</strong><span>{[profile.email, profile.phone].filter(Boolean).join(' • ')}</span><small>{customerRentals.length} rental{customerRentals.length === 1 ? '' : 's'} • {profile.phone_verified ? 'phone verified' : 'phone not verified'}</small></div><button className="primary-btn" type="button" onClick={() => setContactProfile(profile)}><Send size={15}/> Contact</button></article>;
+        })}
+        {!contactableProfiles.length && <p className="muted">No customers match that search.</p>}
+      </div>
+    </Panel>}
 
     {section === 'automated' && <div className="email-card-grid">
       {automated.map((template) => <article className="email-setting-card" key={template.id}>
-        <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Trigger: {prettyStatus(template.trigger_key || 'manual')}</small></div></div>
+        <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Email • Trigger: {prettyStatus(template.trigger_key || 'manual')}</small></div></div>
         <p>{template.subject}</p>
         <div className="email-card-actions"><button className="secondary-btn" onClick={() => setEditingTemplate({ ...template })}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
       </article>)}
-      {!automated.length && <p className="muted">Run the email automation migration to install automated templates.</p>}
+      {automatedTexts.map((template) => <article className="email-setting-card" key={template.id}>
+        <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Text message • {prettyStatus(template.template_key)}</small></div></div>
+        <p>{template.body}</p>
+        <div className="email-card-actions"><button className="secondary-btn" onClick={() => setEditingTextTemplate({ ...template })}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleTextAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
+      </article>)}
+      {!automated.length && !automatedTexts.length && <p className="muted">Run the communications migrations to install automated email and text templates.</p>}
     </div>}
 
-    {section === 'templates' && <Panel title="Reusable Templates" eyebrow="Email Library">
-      <div className="email-section-toolbar"><p className="muted">Create manual templates for announcements, reminders, and customer updates.</p><button className="primary-btn" onClick={() => setEditingTemplate({ name: '', subject: '', preheader: '', html_body: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', text_body: '', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Template</button></div>
-      <div className="email-template-list">{manual.map((template) => <button key={template.id} onClick={() => setEditingTemplate({ ...template })}><Mail size={18}/><span><strong>{template.name}</strong><small>{template.subject}</small></span><em>v{template.version}</em></button>)}</div>
-    </Panel>}
-
-    {section === 'texts' && <Panel title="All Text Message Templates" eyebrow="SMS Library">
-      <div className="email-section-toolbar"><p className="muted">Edit every automated and manual text used throughout the admin portal. Variables such as {'{{customer_first_name}}'}, {'{{vehicle_name}}'}, and {'{{manage_booking_url}}'} are preserved when messages are sent.</p><button className="primary-btn" onClick={() => setEditingTextTemplate({ name: '', body: 'Hi {{customer_first_name}}, ', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Text Template</button></div>
-      <div className="email-template-list contact-text-template-list">
-        {textTemplates.map((template) => <button key={template.id} onClick={() => setEditingTextTemplate({ ...template })}><MessageCircle size={18}/><span><strong>{template.name}</strong><small>{template.body}</small></span><em>{prettyStatus(template.category)} • v{template.version}</em></button>)}
-        {!textTemplates.length && <p className="muted">Run the customer communications migration to install text templates.</p>}
+    {section === 'templates' && <Panel title="Reusable Templates" eyebrow="Email & Text Library">
+      <div className="communications-template-toolbar">
+        <div className="contact-channel-toggle" role="group" aria-label="Template type"><button type="button" className={templateChannel === 'email' ? 'active' : ''} onClick={() => setTemplateChannel('email')}><Mail size={16}/> Email</button><button type="button" className={templateChannel === 'sms' ? 'active' : ''} onClick={() => setTemplateChannel('sms')}><MessageCircle size={16}/> Text</button></div>
+        {templateChannel === 'email'
+          ? <button className="primary-btn" onClick={() => setEditingTemplate({ name: '', subject: '', preheader: '', html_body: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', text_body: '', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Email Template</button>
+          : <button className="primary-btn" onClick={() => setEditingTextTemplate({ name: '', body: 'Hi {{customer_first_name}}, ', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Text Template</button>}
       </div>
+      {templateChannel === 'email' && <><p className="muted">Reusable one-to-one email templates for customer updates and reminders.</p><div className="email-template-list">{manual.map((template) => <button key={template.id} onClick={() => setEditingTemplate({ ...template })}><Mail size={18}/><span><strong>{template.name}</strong><small>{template.subject}</small></span><em>v{template.version}</em></button>)}{!manual.length && <p className="muted">No manual email templates yet.</p>}</div></>}
+      {templateChannel === 'sms' && <><p className="muted">Reusable text templates. Variables such as {'{{customer_first_name}}'}, {'{{vehicle_name}}'}, and {'{{manage_booking_url}}'} are filled when sent.</p>
+      <div className="email-template-list contact-text-template-list">
+        {manualTexts.map((template) => <button key={template.id} onClick={() => setEditingTextTemplate({ ...template })}><MessageCircle size={18}/><span><strong>{template.name}</strong><small>{template.body}</small></span><em>v{template.version}</em></button>)}
+        {!manualTexts.length && <p className="muted">No manual text templates yet.</p>}
+      </div></>}
     </Panel>}
 
     {section === 'compose' && <div className="email-compose-layout">
@@ -3227,6 +3278,7 @@ function ContactCenterTab({ profiles, adminEmail, notify, onTemplatesChanged }) 
         <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTextTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Text Template</button></div>
       </form>
     </div>}
+    {contactProfile && <CustomerContactModal profile={contactProfile} rentals={rentals.filter((rental) => rental.user_id === contactProfile.id)} emailTemplates={manual.filter((template) => template.enabled)} smsTemplates={manualTexts.filter((template) => template.enabled)} notify={notify} onClose={() => setContactProfile(null)} />}
   </section>;
 }
 
@@ -3639,17 +3691,45 @@ function Documents({ documents, markDocument, openDocument, deleteDocument }) {
   </Panel>;
 }
 
-function Messages({ rentals, messages, selectedRental, setSelectedRentalId, replyText, setReplyText, sendReply }) {
-  const threadMessages = selectedRental ? messages.filter((m) => m.rental_id === selectedRental.id || m.user_id === selectedRental.user_id) : [];
-  return <section className="content-grid messages-grid">
-    <Panel title="Threads" eyebrow="Client Support">
-      {rentals.map((r) => <button className="thread-btn" key={r.id} onClick={()=>setSelectedRentalId(r.id)}><strong>{r.profiles?.full_name || 'Client'}</strong></button>)}
-    </Panel>
-    <Panel title={selectedRental?.profiles?.full_name || 'Select a client'} eyebrow="Message Center">
-      <div className="message-box">
-        {threadMessages.map((m) => <div key={m.id} className={m.sender_role === 'admin' ? 'message own' : 'message'}><strong>{m.sender_role === 'admin' ? 'Admin' : 'Client'}</strong><p>{m.message}</p><span>{new Date(m.created_at).toLocaleString()}</span></div>)}
+function CommunicationsInbox({ rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply }) {
+  const [threadSearch, setThreadSearch] = useState('');
+  const rentalsByCustomer = new Map();
+  [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0)).forEach((rental) => {
+    if (!rentalsByCustomer.has(rental.user_id)) rentalsByCustomer.set(rental.user_id, rental);
+  });
+  const normalizedSearch = threadSearch.trim().toLowerCase();
+  const threads = [...rentalsByCustomer.values()].map((rental) => {
+    const customerMessages = messages.filter((message) => message.user_id === rental.user_id);
+    const latestMessage = customerMessages[customerMessages.length - 1];
+    const unread = customerMessages.filter((message) => message.sender_role !== 'admin' && !message.read_by_admin).length;
+    return { rental, latestMessage, unread, messageCount: customerMessages.length };
+  }).filter(({ rental, latestMessage, messageCount }) => messageCount > 0 && (!normalizedSearch || [rental.profiles?.full_name, rental.profiles?.email, rental.profiles?.phone, latestMessage?.message].filter(Boolean).some((value) => String(value).toLowerCase().includes(normalizedSearch))))
+    .sort((a, b) => new Date(b.latestMessage?.created_at || b.rental.created_at || 0) - new Date(a.latestMessage?.created_at || a.rental.created_at || 0));
+  const threadMessages = selectedRental ? messages.filter((message) => message.user_id === selectedRental.user_id) : [];
+
+  useEffect(() => {
+    if (threads.length && !threads.some((thread) => thread.rental.user_id === selectedRental?.user_id)) onSelectThread?.(threads[0].rental);
+  }, [threads[0]?.rental?.id, selectedRental?.user_id]);
+
+  return <section className="communications-inbox">
+    <Panel title="Customer Inbox" eyebrow={`${threads.reduce((sum, thread) => sum + thread.unread, 0)} Unread`}>
+      <div className="search-row communications-thread-search"><Search size={17}/><input value={threadSearch} onChange={(event) => setThreadSearch(limitText(event.target.value, 120))} placeholder="Search conversations…" /></div>
+      <div className="communications-thread-list">
+        {threads.map(({ rental, latestMessage, unread }) => <button className={`communications-thread ${selectedRental?.user_id === rental.user_id ? 'active' : ''}`} key={rental.user_id} onClick={() => onSelectThread?.(rental)}>
+          <span className="communications-thread-avatar">{String(rental.profiles?.full_name || 'C').charAt(0).toUpperCase()}</span>
+          <span><strong>{rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}</strong><small>{latestMessage?.message || 'No portal messages yet'}</small></span>
+          <em>{unread > 0 ? unread : latestMessage?.created_at ? new Date(latestMessage.created_at).toLocaleDateString() : ''}</em>
+        </button>)}
+        {!threads.length && <p className="muted">No customer conversations match this search.</p>}
       </div>
-      <form className="support-form" onSubmit={sendReply}><input value={replyText} maxLength="1000" onChange={(e)=>setReplyText(limitText(e.target.value, 1000))} placeholder="Reply to customer..."/><button><Send size={16}/> Send</button></form>
+    </Panel>
+    <Panel title={selectedRental?.profiles?.full_name || selectedRental?.customer_name_snapshot || 'Select a customer'} eyebrow="Portal Conversation">
+      <div className="communications-thread-context">{selectedRental ? <><span>{selectedRental.profiles?.email || selectedRental.customer_email_snapshot || 'No email saved'}</span><span>Latest rental: {selectedRental.vehicles?.name || 'Vehicle'} • {formatRentalDate(selectedRental.pickup_date, selectedRental.pickup_time)}</span></> : <span>Choose a conversation to read and reply.</span>}</div>
+      <div className="message-box communications-message-box">
+        {threadMessages.map((message) => <div key={message.id} className={message.sender_role === 'admin' ? 'message own' : 'message'}><strong>{message.sender_role === 'admin' ? 'Admin' : selectedRental?.profiles?.full_name || 'Customer'}</strong><p>{message.message}</p><span>{new Date(message.created_at).toLocaleString()}</span></div>)}
+        {selectedRental && !threadMessages.length && <p className="muted communications-empty-thread">No portal messages yet. Use Contact Customer for a template-based email or text.</p>}
+      </div>
+      <form className="support-form" onSubmit={sendReply}><input value={replyText} maxLength="1000" disabled={!selectedRental} onChange={(event)=>setReplyText(limitText(event.target.value, 1000))} placeholder={selectedRental ? 'Write a portal reply…' : 'Select a customer first'}/><button disabled={!selectedRental || !replyText.trim()}><Send size={16}/> Send Reply</button></form>
     </Panel>
   </section>;
 }
@@ -5482,7 +5562,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Customer Contact Center', messages:'Messages', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function calculateAdminUnder25Deposit(baseDeposit, settings = DEFAULT_UNDER_25_PRICING) {
   const base = Math.max(0, Number(baseDeposit || 0));
