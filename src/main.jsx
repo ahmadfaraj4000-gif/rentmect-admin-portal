@@ -39,6 +39,7 @@ import {
   Trash2,
   UserRound,
   Wrench,
+  X,
   XCircle,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
@@ -3382,7 +3383,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
 
     {editingTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTemplate(null); }}>
       <form className="admin-modal email-template-modal" onSubmit={saveTemplate}>
-        <div className="admin-modal-header"><Mail size={21}/><div><strong>{editingTemplate.id ? 'Edit Email Template' : 'Add Email Template'}</strong><span>Versioned content sent through Twilio SendGrid</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTemplate(null)}><XCircle size={20}/></button></div>
+        <div className="admin-modal-header"><Mail size={21}/><div><strong>{editingTemplate.id ? 'Edit Email Template' : 'Add Email Template'}</strong><span>Versioned content sent through Twilio SendGrid</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTemplate(null)}><X size={19}/></button></div>
         <div className="email-template-editor"><div className="portal-form"><input placeholder="Template name" value={editingTemplate.name} onChange={(event) => setEditingTemplate({ ...editingTemplate, name: limitText(event.target.value, 120) })}/><input placeholder="Subject" value={editingTemplate.subject} onChange={(event) => setEditingTemplate({ ...editingTemplate, subject: limitText(event.target.value, 200) })}/><input placeholder="Preview text" value={editingTemplate.preheader || ''} onChange={(event) => setEditingTemplate({ ...editingTemplate, preheader: limitText(event.target.value, 240) })}/><label className="field-label email-body-field">Email body<textarea value={editingTemplate.html_body} onChange={(event) => setEditingTemplate({ ...editingTemplate, html_body: limitText(event.target.value, 30000) })}/></label><label className="checkbox-pill"><input type="checkbox" checked={editingTemplate.enabled !== false} onChange={(event) => setEditingTemplate({ ...editingTemplate, enabled: event.target.checked })}/> Enabled</label><div className="email-send-actions"><input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)}/><button type="button" className="secondary-btn" disabled={busy} onClick={() => sendTemplateTest()}><Send size={15}/> Send Test</button></div></div><iframe className="email-preview-frame" title="Template preview" sandbox="" srcDoc={editorPreview}/></div>
         <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Template</button></div>
       </form>
@@ -3390,7 +3391,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
 
     {editingTextTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTextTemplate(null); }}>
       <form className="admin-modal contact-text-template-modal" onSubmit={saveTextTemplate}>
-        <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTextTemplate(null)}><XCircle size={20}/></button></div>
+        <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTextTemplate(null)}><X size={19}/></button></div>
         <div className="portal-form contact-text-template-editor">
           <label><span>Template name</span><input required maxLength="120" value={editingTextTemplate.name || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, name: limitText(event.target.value, 120) })}/></label>
           <label className="full-field"><span>Text message</span><textarea required maxLength="1600" value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, 1600) })}/><small>{String(editingTextTemplate.body || '').length}/1600 characters. Longer messages may be delivered as multiple SMS segments.</small></label>
@@ -3540,28 +3541,34 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
               <Wrench size={13}/> {maintenance.label}
             </small>
           </div>
-          <div className="row-actions">
-            <em>{money(v.daily_rate)}/day</em>
-            <small>{money(v.security_deposit)} deposit</small>
-            <span className={`vehicle-publish-badge ${v.published === false ? 'unpublished' : 'published'}`}>{v.published === false ? 'Unpublished' : 'Published'}</span>
-            <span className={`fleet-status-badge ${String(v.status || 'available').toLowerCase()}`}>{prettyVehicleStatus(v.status)}</span>
-            {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) ? (
-              <span className="system-owned-status">System controlled</span>
-            ) : (
-              <select value={v.status || 'available'} onClick={(event) => event.stopPropagation()} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
-            )}
-            <button className="secondary-btn vehicle-edit-btn" type="button" onClick={(event) => {
-              event.stopPropagation();
-              openVehicleEditor(v);
-            }}><Pencil size={15}/> Edit</button>
-            <button className="secondary-btn vehicle-publish-btn" type="button" onClick={(event) => {
-              event.stopPropagation();
-              updateVehiclePublished(v.id, v.published === false);
-            }}>{v.published === false ? 'Publish' : 'Unpublish'}</button>
-            {(maintenance.due || maintenance.soon) && <button className="secondary-btn" type="button" onClick={(event) => {
-              event.stopPropagation();
-              markVehicleServiced(v);
-            }}><Wrench size={15}/> Mark Serviced</button>}
+          <div className="row-actions vehicle-row-actions">
+            <div className="vehicle-row-price">
+              <strong>{money(v.daily_rate)}<span>/day</span></strong>
+              <small>{money(v.security_deposit)} deposit</small>
+            </div>
+            <div className="vehicle-row-state">
+              <span className={`vehicle-publish-badge ${v.published === false ? 'unpublished' : 'published'}`}>{v.published === false ? 'Unpublished' : 'Published'}</span>
+              <span className={`fleet-status-badge ${String(v.status || 'available').toLowerCase()}`}>{prettyVehicleStatus(v.status)}</span>
+            </div>
+            <div className="vehicle-row-controls">
+              {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) ? (
+                <span className="system-owned-status">System controlled</span>
+              ) : (
+                <label className="vehicle-status-control"><span>Status</span><select value={v.status || 'available'} onClick={(event) => event.stopPropagation()} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+              )}
+              <button className="secondary-btn vehicle-edit-btn" type="button" onClick={(event) => {
+                event.stopPropagation();
+                openVehicleEditor(v);
+              }}><Pencil size={15}/> Edit</button>
+              <button className="secondary-btn vehicle-publish-btn" type="button" onClick={(event) => {
+                event.stopPropagation();
+                updateVehiclePublished(v.id, v.published === false);
+              }}>{v.published === false ? 'Publish' : 'Unpublish'}</button>
+              {(maintenance.due || maintenance.soon) && <button className="secondary-btn" type="button" onClick={(event) => {
+                event.stopPropagation();
+                markVehicleServiced(v);
+              }}><Wrench size={15}/> Serviced</button>}
+            </div>
           </div>
         </div>;
       })}
@@ -3576,40 +3583,53 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
             <strong>Add New Vehicle</strong>
             <span>Create the inventory record, upload pictures, and choose whether to publish it.</span>
           </div>
-          <button className="vehicle-editor-close" type="button" onClick={closeAddVehicle} aria-label="Close add vehicle form"><XCircle size={20}/></button>
+          <button className="vehicle-editor-close" type="button" onClick={closeAddVehicle} aria-label="Close add vehicle form"><X size={19}/></button>
         </div>
         <form className="portal-form vehicle-editor-scroll vehicle-detail-form" onSubmit={async (event) => {
           const created = await addVehicle(event);
           if (created) setAddVehicleOpen(false);
         }}>
-        <input placeholder="Vehicle name e.g. Audi Q5 #474" maxLength="80" value={vehicleForm.name} onChange={(e)=>update('name', e.target.value)} required />
-        <input placeholder="Brand" maxLength="40" value={vehicleForm.brand} onChange={(e)=>update('brand', e.target.value)} />
-        <input placeholder="Model" maxLength="40" value={vehicleForm.model} onChange={(e)=>update('model', e.target.value)} />
-        <input placeholder="Type e.g. SUV, Luxury Sedan" maxLength="40" value={vehicleForm.vehicle_type} onChange={(e)=>update('vehicle_type', e.target.value)} />
-        <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={vehicleForm.plate_number} onChange={(e)=>update('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
-        <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} />
-        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} />
-        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="Refundable deposit" title="Base refundable deposit for this vehicle" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} required />
-        <label className="field-label">Original odometer mileage
+        <section className="vehicle-form-card">
+          <div className="vehicle-form-card-heading"><strong>Vehicle details</strong><span>Customer-facing identity and registration information.</span></div>
+          <div className="vehicle-form-grid">
+            <label className="field-label">Vehicle name<input placeholder="Audi Q5 #474" maxLength="80" value={vehicleForm.name} onChange={(e)=>update('name', e.target.value)} required /></label>
+            <label className="field-label">Brand<input placeholder="Audi" maxLength="40" value={vehicleForm.brand} onChange={(e)=>update('brand', e.target.value)} /></label>
+            <label className="field-label">Model<input placeholder="Q5" maxLength="40" value={vehicleForm.model} onChange={(e)=>update('model', e.target.value)} /></label>
+            <label className="field-label">Vehicle type<input placeholder="SUV, luxury sedan, truck…" maxLength="40" value={vehicleForm.vehicle_type} onChange={(e)=>update('vehicle_type', e.target.value)} /></label>
+            <label className="field-label">Plate number<input placeholder="Plate number" maxLength={PLATE_MAX_LENGTH} value={vehicleForm.plate_number} onChange={(e)=>update('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} /></label>
+            <label className="field-label">VIN<input placeholder="17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} /></label>
+          </div>
+        </section>
+        <section className="vehicle-form-card">
+          <div className="vehicle-form-card-heading"><strong>Pricing & operations</strong><span>Rental pricing, availability, mileage, and maintenance.</span></div>
+          <div className="vehicle-form-grid">
+            <label className="field-label">Daily rate<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Daily rate in USD" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} /></label>
+            <label className="field-label">Refundable deposit<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$300.00" title="Base refundable deposit for this vehicle" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} required /></label>
+            <label className="field-label">Original odometer mileage
           <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.original_mileage} onChange={(e)=>update('original_mileage', e.target.value)} required />
-        </label>
-        <label className="field-label">Maintenance interval
+            </label>
+            <label className="field-label">Maintenance interval
           <select value={vehicleForm.maintenance_interval_miles} onChange={(e)=>update('maintenance_interval_miles', e.target.value)}>
             <option value="3000">Every 3,000 miles</option>
             <option value="5000">Every 5,000 miles</option>
             <option value="7500">Every 7,500 miles</option>
             <option value="10000">Every 10,000 miles</option>
           </select>
-        </label>
-        <label className="field-label">Last service mileage (optional)
+            </label>
+            <label className="field-label">Last service mileage <span className="field-optional">Optional</span>
           <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.last_maintenance_mileage} onChange={(e)=>update('last_maintenance_mileage', e.target.value)} placeholder="Defaults to original mileage" />
-        </label>
-        <select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select>
-        <label className="vehicle-publish-control">
+            </label>
+            <label className="field-label">Initial status<select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="vehicle-publish-control">
           <input type="checkbox" checked={vehicleForm.published} onChange={(event)=>update('published', event.target.checked)} />
           <span><strong>Publish immediately</strong><small>Published vehicles appear in customer-facing fleet views. Leave this off to save a draft.</small></span>
-        </label>
-        <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
+            </label>
+          </div>
+        </section>
+        <section className="vehicle-form-card vehicle-description-card">
+          <div className="vehicle-form-card-heading"><strong>Description</strong><span>Add useful customer-facing context or internal inventory notes.</span></div>
+          <textarea placeholder="Describe the vehicle, condition, or important rental notes…" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
+        </section>
         <VehicleFeatureChecklist value={vehicleForm.features} onChange={(value)=>update('features', value)} alwaysVisible prominent />
         <label className="vehicle-photo-upload">
           <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Add vehicle pictures'}</span>
@@ -3646,7 +3666,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
             <strong>Edit Vehicle</strong>
             <span>{editingVehicle.name} • pricing, pictures, features, and inventory details</span>
           </div>
-          <button className="vehicle-editor-close" type="button" onClick={cancelEditVehicle} aria-label="Close vehicle editor"><XCircle size={20}/></button>
+          <button className="vehicle-editor-close" type="button" onClick={cancelEditVehicle} aria-label="Close vehicle editor"><X size={19}/></button>
         </div>
         <div className="vehicle-editor-scroll">
           <section className="vehicle-editor-media">
