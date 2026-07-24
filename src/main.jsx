@@ -3791,10 +3791,10 @@ function VehicleFeatureChecklist({ value, onChange, initiallyOpen = false, promi
   const heading = <><span><strong>Features &amp; equipment</strong><em>Check every feature customers should see on this vehicle.</em></span><small>{selected.size} selected</small></>;
 
   if (alwaysVisible) {
-    return <section className={`vehicle-feature-picker always-visible ${prominent ? 'prominent' : ''}`} aria-label="Vehicle features and equipment">
-      <div className="vehicle-feature-heading">{heading}</div>
+    return <div className="new-vehicle-feature-section" aria-label="Vehicle features and equipment">
+      <div className="new-vehicle-feature-heading">{heading}</div>
       {options}
-    </section>;
+    </div>;
   }
 
   return <details className={`vehicle-feature-picker ${prominent ? 'prominent' : ''}`} open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
