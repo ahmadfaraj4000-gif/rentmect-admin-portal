@@ -818,3 +818,600 @@
   .customer-contact-actions > div { display: grid !important; grid-template-columns: 1fr 1fr !important; }
   .customer-contact-actions button { width: 100% !important; }
 }
+
+/* Vehicle workspace redesign: calm hierarchy, compact controls, and one
+   consistent selection language. */
+.vehicles-layout > .panel {
+  border-color: #dfe5e2 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 30px rgba(21, 35, 29, .05) !important;
+}
+
+.vehicles-layout .list-search-toolbar {
+  display: grid !important;
+  grid-template-columns: minmax(280px, 1fr) auto auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-bottom: 16px !important;
+  padding-bottom: 16px !important;
+  border-bottom: 1px solid #e2e7e5 !important;
+}
+
+.vehicles-layout .list-search-toolbar .search-row {
+  min-height: 44px !important;
+  padding: 0 13px !important;
+  border: 1px solid #d6ddda !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.vehicles-layout .list-search-toolbar .search-row:focus-within {
+  border-color: #3d7058 !important;
+  box-shadow: 0 0 0 3px rgba(37, 104, 72, .1) !important;
+}
+
+.vehicles-layout .list-search-toolbar > span {
+  padding: 0 4px !important;
+  color: #6d7772 !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+}
+
+.vehicles-layout .add-vehicle-trigger {
+  width: auto !important;
+  min-height: 42px !important;
+  padding: 9px 15px !important;
+  border-radius: 7px !important;
+  background: #17643f !important;
+  font-weight: 800 !important;
+  box-shadow: 0 4px 12px rgba(23, 100, 63, .16) !important;
+}
+
+.vehicles-layout .vehicle-list-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  min-height: 96px !important;
+  margin: 0 0 9px !important;
+  padding: 13px 14px !important;
+  overflow: hidden !important;
+  border: 1px solid #dfe5e2 !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  box-shadow: 0 2px 7px rgba(20, 33, 27, .025) !important;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease !important;
+}
+
+.vehicles-layout .vehicle-list-row:hover {
+  border-color: #b7c4be !important;
+  background: #fbfcfb !important;
+  box-shadow: 0 5px 16px rgba(20, 33, 27, .06) !important;
+}
+
+.vehicles-layout .vehicle-list-row.selected {
+  border: 1px solid #7da28f !important;
+  outline: 0 !important;
+  background: #f7faf8 !important;
+  box-shadow: inset 3px 0 0 #276d4a, 0 5px 16px rgba(27, 80, 55, .08) !important;
+}
+
+.vehicles-layout .vehicle-list-row.selected strong {
+  color: #1f2b26 !important;
+}
+
+.vehicles-layout .vehicle-list-thumbnail {
+  width: 92px !important;
+  height: 66px !important;
+  flex: 0 0 92px !important;
+  border: 1px solid #dce2df !important;
+  border-radius: 8px !important;
+  background: #f4f6f5 !important;
+}
+
+.vehicles-layout .vehicle-list-row > div:not(.row-actions) {
+  align-content: center !important;
+  gap: 3px !important;
+  min-width: 220px !important;
+}
+
+.vehicles-layout .vehicle-list-row > div:not(.row-actions) > strong {
+  color: #202a26 !important;
+  font-size: 14px !important;
+  font-weight: 850 !important;
+}
+
+.vehicles-layout .vehicle-list-row > div:not(.row-actions) > span,
+.vehicles-layout .vehicle-list-row > div:not(.row-actions) > small {
+  color: #68746e !important;
+  line-height: 1.35 !important;
+}
+
+.vehicle-row-actions {
+  display: grid !important;
+  grid-template-columns: minmax(110px, auto) minmax(150px, auto) minmax(330px, auto) !important;
+  align-items: center !important;
+  gap: 14px !important;
+  margin-left: auto !important;
+}
+
+.vehicle-row-price {
+  display: grid !important;
+  justify-items: end !important;
+  gap: 3px !important;
+  min-width: 104px !important;
+}
+
+.vehicle-row-price strong {
+  color: #1f2b26 !important;
+  font-size: 14px !important;
+  font-style: normal !important;
+  font-weight: 850 !important;
+}
+
+.vehicle-row-price strong span {
+  color: #6d7772 !important;
+  font-size: 10px !important;
+  font-weight: 750 !important;
+}
+
+.vehicle-row-price small {
+  color: #747e79 !important;
+  font-size: 10px !important;
+}
+
+.vehicle-row-state {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 6px !important;
+}
+
+.vehicle-row-state .vehicle-publish-badge,
+.vehicle-row-state .fleet-status-badge {
+  min-height: 26px !important;
+  padding: 5px 9px !important;
+  border-radius: 999px !important;
+  font-size: 10px !important;
+  letter-spacing: .01em !important;
+}
+
+.vehicle-row-state .vehicle-publish-badge.published {
+  border-color: #49534e !important;
+  background: #303733 !important;
+  color: #fff !important;
+}
+
+.vehicle-row-controls {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: flex-end !important;
+  gap: 7px !important;
+}
+
+.vehicle-status-control {
+  display: grid !important;
+  gap: 3px !important;
+  min-width: 126px !important;
+}
+
+.vehicle-status-control > span {
+  color: #76807b !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+}
+
+.vehicle-row-controls select {
+  width: 132px !important;
+  min-width: 132px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 34px 0 10px !important;
+  border: 1px solid #cfd7d3 !important;
+  border-radius: 7px !important;
+  background-color: #fff !important;
+  color: #26302b !important;
+  font-size: 11px !important;
+  box-shadow: none !important;
+}
+
+.vehicle-row-controls button {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 36px !important;
+  padding: 7px 10px !important;
+  border-color: #cfd7d3 !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #26302b !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+.vehicle-row-controls button:hover {
+  border-color: #73877d !important;
+  background: #f7f9f8 !important;
+}
+
+.vehicle-editor-modal.admin-modal {
+  width: min(1160px, calc(100vw - 40px)) !important;
+  max-width: min(1160px, calc(100vw - 40px)) !important;
+  height: min(900px, calc(100dvh - 40px)) !important;
+  border: 1px solid #d9dfdc !important;
+  border-radius: 14px !important;
+  background: #f7f9f8 !important;
+  box-shadow: 0 32px 90px rgba(11, 20, 16, .32) !important;
+}
+
+.vehicle-editor-modal > .admin-modal-header {
+  min-height: 74px !important;
+  padding: 16px 20px !important;
+  border-bottom: 1px solid #e0e5e3 !important;
+  background: #fff !important;
+}
+
+.vehicle-editor-modal > .admin-modal-header > svg {
+  display: grid !important;
+  place-items: center !important;
+  width: 38px !important;
+  height: 38px !important;
+  padding: 9px !important;
+  border-radius: 9px !important;
+  background: #e9f2ed !important;
+  color: #236947 !important;
+}
+
+.vehicle-editor-modal > .admin-modal-header strong {
+  color: #202a26 !important;
+  font-size: 18px !important;
+  letter-spacing: -.015em !important;
+}
+
+.vehicle-editor-modal > .admin-modal-header span {
+  margin-top: 2px !important;
+  color: #6c7771 !important;
+  font-size: 12px !important;
+}
+
+.vehicle-editor-close {
+  display: grid !important;
+  place-items: center !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border: 1px solid #d6ddda !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: #53605a !important;
+  box-shadow: none !important;
+}
+
+.vehicle-editor-close svg {
+  margin: 0 !important;
+  color: currentColor !important;
+}
+
+.vehicle-editor-close:hover {
+  border-color: #aeb9b4 !important;
+  background: #f3f5f4 !important;
+  color: #1d2923 !important;
+}
+
+.add-vehicle-modal .vehicle-editor-scroll {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-content: start !important;
+  gap: 14px !important;
+  padding: 18px 20px 0 !important;
+  background: #f7f9f8 !important;
+}
+
+.vehicle-form-card {
+  display: grid !important;
+  grid-column: 1 / -1 !important;
+  gap: 14px !important;
+  padding: 16px !important;
+  border: 1px solid #dfe5e2 !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  box-shadow: 0 2px 8px rgba(19, 35, 27, .025) !important;
+}
+
+.vehicle-form-card-heading {
+  display: grid !important;
+  gap: 2px !important;
+  padding-bottom: 11px !important;
+  border-bottom: 1px solid #edf0ef !important;
+}
+
+.vehicle-form-card-heading strong {
+  color: #202a26 !important;
+  font-size: 13px !important;
+  font-weight: 850 !important;
+}
+
+.vehicle-form-card-heading span {
+  color: #75807a !important;
+  font-size: 11px !important;
+}
+
+.vehicle-form-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.vehicle-form-grid .field-label,
+.vehicle-description-card {
+  margin: 0 !important;
+}
+
+.vehicle-form-grid .field-label {
+  position: relative !important;
+  display: grid !important;
+  gap: 6px !important;
+  color: #37423d !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+.vehicle-form-grid input,
+.vehicle-form-grid select,
+.vehicle-description-card textarea {
+  width: 100% !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  border: 1px solid #d4dcd8 !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #202a26 !important;
+  font-size: 13px !important;
+  box-shadow: none !important;
+}
+
+.vehicle-description-card textarea {
+  height: auto !important;
+  min-height: 96px !important;
+  resize: vertical !important;
+}
+
+.field-optional {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  color: #8a938f !important;
+  font-size: 9px !important;
+  font-weight: 750 !important;
+  text-transform: uppercase !important;
+}
+
+.vehicle-form-grid .vehicle-publish-control {
+  grid-column: 1 / -1 !important;
+  align-items: center !important;
+  min-height: 64px !important;
+  margin: 0 !important;
+  padding: 12px 14px !important;
+  border: 1px solid #cbdcd3 !important;
+  border-radius: 8px !important;
+  background: #f4f8f6 !important;
+}
+
+.add-vehicle-modal .new-vehicle-feature-section {
+  border: 1px solid #dfe5e2 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 8px rgba(19, 35, 27, .025) !important;
+}
+
+.add-vehicle-modal .new-vehicle-feature-heading {
+  min-height: 60px !important;
+  background: #fff !important;
+}
+
+.add-vehicle-modal .new-vehicle-feature-section .vehicle-feature-groups > section,
+.add-vehicle-modal .new-vehicle-feature-section .vehicle-custom-features {
+  border-color: #e1e6e3 !important;
+  background: #f8faf9 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
+  display: grid !important;
+  grid-template-columns: minmax(310px, .78fr) minmax(0, 1.22fr) !important;
+  align-items: start !important;
+  gap: 16px !important;
+  padding: 18px 20px !important;
+  background: #f7f9f8 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media,
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form {
+  margin: 0 !important;
+  padding: 16px !important;
+  border: 1px solid #dfe5e2 !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  box-shadow: 0 2px 8px rgba(19, 35, 27, .025) !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media {
+  position: sticky !important;
+  top: 0 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-image-card img {
+  max-height: 290px !important;
+  object-fit: cover !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form {
+  gap: 12px !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form > input,
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form > select,
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form > label {
+  min-width: 0 !important;
+}
+
+.vehicle-editor-actions {
+  min-height: 68px !important;
+  padding: 13px 20px !important;
+  border-top: 1px solid #dfe5e2 !important;
+  background: #fff !important;
+}
+
+.vehicle-editor-actions button {
+  min-height: 40px !important;
+  padding: 8px 14px !important;
+  border-radius: 7px !important;
+}
+
+.operations-bucket .queue-row.warning {
+  border-color: #e8d6a3 !important;
+  background: #fffaf0 !important;
+}
+
+.operations-bucket .queue-row.critical {
+  border-color: #e6bbb8 !important;
+  background: #fff5f4 !important;
+}
+
+.operations-bucket .queue-row.warning .row-actions > em {
+  padding: 5px 8px !important;
+  border-radius: 999px !important;
+  background: #fff0c2 !important;
+  color: #805b00 !important;
+  font-size: 10px !important;
+  font-style: normal !important;
+  font-weight: 850 !important;
+  text-transform: capitalize !important;
+}
+
+.operations-bucket .queue-row.critical .row-actions > em {
+  padding: 5px 8px !important;
+  border-radius: 999px !important;
+  background: #f8dedc !important;
+  color: #9a2924 !important;
+  font-size: 10px !important;
+  font-style: normal !important;
+  font-weight: 850 !important;
+  text-transform: capitalize !important;
+}
+
+@media (max-width: 1280px) {
+  .vehicles-layout .vehicle-list-row {
+    align-items: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .vehicle-row-actions {
+    grid-template-columns: auto auto minmax(330px, 1fr) !important;
+    width: 100% !important;
+    margin-left: 106px !important;
+    padding-top: 10px !important;
+    border-top: 1px solid #edf0ef !important;
+  }
+
+  .vehicle-row-price {
+    justify-items: start !important;
+  }
+
+  .vehicle-row-state {
+    justify-content: flex-start !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .vehicles-layout .list-search-toolbar {
+    grid-template-columns: 1fr auto !important;
+  }
+
+  .vehicles-layout .list-search-toolbar .search-row {
+    grid-column: 1 / -1 !important;
+  }
+
+  .vehicle-row-actions {
+    grid-template-columns: 1fr 1fr !important;
+    margin-left: 0 !important;
+  }
+
+  .vehicle-row-controls {
+    grid-column: 1 / -1 !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media {
+    position: relative !important;
+  }
+}
+
+@media (max-width: 620px) {
+  .vehicles-layout .list-search-toolbar {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicles-layout .list-search-toolbar > span {
+    order: 3 !important;
+  }
+
+  .vehicles-layout .add-vehicle-trigger {
+    width: 100% !important;
+  }
+
+  .vehicles-layout .vehicle-list-thumbnail {
+    width: 76px !important;
+    height: 58px !important;
+    flex-basis: 76px !important;
+  }
+
+  .vehicles-layout .vehicle-list-row > div:not(.row-actions) {
+    min-width: calc(100% - 92px) !important;
+  }
+
+  .vehicle-row-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-row-state,
+  .vehicle-row-controls {
+    justify-content: flex-start !important;
+  }
+
+  .vehicle-row-controls {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    width: 100% !important;
+  }
+
+  .vehicle-status-control {
+    grid-column: 1 / -1 !important;
+  }
+
+  .vehicle-row-controls select {
+    width: 100% !important;
+  }
+
+  .vehicle-form-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-editor-modal.admin-modal {
+    width: calc(100vw - 12px) !important;
+    max-width: calc(100vw - 12px) !important;
+    height: calc(100dvh - 12px) !important;
+  }
+
+  .add-vehicle-modal .vehicle-editor-scroll,
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
+    padding: 12px !important;
+  }
+}
