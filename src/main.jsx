@@ -80,15 +80,50 @@ const DEFAULT_MAINTENANCE_INTERVAL = 5000;
 const VEHICLE_FEATURE_GROUPS = [
   {
     label: 'Safety',
-    features: ['Backup camera', 'Blind spot warning', 'Lane departure warning', 'Lane keeping assist'],
+    features: [
+      'Backup camera',
+      '360° camera',
+      'Blind spot warning',
+      'Lane departure warning',
+      'Lane keeping assist',
+      'Adaptive cruise control',
+      'Forward collision warning',
+      'Automatic emergency braking',
+      'Parking sensors',
+      'Rear cross-traffic alert',
+    ],
   },
   {
     label: 'Device connectivity',
-    features: ['Android Auto', 'Apple CarPlay', 'AUX input', 'Bluetooth', 'USB charger', 'USB input'],
+    features: [
+      'Android Auto',
+      'Apple CarPlay',
+      'AUX input',
+      'Bluetooth',
+      'USB charger',
+      'USB input',
+      'Wireless charging',
+      'Wi-Fi hotspot',
+    ],
   },
   {
-    label: 'Convenience',
-    features: ['GPS', 'Keyless entry', 'Heated seats', 'Sunroof'],
+    label: 'Comfort & convenience',
+    features: [
+      'GPS',
+      'Keyless entry',
+      'Push-button start',
+      'Remote start',
+      'Heated seats',
+      'Cooled seats',
+      'Leather seats',
+      'Power seats',
+      'Sunroof',
+      'Third-row seating',
+    ],
+  },
+  {
+    label: 'Capability',
+    features: ['All-wheel drive', 'Four-wheel drive', 'Tow hitch', 'Roof rack'],
   },
   {
     label: 'Additional features',
@@ -3575,7 +3610,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
           <span><strong>Publish immediately</strong><small>Published vehicles appear in customer-facing fleet views. Leave this off to save a draft.</small></span>
         </label>
         <textarea placeholder="Description" maxLength="600" value={vehicleForm.description} onChange={(e)=>update('description', e.target.value)} />
-        <VehicleFeatureChecklist value={vehicleForm.features} onChange={(value)=>update('features', value)} initiallyOpen prominent />
+        <VehicleFeatureChecklist value={vehicleForm.features} onChange={(value)=>update('features', value)} alwaysVisible prominent />
         <label className="vehicle-photo-upload">
           <span><ImagePlus size={18}/> {imageUploadBusy ? 'Compressing pictures…' : 'Add vehicle pictures'}</span>
           <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={imageUploadBusy} onChange={(event) => {
@@ -3719,7 +3754,7 @@ function VehiclePhotoManager({ vehicleName, value, onChange }) {
   </div>;
 }
 
-function VehicleFeatureChecklist({ value, onChange, initiallyOpen = false, prominent = false }) {
+function VehicleFeatureChecklist({ value, onChange, initiallyOpen = false, prominent = false, alwaysVisible = false }) {
   const [isOpen, setIsOpen] = useState(initiallyOpen);
   const features = linesToList(value);
   const selected = new Set(features);
@@ -3739,8 +3774,7 @@ function VehicleFeatureChecklist({ value, onChange, initiallyOpen = false, promi
     emit(next);
   }
 
-  return <details className={`vehicle-feature-picker ${prominent ? 'prominent' : ''}`} open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
-    <summary><span><strong>Features &amp; equipment</strong><em>Select everything customers should see on this vehicle.</em></span><small>{selected.size} selected</small></summary>
+  const options = <>
     <div className="vehicle-feature-groups">
       {VEHICLE_FEATURE_GROUPS.map((group) => <section key={group.label}>
         <strong>{group.label}</strong>
@@ -3751,8 +3785,21 @@ function VehicleFeatureChecklist({ value, onChange, initiallyOpen = false, promi
       </section>)}
     </div>
     <label className="field-label vehicle-custom-features">Add custom features
-      <textarea placeholder="One per line, for example AWD or third-row seating" maxLength="800" value={listToLines(customFeatures)} onChange={(event) => emit(selected, linesToList(event.target.value))} />
+      <textarea placeholder="One per line, for example panoramic roof or premium sound" maxLength="800" value={listToLines(customFeatures)} onChange={(event) => emit(selected, linesToList(event.target.value))} />
     </label>
+  </>;
+  const heading = <><span><strong>Features &amp; equipment</strong><em>Check every feature customers should see on this vehicle.</em></span><small>{selected.size} selected</small></>;
+
+  if (alwaysVisible) {
+    return <section className={`vehicle-feature-picker always-visible ${prominent ? 'prominent' : ''}`} aria-label="Vehicle features and equipment">
+      <div className="vehicle-feature-heading">{heading}</div>
+      {options}
+    </section>;
+  }
+
+  return <details className={`vehicle-feature-picker ${prominent ? 'prominent' : ''}`} open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
+    <summary>{heading}</summary>
+    {options}
   </details>;
 }
 

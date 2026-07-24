@@ -51,23 +51,27 @@
   box-shadow: 0 0 0 3px rgba(0, 0, 0, .06) !important;
 }
 
-.add-vehicle-modal .vehicle-feature-picker.prominent > summary {
+.add-vehicle-modal .vehicle-feature-picker.prominent > summary,
+.add-vehicle-modal .vehicle-feature-picker.prominent > .vehicle-feature-heading {
   min-height: 58px !important;
   padding: 13px 15px !important;
   background: #f3f4f4 !important;
 }
 
-.vehicle-feature-picker > summary > span {
+.vehicle-feature-picker > summary > span,
+.vehicle-feature-heading > span {
   display: grid !important;
   gap: 2px !important;
 }
 
-.vehicle-feature-picker > summary > span strong {
+.vehicle-feature-picker > summary > span strong,
+.vehicle-feature-heading > span strong {
   color: var(--admin-ink) !important;
   font-size: 14px !important;
 }
 
-.vehicle-feature-picker > summary > span em {
+.vehicle-feature-picker > summary > span em,
+.vehicle-feature-heading > span em {
   color: #607176 !important;
   font-size: 11px !important;
   font-style: normal !important;
