@@ -342,6 +342,7 @@ function App() {
     customerMode: 'existing',
     customerId: '',
     existingDateOfBirth: '',
+    existingPhone: '',
     fullName: '',
     email: '',
     phone: '',
@@ -1954,6 +1955,11 @@ function App() {
     if (manualBookingForm.customerMode === 'new' && (!manualBookingForm.fullName.trim() || !manualBookingForm.email.trim() || !manualBookingForm.phone.trim() || !manualBookingForm.dateOfBirth)) {
       return notify('Enter the new customer’s name, email, phone, and date of birth.');
     }
+    const deliveryNeedsText = ['text', 'both'].includes(manualBookingForm.onboardingDelivery);
+    const deliveryPhone = manualBookingForm.customerMode === 'new' ? manualBookingForm.phone : manualBookingForm.existingPhone;
+    if (deliveryNeedsText && !isValidUSPhone(deliveryPhone)) {
+      return notify('Enter a valid 10-digit US mobile number before sending the secure link by text.');
+    }
     if (!vehicle) return notify('Choose a vehicle.');
 
     const days = getRentalDays(manualBookingForm.pickupDate, manualBookingForm.returnDate);
@@ -1968,6 +1974,7 @@ function App() {
         customerMode: manualBookingForm.customerMode,
         customerId: manualBookingForm.customerId || undefined,
         customerDateOfBirth: manualBookingForm.existingDateOfBirth || undefined,
+        customerPhone: manualBookingForm.customerMode === 'existing' ? manualBookingForm.existingPhone.trim() : undefined,
         driverInfo: {
           licenseNumber: manualBookingForm.driverLicenseNumber.trim(),
           licenseState: manualBookingForm.driverLicenseState.trim(),
@@ -2003,7 +2010,7 @@ function App() {
       return notify(detail);
     }
 
-    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(1), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', existingPhone: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(1), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
     await loadAllData({ silent: true });
     setManualBookingFocusId(data?.rental?.id || '');
     setSelectedRentalId(data?.rental?.id || '');
@@ -3901,6 +3908,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
       customerMode,
       customerId: '',
       existingDateOfBirth: '',
+      existingPhone: '',
       driverLicenseNumber: '',
       driverLicenseState: '',
       insuranceProvider: '',
@@ -3968,7 +3976,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
             <input id="manual-customer-search" value={customerSearch} onFocus={() => setCustomerDropdownOpen(true)} onBlur={() => window.setTimeout(() => setCustomerDropdownOpen(false), 120)} onChange={(event) => {
               setCustomerSearch(limitText(event.target.value, 160));
               setCustomerDropdownOpen(true);
-              setManualBookingForm((current) => ({ ...current, customerId: '', existingDateOfBirth: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '' }));
+              setManualBookingForm((current) => ({ ...current, customerId: '', existingDateOfBirth: '', existingPhone: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '' }));
             }} placeholder="Search name, email, or phone" autoComplete="off" role="combobox" aria-expanded={customerDropdownOpen} aria-controls="manual-customer-results" />
           </div>
           {customerDropdownOpen && <div className="customer-search-results" id="manual-customer-results" role="listbox">
@@ -3979,6 +3987,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
               ...current,
               customerId: customer.id,
               existingDateOfBirth: customer?.date_of_birth || '',
+              existingPhone: customer?.phone || '',
               driverLicenseNumber: customer?.drivers_license_number || '',
               driverLicenseState: customer?.drivers_license_state || '',
               insuranceProvider: customer?.insurance_provider || '',
@@ -3987,6 +3996,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
             }}><strong>{customer.full_name || 'Unnamed customer'}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>No customers match that search.</p>}
           </div>}
           {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}<small>{selectedCustomer.email || 'Email missing'} • {selectedCustomer.phone || 'Phone missing'} • {selectedCustomer.phone_verified ? 'Phone verified' : 'Phone verification needed'} • {String(selectedCustomer.identity_verification_status || '').toLowerCase() === 'verified' ? 'Identity verified' : 'Identity verification needed'}</small></span></div>}
+          {selectedCustomer && <label className="full-field"><span>Mobile number for secure texts</span><input type="tel" value={manualBookingForm.existingPhone} onChange={(event) => update('existingPhone', limitText(event.target.value, 32))} autoComplete="tel" placeholder="(860) 555-0123" /><small>{isValidUSPhone(manualBookingForm.existingPhone) ? 'Ready for SMS delivery. The customer must still verify this number personally.' : 'Enter 10 US digits to send the secure booking link by text.'}</small></label>}
         </div> : <div className="new-customer-fields">
           <label><span>Full name</span><input value={manualBookingForm.fullName} onChange={(event) => update('fullName', limitText(event.target.value, 120))} autoComplete="name" placeholder="Customer name" required /></label>
           <label><span>Email</span><input type="email" value={manualBookingForm.email} onChange={(event) => update('email', limitText(event.target.value, 200))} autoComplete="email" placeholder="customer@email.com" required /></label>
@@ -5120,6 +5130,11 @@ function linesToList(value) {
 
 function limitText(value, maxLength) {
   return String(value || '').slice(0, maxLength);
+}
+
+function isValidUSPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
 }
 
 function normalizeVinInput(value) {
