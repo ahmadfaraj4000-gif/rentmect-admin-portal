@@ -660,7 +660,8 @@
     border-radius:7px!important;
     background:#fff!important
 }
-.vehicle-feature-picker>summary{
+.vehicle-feature-picker>summary,
+.vehicle-feature-heading{
     display:flex!important;
     align-items:center!important;
     justify-content:space-between!important;
@@ -671,10 +672,17 @@
     font-weight:950!important;
     list-style-position:inside!important
 }
-.vehicle-feature-picker>summary small{
+.vehicle-feature-heading{
+    cursor:default!important
+}
+.vehicle-feature-picker>summary small,
+.vehicle-feature-heading small{
     margin-left:auto!important;
     color:var(--admin-muted)!important;
     font-size:11px!important
+}
+.vehicle-feature-picker.always-visible .vehicle-feature-groups{
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important
 }
 .vehicle-feature-groups{
     grid-template-columns:repeat(4,minmax(0,1fr))!important;
