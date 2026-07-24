@@ -49,6 +49,10 @@ Before opening the Audit Log or using deposit refunds, run
 `../supabase/security_deposit_release_schedule.sql` after adding the Vault
 values described at the top of that file.
 
+For Stripe Identity, also run `../supabase/stripe_identity_verification.sql`,
+enable Identity in Stripe, and subscribe the same signed webhook endpoint to
+the Identity VerificationSession events listed in `../LAUNCH_READINESS.md`.
+
 ## Features Included
 
 - Admin login restricted by each authenticated profile's `admin` role
@@ -66,6 +70,8 @@ values described at the top of that file.
 - Approve/reject documents
 - Customer/admin message center
 - Mock reservations without Stripe payment
-- Placeholder SMS/email reminder buttons for future Twilio/Resend Edge Functions
+- SendGrid email automation, campaigns, and admin one-to-one template emails
+- Twilio automated rental reminders and admin one-to-one template texts
 - Scheduled website popup and banner promotion manager with per-page placement
 - Manual Stripe security-deposit refunds and automatic clean-return refunds after seven days
+- Hosted Stripe Identity government-ID and selfie verification required before pickup
