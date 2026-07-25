@@ -507,7 +507,16 @@ summary:focus-visible {
 }
 
 .calendar-focus-toolbar select {
-  min-width: 190px;
+  flex: 0 0 clamp(260px, 22vw, 340px);
+  width: clamp(260px, 22vw, 340px);
+  min-width: 260px;
+  min-height: 44px;
+  padding: 9px 36px 9px 12px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--ui-radius-sm);
+  background-color: #fff;
+  color: var(--ui-ink);
+  font-size: 13px;
 }
 
 .calendar-focus-toolbar > span {
@@ -540,6 +549,8 @@ summary:focus-visible {
   .calendar-date-navigation button,
   .calendar-focus-toolbar select {
     width: 100%;
+    min-width: 0;
+    flex-basis: auto;
   }
 }
 
