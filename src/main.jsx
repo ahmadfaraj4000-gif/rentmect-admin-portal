@@ -65,7 +65,7 @@ const DEFAULT_UNDER_25_PRICING = {
 };
 const DOCUMENT_BUCKET = 'rental-documents';
 const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
-const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated'];
+const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'checkout_hold'];
 const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES, 'completed'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
@@ -752,42 +752,17 @@ function App() {
       return false;
     }
 
-    const { data, error } = await supabase
-      .from('rentals')
-      .select('id, pickup_date, return_date, pickup_time, return_time, status, admin_notes')
-      .eq('vehicle_id', vehicleId)
-      .in('status', AVAILABILITY_RENTAL_STATUSES);
-
+    const { data, error } = await supabase.rpc('get_admin_calendar_fleet_availability', {
+      p_pickup_date: startDate,
+      p_pickup_time: pickupTime,
+      p_return_date: endDate,
+      p_return_time: returnTime,
+    });
     if (error) {
       notify(error.message);
       return false;
     }
-
-    const rentalOverlap = (data || []).some((rental) => rentalPeriodsOverlap({
-      pickupDate: startDate,
-      pickupTime,
-      returnDate: endDate,
-      returnTime,
-    }, rental));
-    if (rentalOverlap) return false;
-
-    const { data: blocks, error: blocksError } = await supabase
-      .from('vehicle_availability_blocks')
-      .select('start_date, end_date, start_time, end_time, block_type, label')
-      .eq('vehicle_id', vehicleId)
-      .eq('active', true);
-
-    if (blocksError) {
-      notify(blocksError.message);
-      return false;
-    }
-
-    return !(blocks || []).some((block) => availabilityBlockOverlapsReservation(block, {
-      pickupDate: startDate,
-      pickupTime,
-      returnDate: endDate,
-      returnTime,
-    }));
+    return Boolean((data || []).find((item) => item.vehicle_id === vehicleId)?.available);
   }
 
   async function updateRentalStatus(id, status, options = {}) {
@@ -862,7 +837,10 @@ function App() {
     }
 
     if (status === 'cancelled') {
-      const { error } = await supabase.rpc('admin_cancel_rental', { p_rental_id: id });
+      const { error } = await supabase.rpc('admin_cancel_rental', {
+        p_rental_id: id,
+        p_reason: options.reason || 'Cancelled by admin',
+      });
       if (error) return notify(error.message);
       applyLocalStatus();
       notify('Rental cancelled.', 'success');
@@ -970,19 +948,6 @@ function App() {
       if (messageData) setMessages((current) => [...current, messageData]);
     }
 
-    if (inspection.depositDecision === 'hold' || inspection.damageFound) {
-      const { error: depositError } = await supabase
-        .from('rentals')
-        .update({
-          deposit_status: 'held',
-          deposit_held_amount: Math.max(Number(rental.deposit_held_amount || 0), Number(rental.security_deposit || 0)),
-          deposit_release_due_at: null,
-          deposit_release_reason: 'Held after return inspection for admin review.',
-        })
-        .eq('id', rental.id);
-      if (depositError) return notify(depositError.message);
-    }
-
     if (inspection.customerAction && inspection.customerAction !== 'none') {
       const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
       const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
@@ -999,23 +964,42 @@ function App() {
       }
     }
 
-    const { error: inspectionError } = await supabase
-      .from('rental_return_inspections')
-      .insert({
-        rental_id: rental.id,
-        user_id: rental.user_id,
-        mileage_checked: Boolean(inspection.mileageChecked || inspection.skipChecklist),
-        ending_mileage: parseMileageInput(inspection.endingMileage),
-        fuel_checked: Boolean(inspection.fuelChecked || inspection.skipChecklist),
-        damage_checked: Boolean(inspection.damageChecked || inspection.skipChecklist),
-        damage_found: Boolean(inspection.damageFound),
-        deposit_decision: inspection.damageFound ? 'hold' : inspection.depositDecision || 'release',
-        notes: inspection.skipChecklist ? 'Admin skipped return checklist.' : inspection.damageNote || null,
-        skipped: Boolean(inspection.skipChecklist),
-      });
+    const depositDecision = inspection.damageFound ? 'hold' : inspection.depositDecision || 'release';
+    const vehicleDisposition = inspection.damageFound ? 'maintenance' : inspection.vehicleDisposition || 'available';
+    const { data: completedRental, error: inspectionError } = await supabase.rpc('admin_inspect_and_complete_rental_return', {
+      p_rental_id: rental.id,
+      p_ending_mileage: parseMileageInput(inspection.endingMileage),
+      p_mileage_checked: Boolean(inspection.mileageChecked),
+      p_fuel_checked: Boolean(inspection.fuelChecked),
+      p_damage_checked: Boolean(inspection.damageChecked),
+      p_damage_found: Boolean(inspection.damageFound),
+      p_deposit_decision: depositDecision,
+      p_notes: inspection.damageNote || null,
+      p_vehicle_disposition: vehicleDisposition,
+    });
     if (inspectionError) return notify(inspectionError.message);
 
-    await updateRentalStatus(rental.id, 'completed', { endingMileage: inspection.endingMileage });
+    setRentals((current) => current.map((item) => item.id === rental.id ? {
+      ...item,
+      ...completedRental,
+      vehicles: item.vehicles ? {
+        ...item.vehicles,
+        status: vehicleDisposition,
+        current_mileage: parseMileageInput(inspection.endingMileage),
+      } : item.vehicles,
+    } : item));
+    setVehicles((current) => current.map((vehicle) => vehicle.id === rental.vehicle_id ? {
+      ...vehicle,
+      status: vehicleDisposition,
+      current_mileage: parseMileageInput(inspection.endingMileage),
+    } : vehicle));
+    notify(
+      vehicleDisposition === 'available'
+        ? 'Return inspected and rental closed. The vehicle is available again.'
+        : 'Return inspected and rental closed. The vehicle is held out of service.',
+      'success',
+    );
+    return true;
   }
 
   async function releaseSecurityDeposit(rental) {
@@ -2266,7 +2250,7 @@ function App() {
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
-        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
@@ -3895,7 +3879,7 @@ function CommunicationsInbox({ rentals, messages, selectedRental, onSelectThread
   </section>;
 }
 
-function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, availabilityBlocks, under25Pricing, serviceFees = [], createManualBooking, submitting }) {
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, serviceFees = [], createManualBooking, submitting }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
@@ -3937,9 +3921,12 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
     returnDate: manualBookingForm.returnDate,
     returnTime: manualBookingForm.returnTime,
   };
+  const activePendingHolds = pendingBookings
+    .filter((booking) => booking.status === 'pending' && new Date(booking.expires_at).getTime() > Date.now())
+    .map((booking) => ({ ...booking, status: 'checkout_hold' }));
   const vehicleChoices = vehicles.map((vehicle) => ({
     vehicle,
-    availability: manualBookingVehicleAvailability(vehicle, reservationWindow, rentals, availabilityBlocks, reservationWindowReady),
+    availability: manualBookingVehicleAvailability(vehicle, reservationWindow, [...rentals, ...activePendingHolds], availabilityBlocks, reservationWindowReady),
   })).sort((a, b) => Number(b.availability.available) - Number(a.availability.available)
     || String(a.vehicle.name || '').localeCompare(String(b.vehicle.name || '')));
   const selectedVehicleAvailability = vehicleChoices.find((choice) => choice.vehicle.id === manualBookingForm.vehicleId)?.availability;
@@ -4425,6 +4412,9 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       <span>{rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable')} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
       {detailed && rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
       {detailed && <small>{money(rental.rental_total)} rental • {money(rental.service_fee_total || 0)} booking fees • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
+      {detailed && rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}>
+        <Clock size={14}/> Payment due {new Date(rental.payment_due_at).toLocaleString()} • unpaid booking auto-cancels at this deadline
+      </small>}
       {detailed && Number(rental.under_25_markup_amount || 0) > 0 && <small>Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup • {money(rental.base_security_deposit)} vehicle deposit adjusted to {money(rental.security_deposit)}</small>}
       {detailed && <small>Intended use: {rental.profiles?.intended_vehicle_use || 'Not provided'}</small>}
       {detailed && <DepositReleaseStatus rental={rental} />}
@@ -4472,8 +4462,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       {cancelModalOpen && <CancelRentalModal
         rental={rental}
         onCancel={() => setCancelModalOpen(false)}
-        onConfirm={() => {
-          updateRentalStatus(rental.id, 'cancelled');
+        onConfirm={(reason) => {
+          updateRentalStatus(rental.id, 'cancelled', { reason });
           setCancelModalOpen(false);
         }}
       />}
@@ -4711,8 +4701,12 @@ function ReminderMenu({ rental, sendManualReminder }) {
 }
 
 function CancelRentalModal({ rental, onCancel, onConfirm }) {
+  const [reason, setReason] = useState('');
   return <div className="admin-modal-backdrop" role="presentation">
-    <div className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation">
+    <form className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation" onSubmit={(event) => {
+      event.preventDefault();
+      if (reason.trim().length >= 3) onConfirm(reason.trim());
+    }}>
       <div className="admin-modal-header danger">
         <XCircle size={20} />
         <div>
@@ -4724,11 +4718,14 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
         <strong>This will cancel the reservation.</strong>
         <span>The rental will no longer block the vehicle for this customer. Use this only when the booking should be stopped.</span>
       </div>
+      <label className="field-label">Cancellation reason
+        <textarea value={reason} minLength="3" maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="For example: customer did not complete payment before the deadline." required />
+      </label>
       <div className="mini-actions modal-actions">
         <button type="button" onClick={onCancel}>Keep Rental</button>
-        <button type="button" className="reject" onClick={onConfirm}><XCircle size={14}/> Confirm Cancel</button>
+        <button type="submit" className="reject" disabled={reason.trim().length < 3}><XCircle size={14}/> Confirm Cancel</button>
       </div>
-    </div>
+    </form>
   </div>;
 }
 
@@ -4938,7 +4935,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     depositDecision: 'release',
     damageNote: '',
     customerAction: 'review',
-    skipChecklist: false,
+    vehicleDisposition: 'available',
     files: [],
   });
   const [saving, setSaving] = useState(false);
@@ -4957,9 +4954,18 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       setMileageError(`Ending mileage cannot be below pickup mileage (${formatMiles(rental.starting_mileage)}).`);
       return;
     }
+    if (!inspection.mileageChecked || !inspection.fuelChecked || !inspection.damageChecked) {
+      setMileageError('Complete the mileage, fuel, and condition checks before closing the rental.');
+      return;
+    }
+    if ((inspection.damageFound || inspection.depositDecision === 'hold') && inspection.damageNote.trim().length < 5) {
+      setMileageError('Add a note explaining the damage or deposit hold.');
+      return;
+    }
     setSaving(true);
-    await onComplete(inspection);
+    const completed = await onComplete(inspection);
     setSaving(false);
+    if (completed) onCancel();
   }
 
   const update = (key, value) => setInspection((current) => ({ ...current, [key]: value }));
@@ -4974,18 +4980,31 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     </label>
     {mileageError && <small className="form-error">{mileageError}</small>}
     {rental.starting_mileage !== null && rental.starting_mileage !== undefined && <small>Pickup mileage: {formatMiles(rental.starting_mileage)} • Miles driven: {formatMiles(milesDriven)}</small>}
-    <label><input type="checkbox" checked={inspection.skipChecklist} onChange={(event) => update('skipChecklist', event.target.checked)} /> Skip checklist and close rental</label>
-    {!inspection.skipChecklist && <>
-      <label><input type="checkbox" checked={inspection.mileageChecked} onChange={(event) => update('mileageChecked', event.target.checked)} /> Mileage checked</label>
-      <label><input type="checkbox" checked={inspection.fuelChecked} onChange={(event) => update('fuelChecked', event.target.checked)} /> Fuel checked</label>
-      <label><input type="checkbox" checked={inspection.damageChecked} onChange={(event) => update('damageChecked', event.target.checked)} /> Damage checked</label>
+    <div className="return-required-checks">
+      <strong>Required release checks</strong>
+      <label><input type="checkbox" checked={inspection.mileageChecked} onChange={(event) => update('mileageChecked', event.target.checked)} /> Mileage recorded and verified</label>
+      <label><input type="checkbox" checked={inspection.fuelChecked} onChange={(event) => update('fuelChecked', event.target.checked)} /> Fuel level inspected</label>
+      <label><input type="checkbox" checked={inspection.damageChecked} onChange={(event) => update('damageChecked', event.target.checked)} /> Exterior/interior condition inspected</label>
+    </div>
       <label className="field-label">Deposit decision
         <select value={inspection.depositDecision} onChange={(event) => update('depositDecision', event.target.value)}>
           <option value="release">Schedule refund in 7 days (admin can refund sooner)</option>
           <option value="hold">Hold deposit for review</option>
         </select>
       </label>
-      <label><input type="checkbox" checked={inspection.damageFound} onChange={(event) => setInspection((current) => ({ ...current, damageFound: event.target.checked, depositDecision: event.target.checked ? 'hold' : current.depositDecision }))} /> Damage or incident found</label>
+      <label><input type="checkbox" checked={inspection.damageFound} onChange={(event) => setInspection((current) => ({
+        ...current,
+        damageFound: event.target.checked,
+        depositDecision: event.target.checked ? 'hold' : current.depositDecision,
+        vehicleDisposition: event.target.checked ? 'maintenance' : 'available',
+      }))} /> Damage or incident found</label>
+      <label className="field-label">Vehicle after inspection
+        <select value={inspection.vehicleDisposition} onChange={(event) => update('vehicleDisposition', event.target.value)}>
+          <option value="available">Available — clean and ready to rent</option>
+          <option value="maintenance">Maintenance — repair/service required</option>
+          <option value="unavailable">Unavailable — manual review required</option>
+        </select>
+      </label>
       {inspection.damageFound && <>
         <label className="field-label">Case type
           <select value={inspection.issueType} onChange={(event) => update('issueType', event.target.value)}>
@@ -5003,10 +5022,11 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
             <option value="none">No Customer Flag</option>
           </select>
         </label>
+      </>}
+      {(inspection.damageFound || inspection.depositDecision === 'hold') && <>
         <textarea value={inspection.damageNote} maxLength="1000" onChange={(event) => update('damageNote', limitText(event.target.value, 1000))} placeholder="Describe damage, incident, mileage/fuel issue, cleaning issue, or deposit reason..." />
         <input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} />
       </>}
-    </>}
     <div className="mini-actions">
       <button type="button" onClick={onCancel}>Cancel</button>
       <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={14}/> {saving ? 'Closing...' : 'Close Rental'}</button>
