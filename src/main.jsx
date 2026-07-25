@@ -304,7 +304,9 @@ function App() {
   const [extensionRequests, setExtensionRequests] = useState([]);
   const [emergencyExceptions, setEmergencyExceptions] = useState([]);
   const [depositAllocations, setDepositAllocations] = useState([]);
+  const [rentalPayments, setRentalPayments] = useState([]);
   const [rentalCharges, setRentalCharges] = useState([]);
+  const [paymentLoadError, setPaymentLoadError] = useState('');
   const [customerEmailTemplates, setCustomerEmailTemplates] = useState([]);
   const [smsTemplates, setSmsTemplates] = useState([]);
   const [discountCodes, setDiscountCodes] = useState([]);
@@ -544,7 +546,13 @@ function App() {
   }, [paidRentals]);
 
   const operationsQueue = useMemo(() => buildOperationsQueue({ rentals, documents, messages, reports, extensionRequests }), [rentals, documents, messages, reports, extensionRequests]);
-  const paymentEvents = useMemo(() => buildPaymentEvents({ rentals: paidRentals, extensionRequests }), [paidRentals, extensionRequests]);
+  const paymentEvents = useMemo(() => buildPaymentEvents({
+    rentals,
+    rentalPayments,
+    extensionRequests,
+    rentalCharges,
+    depositAllocations,
+  }), [rentals, rentalPayments, extensionRequests, rentalCharges, depositAllocations]);
 
   const filteredRentals = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -600,7 +608,7 @@ function App() {
 
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -705,8 +713,13 @@ function App() {
         .limit(750),
 
       supabase
+        .from('rental_payments')
+        .select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))')
+        .order('created_at', { ascending: false }),
+
+      supabase
         .from('rental_charge_items')
-        .select('*')
+        .select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))')
         .order('created_at', { ascending: false }),
 
       supabase
@@ -740,7 +753,14 @@ function App() {
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
     if (under25PricingRes.data) setUnder25Pricing(under25PricingRes.data);
     if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
+    if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
     if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
+    setPaymentLoadError(
+      [rentalsRes.error, extensionsRes.error, depositAllocationsRes.error, rentalPaymentsRes.error, rentalChargesRes.error]
+        .filter(Boolean)
+        .map((error) => error.message)
+        .join(' ')
+    );
     if (customerEmailTemplatesRes.data) setCustomerEmailTemplates(customerEmailTemplatesRes.data);
     if (smsTemplatesRes.data) setSmsTemplates(smsTemplatesRes.data);
     if (!silent) setLoading(false);
@@ -2248,7 +2268,7 @@ function App() {
 
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} vehicles={vehicles} operationsQueue={operationsQueue} emergencyExceptions={emergencyExceptions} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
-        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={paidRentals} />}
+        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={rentals} loadError={paymentLoadError} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
@@ -2349,30 +2369,34 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
   </Panel>;
 }
 
-function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }) {
-  const paid = paymentEvents.filter((event) => event.status === 'paid');
-  const pending = paymentEvents.filter((event) => event.status === 'pending');
-  const partiallyPaid = paymentEvents.filter((event) => event.status === 'partially_paid');
+function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals, loadError = '' }) {
+  const collected = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.cashImpact || 0)), 0);
+  const refunded = paymentEvents.reduce((sum, event) => sum + Math.abs(Math.min(0, Number(event.cashImpact || 0))), 0);
+  const outstanding = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
   const depositsHeld = rentals.filter((rental) => ['held', 'adjustment_refund_due', 'release_pending'].includes(String(rental.deposit_status || '').toLowerCase()));
-  const visibleEvents = paymentEvents.filter((event) => paymentFilter === 'all' || event.type === paymentFilter || event.status === paymentFilter);
+  const visibleEvents = paymentEvents.filter((event) => paymentEventMatchesFilter(event, paymentFilter));
 
   return <>
     <section className="metric-grid payments-metrics">
-      <Metric icon={DollarSign} label="Paid Activity" value={money(paid.reduce((sum, event) => sum + event.amount, 0))} />
-      <Metric icon={Clock} label="Pending Payments" value={pending.length} danger={pending.length > 0} />
-      <Metric icon={CreditCard} label="Partially Paid" value={money(partiallyPaid.reduce((sum, event) => sum + event.amount, 0))} danger={partiallyPaid.length > 0} />
+      <Metric icon={DollarSign} label="Gross Collected" value={money(collected)} />
+      <Metric icon={ReceiptText} label="Refunded" value={money(refunded)} />
+      <Metric icon={Clock} label="Outstanding" value={money(outstanding)} danger={outstanding > 0} />
       <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
     </section>
     <Panel title="Payments" eyebrow="Payment Activity">
+      {loadError && <p className="form-error" role="alert">Some payment sources could not be loaded: {loadError}</p>}
       <div className="filter-pills" role="group" aria-label="Payment filters">
         {[
           ['all', 'All'],
           ['paid', 'Paid'],
           ['partially_paid', 'Partially Paid'],
           ['pending', 'Pending'],
+          ['refunded', 'Refunded'],
+          ['failed', 'Failed'],
           ['deposit', 'Deposits'],
           ['rental', 'Rentals'],
           ['extension', 'Extensions'],
+          ['charge', 'Charges'],
         ].map(([key, label]) => (
           <button key={key} type="button" className={paymentFilter === key ? 'active' : ''} onClick={() => setPaymentFilter(key)}>{label}</button>
         ))}
@@ -2391,10 +2415,10 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals }
           <div className="payments-table-row" key={event.id}>
             <span><strong>{event.customer}</strong><small>{event.detail}</small></span>
             <span>{event.vehicle}</span>
-            <span>{prettyStatus(event.type)}</span>
-            <span><em className={event.status === 'paid' ? 'active-status' : 'paused-status'}>{prettyStatus(event.status)}</em></span>
+            <span>{event.typeLabel || prettyStatus(event.type)}</span>
+            <span><em className={event.statusGroup === 'paid' ? 'active-status' : 'paused-status'}>{prettyStatus(event.displayStatus || event.statusGroup)}</em></span>
             <span>{money(event.amount)}</span>
-            <span>{event.date ? new Date(event.date).toLocaleDateString() : 'Pending'}</span>
+            <span>{event.date ? new Date(event.date).toLocaleDateString() : '—'}</span>
           </div>
         ))}
       </div>
@@ -5793,60 +5817,303 @@ function customerRiskProfile(profile, rentals, documents, reports) {
   const summary = blocked ? 'Blocked customer flag is active.' : score === 0 ? 'Clean history based on available records.' : 'Review history before approving another rental.';
   return { level, summary, completed, late, rejectedDocs, openReports, depositsHeld, depositsReleased };
 }
-function buildPaymentEvents({ rentals, extensionRequests = [] }) {
-  const rentalEvents = rentals.flatMap((rental) => {
-    const customer = rental.profiles?.full_name || rental.user_email || 'Client';
-    const vehicle = rental.vehicles?.name || 'Vehicle';
-    const paymentStatus = normalizePaymentStatus(rental.payment_status);
-    const rentalTotal = Number(rental.rental_total || 0) + Number(rental.tax_amount || 0);
-    const recordedPayment = Number(rental.payment_amount_cents || 0) / 100;
-    const events = [
-      {
+function buildPaymentEvents({
+  rentals = [],
+  rentalPayments = [],
+  extensionRequests = [],
+  rentalCharges = [],
+  depositAllocations = [],
+}) {
+  const events = [];
+  const rentalsById = new Map(rentals.map((rental) => [rental.id, rental]));
+  const ledgerRentalIds = new Set(rentalPayments.map((payment) => payment.rental_id).filter(Boolean));
+  const allocationHolderIds = new Set(depositAllocations.map((allocation) => allocation.holder_rental_id).filter(Boolean));
+  const ledgerPaymentIntents = new Set(rentalPayments.map((payment) => payment.stripe_payment_intent_id).filter(Boolean));
+  const ledgerCheckoutSessions = new Set(rentalPayments.map((payment) => payment.stripe_checkout_session_id).filter(Boolean));
+  const contextFor = (source, rentalId) => {
+    const rental = source?.rentals || rentalsById.get(rentalId);
+    return {
+      rental,
+      customer: rental?.profiles?.full_name || rental?.customer_name_snapshot || rental?.user_email || rental?.customer_email_snapshot || source?.user_id || 'Client',
+      vehicle: rental?.vehicles?.name || 'Vehicle',
+    };
+  };
+
+  rentalPayments.forEach((payment) => {
+    const { rental, customer, vehicle } = contextFor(payment, payment.rental_id);
+    const statusGroup = normalizeLedgerStatus(payment.status);
+    const paymentType = String(payment.payment_type || 'rental').toLowerCase();
+    const type = paymentType.includes('extension') ? 'extension' : 'rental';
+    const totalAmount = Number(payment.total_amount || 0);
+    const depositAmount = Number(payment.deposit_amount || 0);
+    const itemizedRentalAmount = Number(payment.rental_amount || 0) + Number(payment.tax_amount || 0);
+    const rentalAmount = Math.max(0, totalAmount - depositAmount, itemizedRentalAmount);
+    const sourceDetail = paymentSourceDetail(payment);
+
+    if (rentalAmount > 0 || depositAmount <= 0) {
+      const amount = rentalAmount || totalAmount;
+      events.push({
+        id: `ledger-${payment.id}`,
+        customer,
+        vehicle,
+        type,
+        typeLabel: type === 'extension' ? 'Extension' : 'Rental',
+        statusGroup,
+        displayStatus: payment.status || 'pending',
+        amount,
+        cashImpact: ['paid', 'partially_paid'].includes(statusGroup) ? amount : 0,
+        outstandingAmount: statusGroup === 'pending' ? amount : 0,
+        detail: [
+          rental ? `Rental ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}` : prettyStatus(payment.payment_type || 'Rental payment'),
+          sourceDetail,
+          payment.failure_reason,
+        ].filter(Boolean).join(' • '),
+        date: payment.paid_at || payment.updated_at || payment.created_at,
+      });
+    }
+
+    if (depositAmount > 0 && !allocationHolderIds.has(payment.rental_id)) {
+      const depositStatus = String(payment.deposit_status || payment.status || 'pending').toLowerCase();
+      const depositCollected = ['paid', 'partially_paid'].includes(statusGroup)
+        || ['held', 'release_pending', 'released'].includes(depositStatus);
+      events.push({
+        id: `ledger-deposit-${payment.id}`,
+        customer,
+        vehicle,
+        type: 'deposit',
+        typeLabel: 'Security Deposit',
+        statusGroup: depositCollected ? 'paid' : normalizeLedgerStatus(depositStatus),
+        displayStatus: depositStatus,
+        amount: depositAmount,
+        cashImpact: depositCollected ? depositAmount : 0,
+        outstandingAmount: depositCollected ? 0 : depositAmount,
+        detail: [prettyStatus(payment.payment_type || 'Rental payment'), sourceDetail].filter(Boolean).join(' • '),
+        date: payment.paid_at || payment.updated_at || payment.created_at,
+      });
+    }
+
+    const refundedAmount = Number(payment.refunded_amount || 0);
+    if (refundedAmount > 0 && !allocationHolderIds.has(payment.rental_id)) {
+      events.push({
+        id: `ledger-refund-${payment.id}`,
+        customer,
+        vehicle,
+        type: 'refund',
+        typeLabel: 'Refund',
+        statusGroup: 'refunded',
+        displayStatus: payment.issue_status || 'refunded',
+        amount: -refundedAmount,
+        cashImpact: -refundedAmount,
+        outstandingAmount: 0,
+        detail: [payment.deposit_refunded_at ? 'Deposit refund' : 'Payment refund', sourceDetail].filter(Boolean).join(' • '),
+        date: payment.deposit_refunded_at || payment.updated_at || payment.created_at,
+      });
+    }
+  });
+
+  rentals
+    .filter((rental) => String(rental.status || '').toLowerCase() !== 'cancelled' && !ledgerRentalIds.has(rental.id))
+    .forEach((rental) => {
+      const { customer, vehicle } = contextFor(rental, rental.id);
+      const statusGroup = normalizePaymentStatus(rental.payment_status);
+      const totalDue = Number(rental.rental_total || 0)
+        + Number(rental.service_fee_total || 0)
+        + Number(rental.tax_amount || 0);
+      const recordedPayment = Number(rental.payment_amount_cents || 0) / 100;
+      const amount = statusGroup === 'partially_paid' && recordedPayment > 0 ? recordedPayment : totalDue;
+      // Stripe's rental snapshot amount includes the security deposit. Keep the
+      // rental portion capped at its own total because deposits are emitted as
+      // separate allocation events below.
+      const paidAmount = statusGroup === 'paid' ? totalDue
+        : statusGroup === 'partially_paid' ? Math.min(recordedPayment, totalDue) : 0;
+      events.push({
         id: `rental-${rental.id}`,
         customer,
         vehicle,
         type: 'rental',
-        status: paymentStatus,
-        amount: paymentStatus === 'partially_paid' && recordedPayment > 0 ? recordedPayment : rentalTotal,
-        detail: `Rental ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}`,
-        date: rental.paid_at || rental.created_at,
-      },
-    ];
-
-    if (Number(rental.security_deposit || 0) > 0) {
-      events.push({
-        id: `deposit-${rental.id}`,
-        customer,
-        vehicle,
-        type: 'deposit',
-        status: String(rental.deposit_status || '').toLowerCase() === 'held' ? 'paid' : 'pending',
-        amount: Number(rental.security_deposit || 0),
-        detail: `Deposit ${prettyStatus(rental.deposit_status || 'pending')}`,
-        date: rental.paid_at || rental.created_at,
+        typeLabel: 'Rental',
+        statusGroup,
+        displayStatus: rental.payment_status || 'pending',
+        amount,
+        cashImpact: paidAmount,
+        outstandingAmount: statusGroup === 'pending' ? totalDue : Math.max(0, totalDue - paidAmount),
+        detail: [
+          `Rental ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}`,
+          paymentSourceDetail(rental),
+        ].filter(Boolean).join(' • '),
+        date: rental.paid_at || rental.updated_at || rental.created_at,
       });
-    }
 
-    return events;
-  });
-
-  const extensionEvents = extensionRequests
-    .filter((request) => ['approved_pending_payment', 'activated'].includes(request.status))
-    .map((request) => {
-      const paymentStatus = request.status === 'activated' ? 'paid' : normalizePaymentStatus(request.payment_status);
-      const recordedPayment = Number(request.payment_amount_cents || 0) / 100;
-      return {
-        id: `extension-${request.id}`,
-        customer: request.rentals?.profiles?.full_name || request.user_id || 'Client',
-        vehicle: request.rentals?.vehicles?.name || 'Vehicle',
-        type: 'extension',
-        status: paymentStatus,
-        amount: paymentStatus === 'partially_paid' && recordedPayment > 0 ? recordedPayment : Number(request.extension_total_amount || 0),
-        detail: `Extension through ${formatRentalDate(request.requested_return_date, request.requested_return_time)}`,
-        date: request.paid_at || request.updated_at || request.created_at,
-      };
+      if (Number(rental.security_deposit || 0) > 0 && !allocationHolderIds.has(rental.id)) {
+        const depositStatus = String(rental.deposit_status || 'pending').toLowerCase();
+        const depositCollected = ['held', 'adjustment_refund_due', 'release_pending', 'released', 'transferred'].includes(depositStatus);
+        events.push({
+          id: `deposit-${rental.id}`,
+          customer,
+          vehicle,
+          type: 'deposit',
+          typeLabel: 'Security Deposit',
+          statusGroup: depositCollected ? 'paid' : normalizeLedgerStatus(depositStatus),
+          displayStatus: depositStatus,
+          amount: Number(rental.security_deposit || 0),
+          cashImpact: depositCollected ? Number(rental.security_deposit || 0) : 0,
+          outstandingAmount: depositCollected ? 0 : Number(rental.security_deposit || 0),
+          detail: [paymentSourceDetail(rental), rental.deposit_release_error].filter(Boolean).join(' • '),
+          date: rental.paid_at || rental.updated_at || rental.created_at,
+        });
+        if (Number(rental.deposit_released_amount || 0) > 0) {
+          events.push({
+            id: `deposit-refund-${rental.id}`,
+            customer,
+            vehicle,
+            type: 'refund',
+            typeLabel: 'Deposit Refund',
+            statusGroup: 'refunded',
+            displayStatus: depositStatus === 'released' ? 'refunded' : depositStatus,
+            amount: -Number(rental.deposit_released_amount || 0),
+            cashImpact: -Number(rental.deposit_released_amount || 0),
+            outstandingAmount: 0,
+            detail: [paymentSourceDetail(rental), rental.deposit_release_reason].filter(Boolean).join(' • '),
+            date: rental.deposit_released_at || rental.updated_at || rental.created_at,
+          });
+        }
+      }
     });
 
-  return [...rentalEvents, ...extensionEvents].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  depositAllocations.forEach((allocation) => {
+    const { customer, vehicle } = contextFor(allocation, allocation.holder_rental_id);
+    const amountHeld = Number(allocation.amount_held || 0);
+    const amountReleased = Number(allocation.amount_released || 0);
+    const rawStatus = String(allocation.status || 'held').toLowerCase();
+    events.push({
+      id: `allocation-${allocation.id}`,
+      customer,
+      vehicle,
+      type: 'deposit',
+      typeLabel: 'Security Deposit',
+      statusGroup: rawStatus === 'failed' ? 'failed' : 'paid',
+      displayStatus: rawStatus,
+      amount: amountHeld,
+      cashImpact: amountHeld,
+      outstandingAmount: 0,
+      detail: [
+        prettyStatus(allocation.source_kind || 'deposit'),
+        paymentSourceDetail(allocation),
+        allocation.last_error,
+      ].filter(Boolean).join(' • '),
+      date: allocation.created_at,
+    });
+    if (amountReleased > 0) {
+      events.push({
+        id: `allocation-refund-${allocation.id}`,
+        customer,
+        vehicle,
+        type: 'refund',
+        typeLabel: 'Deposit Refund',
+        statusGroup: 'refunded',
+        displayStatus: rawStatus === 'released' ? 'refunded' : rawStatus,
+        amount: -amountReleased,
+        cashImpact: -amountReleased,
+        outstandingAmount: 0,
+        detail: [paymentSourceDetail(allocation), shortPaymentReference(allocation.refund_id, 'Refund')].filter(Boolean).join(' • '),
+        date: allocation.updated_at || allocation.created_at,
+      });
+    }
+  });
+
+  extensionRequests
+    .filter((request) => (
+      ['approved_pending_payment', 'activated'].includes(request.status)
+      || ['pending', 'paid'].includes(String(request.payment_status || '').toLowerCase())
+    ))
+    .filter((request) => (
+      !request.stripe_payment_intent_id || !ledgerPaymentIntents.has(request.stripe_payment_intent_id)
+    ) && (
+      !request.stripe_checkout_session_id || !ledgerCheckoutSessions.has(request.stripe_checkout_session_id)
+    ))
+    .forEach((request) => {
+      const { customer, vehicle } = contextFor(request, request.rental_id);
+      const statusGroup = request.status === 'activated' ? 'paid' : normalizeLedgerStatus(request.payment_status);
+      const totalDue = Number(request.extension_total_amount || 0);
+      const recordedPayment = Number(request.payment_amount_cents || 0) / 100;
+      const paidAmount = statusGroup === 'paid' ? (recordedPayment || totalDue)
+        : statusGroup === 'partially_paid' ? recordedPayment : 0;
+      events.push({
+        id: `extension-${request.id}`,
+        customer,
+        vehicle,
+        type: 'extension',
+        typeLabel: request.request_kind === 'switch_car_continuation' ? 'Vehicle Switch' : 'Extension',
+        statusGroup,
+        displayStatus: request.payment_status || request.status,
+        amount: statusGroup === 'partially_paid' && recordedPayment > 0 ? recordedPayment : totalDue,
+        cashImpact: paidAmount,
+        outstandingAmount: statusGroup === 'pending' ? totalDue : Math.max(0, totalDue - paidAmount),
+        detail: [
+          `Through ${formatRentalDate(request.requested_return_date, request.requested_return_time)}`,
+          paymentSourceDetail(request),
+        ].filter(Boolean).join(' • '),
+        date: request.paid_at || request.updated_at || request.created_at,
+      });
+    });
+
+  rentalCharges
+    .filter((charge) => !charge.included_in_initial_payment)
+    .forEach((charge) => {
+      const { customer, vehicle } = contextFor(charge, charge.rental_id);
+      const statusGroup = normalizeLedgerStatus(charge.status);
+      const totalDue = Number(charge.total_amount || 0);
+      const recordedPayment = Number(charge.payment_amount_cents || 0) / 100;
+      const paidAmount = statusGroup === 'paid' ? (recordedPayment || totalDue)
+        : statusGroup === 'partially_paid' ? recordedPayment : 0;
+      events.push({
+        id: `charge-${charge.id}`,
+        customer,
+        vehicle,
+        type: 'charge',
+        typeLabel: prettyStatus(charge.charge_type || 'Additional Charge'),
+        statusGroup,
+        displayStatus: charge.status || 'pending',
+        amount: statusGroup === 'partially_paid' && recordedPayment > 0 ? recordedPayment : totalDue,
+        cashImpact: paidAmount,
+        outstandingAmount: ['pending', 'failed'].includes(statusGroup) ? Math.max(0, totalDue - paidAmount) : 0,
+        detail: [
+          charge.name,
+          charge.description,
+          paymentSourceDetail(charge),
+          charge.last_admin_charge_error,
+        ].filter(Boolean).join(' • '),
+        date: charge.paid_at || charge.updated_at || charge.created_at,
+      });
+    });
+
+  return events.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+}
+function paymentEventMatchesFilter(event, filter) {
+  if (filter === 'all') return true;
+  return event.type === filter || event.statusGroup === filter;
+}
+function normalizeLedgerStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['paid', 'succeeded', 'complete', 'completed', 'held', 'activated'].includes(normalized)) return 'paid';
+  if (isPartialPaymentStatus(normalized)) return 'partially_paid';
+  if (['refunded', 'released'].includes(normalized)) return 'refunded';
+  if (['failed', 'canceled', 'cancelled'].includes(normalized)) return 'failed';
+  if (normalized === 'waived') return 'waived';
+  return 'pending';
+}
+function paymentSourceDetail(source) {
+  const provider = String(source?.payment_provider || '').trim();
+  const reference = shortPaymentReference(
+    source?.stripe_payment_intent_id || source?.stripe_checkout_session_id,
+    source?.stripe_payment_intent_id ? 'Payment' : 'Checkout'
+  );
+  return [provider ? prettyStatus(provider) : '', reference].filter(Boolean).join(' • ');
+}
+function shortPaymentReference(value, label) {
+  const reference = String(value || '').trim();
+  if (!reference) return '';
+  return `${label} …${reference.slice(-8)}`;
 }
 function auditActionLabel(action) {
   const labels = {
