@@ -273,6 +273,12 @@ function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAdminUser, setIsAdminUser] = useState(false);
+  const [adminRoleChecking, setAdminRoleChecking] = useState(true);
+  const [dataHealth, setDataHealth] = useState({
+    refreshing: false,
+    errors: [],
+    lastUpdated: null,
+  });
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authMessage, setAuthMessage] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
@@ -414,9 +420,14 @@ function App() {
   }, [availabilityTypes]);
 
   function notify(text, type = 'info') {
-    setNotice({ text, type });
+    const resolvedType = type === 'info' && /could not|failed|error|invalid|expired|cannot|must|required|choose|enter|complete|verify|unavailable/i.test(text)
+      ? 'error'
+      : type;
+    setNotice({ text, type: resolvedType });
     window.clearTimeout(notify.timeout);
-    notify.timeout = window.setTimeout(() => setNotice(null), 5200);
+    if (resolvedType !== 'error') {
+      notify.timeout = window.setTimeout(() => setNotice(null), 5200);
+    }
   }
 
   useEffect(() => {
@@ -433,9 +444,11 @@ function App() {
     async function checkAdminRole() {
       if (!session?.user) {
         setIsAdminUser(false);
+        setAdminRoleChecking(false);
         return;
       }
-      
+
+      setAdminRoleChecking(true);
       const { data, error } = await supabase
         .from('profiles')
         .select('role')
@@ -444,10 +457,12 @@ function App() {
 
       if (error) {
         setIsAdminUser(false);
+        setAdminRoleChecking(false);
         return;
       }
 
       setIsAdminUser(data?.role === 'admin');
+      setAdminRoleChecking(false);
     }
 
     checkAdminRole();
@@ -614,6 +629,7 @@ function App() {
 
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
+    setDataHealth((current) => ({ ...current, refreshing: true }));
     const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
       supabase
         .from('profiles')
@@ -751,8 +767,36 @@ function App() {
         .from('vehicle_maintenance_service_logs')
         .select('*')
         .order('completed_at', { ascending: false })
-        .limit(500),
+      .limit(500),
     ]);
+
+    const dataErrors = [
+      ['Customers', profilesRes.error],
+      ['Vehicles', vehiclesRes.error],
+      ['Rentals', rentalsRes.error],
+      ['Booking holds', pendingBookingsRes.error],
+      ['Documents', documentsRes.error],
+      ['Messages', messagesRes.error],
+      ['Reports', reportsRes.error],
+      ['Extensions', extensionsRes.error],
+      ['Emergency exceptions', emergencyExceptionsRes.error],
+      ['Deposits', depositAllocationsRes.error],
+      ['Discounts', discountCodesRes.error],
+      ['Fees', serviceFeesRes.error],
+      ['Promotions', sitePromotionsRes.error],
+      ['Calendar blocks', availabilityBlocksRes.error],
+      ['Under-25 pricing', under25PricingRes.error],
+      ['Audit log', auditLogsRes.error],
+      ['Payments', rentalPaymentsRes.error],
+      ['Additional charges', rentalChargesRes.error],
+      ['Email templates', customerEmailTemplatesRes.error],
+      ['Text templates', smsTemplatesRes.error],
+      ['Maintenance schedules', maintenanceSchedulesRes.error],
+      ['Maintenance history', maintenanceServiceLogsRes.error],
+    ].filter(([, error]) => Boolean(error)).map(([label, error]) => ({
+      label,
+      message: userFacingPortalError(error, `${label} could not refresh.`),
+    }));
 
     if (profilesRes.data) setProfiles(profilesRes.data);
     if (vehiclesRes.data) setVehicles(vehiclesRes.data);
@@ -782,6 +826,11 @@ function App() {
     if (smsTemplatesRes.data) setSmsTemplates(smsTemplatesRes.data);
     if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
     if (maintenanceServiceLogsRes.data) setMaintenanceServiceLogs(maintenanceServiceLogsRes.data);
+    setDataHealth({
+      refreshing: false,
+      errors: dataErrors,
+      lastUpdated: new Date().toISOString(),
+    });
     if (!silent) setLoading(false);
   }
 
@@ -2308,7 +2357,7 @@ function App() {
     }
   }
 
-  if (loading) return <Loading />;
+  if (loading || (session && adminRoleChecking)) return <Loading message={session ? 'Verifying admin access…' : 'Loading admin portal…'} />;
   if (!session) return <Login authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} authMessage={authMessage} showPassword={showAdminPassword} setShowPassword={setShowAdminPassword} handleForgotPassword={handleAdminForgotPassword} />;
   if (!isAdminUser) return <NotAdmin email={session.user.email} signOut={signOut} />;
 
@@ -2326,7 +2375,7 @@ function App() {
         </button>
         <nav className="side-nav">
           {adminTabs.map(({ key, label, icon: Icon }) => (
-            <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label}>
+            <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
               <Icon size={18}/><span>{label}</span>
             </button>
           ))}
@@ -2341,13 +2390,19 @@ function App() {
           <div className="header-actions">
             <button type="button" className="primary-btn" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={17}/> New Booking</button>
             <AdminQuickLinks/>
-            <button onClick={loadAllData} className="secondary-btn">Refresh</button>
+            <button type="button" onClick={() => loadAllData({ silent: true })} className="secondary-btn" disabled={dataHealth.refreshing}>{dataHealth.refreshing ? 'Refreshing…' : 'Refresh'}</button>
           </div>
         </header>
 
-        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
+        <PortalDataHealth
+          health={dataHealth}
+          onRetry={() => loadAllData({ silent: true })}
+          audience="admin"
+        />
+
+        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
-        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} />}
+        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
@@ -2363,7 +2418,7 @@ function App() {
   );
 }
 
-function Dashboard({ dashboard, vehicles, maintenanceSchedules = [], emergencyExceptions = [], sendManualReminder }) {
+function Dashboard({ dashboard, vehicles, rentals = [], maintenanceSchedules = [], emergencyExceptions = [], sendManualReminder }) {
   const maintenanceDue = vehicles.filter((vehicle) => {
     const schedules = maintenanceSchedules.filter((schedule) => schedule.vehicle_id === vehicle.id);
     return vehicle.maintenance_lock_active || schedules.some((schedule) => getMaintenanceScheduleState(schedule, vehicle).due);
@@ -2435,7 +2490,7 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
   </Panel>;
 }
 
-function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '' }) {
+function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '', onOpenRental }) {
   const collected = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.cashImpact || 0)), 0);
   const refunded = paymentEvents.reduce((sum, event) => sum + Math.abs(Math.min(0, Number(event.cashImpact || 0))), 0);
   const outstanding = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
@@ -2459,7 +2514,7 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
             ['received', 'Money Received'],
             ['refunds', 'Refunds'],
           ].map(([key, label]) => (
-            <button key={key} type="button" className={paymentFilter === key ? 'active' : ''} onClick={() => setPaymentFilter(key)}>{label}</button>
+            <button key={key} type="button" className={paymentFilter === key ? 'active' : ''} aria-pressed={paymentFilter === key} onClick={() => setPaymentFilter(key)}>{label}</button>
           ))}
         </div>
         <label className="payments-type-filter">
@@ -2474,24 +2529,27 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
           </select>
         </label>
       </div>
-      <div className="payments-table">
-        <div className="payments-table-head">
-          <span>Customer</span>
-          <span>Vehicle</span>
-          <span>Type</span>
-          <span>Status</span>
-          <span>Amount</span>
-          <span>Date</span>
+      <div className="payments-table" role="table" aria-label="Payment activity">
+        <div className="payments-table-head" role="row">
+          <span role="columnheader">Customer</span>
+          <span role="columnheader">Vehicle</span>
+          <span role="columnheader">Type</span>
+          <span role="columnheader">Status</span>
+          <span role="columnheader">Amount</span>
+          <span role="columnheader">Date</span>
         </div>
         {visibleEvents.length === 0 && <p className="muted">No payment activity matches this filter.</p>}
         {visibleEvents.map((event) => (
-          <div className="payments-table-row" key={event.id}>
-            <span><strong>{event.customer}</strong><small>{event.detail}</small></span>
-            <span>{event.vehicle}</span>
-            <span>{event.typeLabel || prettyStatus(event.type)}</span>
-            <span><em className={event.statusGroup === 'paid' ? 'active-status' : 'paused-status'}>{prettyStatus(event.displayStatus || event.statusGroup)}</em></span>
-            <span>{money(event.amount)}</span>
-            <span>{event.date ? new Date(event.date).toLocaleDateString() : '—'}</span>
+          <div className="payments-table-row" role="row" key={event.id}>
+            <span role="cell" data-label="Customer"><strong>{event.customer}</strong><small>{event.detail}</small></span>
+            <span role="cell" data-label="Vehicle">{event.vehicle}</span>
+            <span role="cell" data-label="Type">{event.typeLabel || prettyStatus(event.type)}</span>
+            <span role="cell" data-label="Status"><em className={event.statusGroup === 'paid' ? 'active-status' : 'paused-status'}>{prettyStatus(event.displayStatus || event.statusGroup)}</em></span>
+            <span role="cell" data-label="Amount">{money(event.amount)}</span>
+            <span role="cell" data-label="Date" className="payment-date-cell">
+              {event.date ? new Date(event.date).toLocaleDateString() : '—'}
+              {event.rentalId && <button type="button" className="payment-open-rental" onClick={() => onOpenRental?.(event.rentalId)}>Open rental</button>}
+            </span>
           </div>
         ))}
       </div>
@@ -2508,6 +2566,8 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   const [paintRange, setPaintRange] = useState(null);
   const [paintModal, setPaintModal] = useState(null);
   const [calendarHint, setCalendarHint] = useState('');
+  const [calendarError, setCalendarError] = useState('');
+  const [calendarLastUpdated, setCalendarLastUpdated] = useState(null);
   const vehicleRowRefs = useRef(new Map());
   const days = calendarDaysFrom(viewStart, 28);
   const viewEnd = days[days.length - 1]?.iso || viewStart;
@@ -2550,9 +2610,11 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       p_end_date: viewEnd,
     });
     if (error) {
-      setCalendarHint(`Calendar source could not refresh: ${error.message}`);
+      setCalendarError(userFacingPortalError(error, 'Live calendar data could not refresh.'));
     } else {
       setCanonicalEvents(data || []);
+      setCalendarError('');
+      setCalendarLastUpdated(new Date().toISOString());
     }
     setCalendarLoading(false);
   }
@@ -2747,20 +2809,25 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       </select>
       <span>{filteredVehicles.length} of {vehicles.length} vehicles{calendarLoading ? ' • refreshing…' : ''}</span>
     </div>
+    {calendarError && <section className="calendar-refresh-error" role="alert">
+      <AlertTriangle size={18}/>
+      <div><strong>Calendar refresh failed</strong><span>{calendarError}{calendarLastUpdated ? ` Showing the last successful calendar from ${new Date(calendarLastUpdated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ' Do not rely on empty dates until refresh succeeds.'}</span></div>
+      <button type="button" className="secondary-btn" onClick={loadCanonicalCalendar} disabled={calendarLoading}>{calendarLoading ? 'Retrying…' : 'Retry calendar'}</button>
+    </section>}
     {calendarHint && <div className="calendar-hint"><AlertTriangle size={16}/><span>{calendarHint}</span></div>}
 
     <form className="availability-form" onSubmit={createAvailabilityBlock}>
-      <select value={availabilityBlockForm.vehicle_id || activeVehicle?.id || ''} onChange={(event) => focusVehicleRow(event.target.value)} required>
+      <select aria-label="Vehicle to block" value={availabilityBlockForm.vehicle_id || activeVehicle?.id || ''} onChange={(event) => focusVehicleRow(event.target.value)} required>
         <option value="">Choose vehicle</option>
         {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}
       </select>
-      <select value={availabilityBlockForm.block_type} onChange={(event) => updateBlock('block_type', event.target.value)}>
+      <select aria-label="Availability block type" value={availabilityBlockForm.block_type} onChange={(event) => updateBlock('block_type', event.target.value)}>
         {Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}
       </select>
-      <input type="date" value={availabilityBlockForm.start_date} onChange={(event) => updateBlock('start_date', event.target.value)} required />
-      <input type="date" value={availabilityBlockForm.end_date} onChange={(event) => updateBlock('end_date', event.target.value)} required />
-      <select value={availabilityBlockForm.start_time} onChange={(event) => updateBlock('start_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.start_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
-      <select value={availabilityBlockForm.end_time} onChange={(event) => updateBlock('end_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.end_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
+      <input aria-label="Block start date" type="date" value={availabilityBlockForm.start_date} onChange={(event) => updateBlock('start_date', event.target.value)} required />
+      <input aria-label="Block end date" type="date" value={availabilityBlockForm.end_date} onChange={(event) => updateBlock('end_date', event.target.value)} required />
+      <select aria-label="Block start time" value={availabilityBlockForm.start_time} onChange={(event) => updateBlock('start_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.start_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
+      <select aria-label="Block end time" value={availabilityBlockForm.end_time} onChange={(event) => updateBlock('end_time', event.target.value)}>{calendarTimeOptions(availabilityBlockForm.end_time).map((time) => <option key={time} value={time}>{time}</option>)}</select>
       <button className="primary-btn" disabled={availabilitySaving}><Plus size={16}/> {availabilitySaving ? 'Saving…' : editingAvailabilityBlockId ? 'Save Block' : 'Add Block'}</button>
     </form>
 
@@ -2771,6 +2838,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
           key={key}
           className={selectedType === key ? 'active' : ''}
           onClick={() => updateBlock('block_type', key)}
+          aria-pressed={selectedType === key}
           title={`Paint ${type.label}`}
         >
           <span className={key === 'available' ? 'clear-swatch' : ''} style={{ backgroundColor: type.color }} />
@@ -2814,6 +2882,9 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                 className={`calendar-cell ${vehicleBlocked ? 'maintenance' : segments.length ? 'timeline-day' : 'open'} ${previewed ? 'paint-preview' : ''} ${clearPreview ? 'clear-preview' : ''}`}
                 key={`${vehicle.id}-${day.iso}`}
                 title={vehicleBlocked ? prettyVehicleStatus(vehicle.status) : segments.length ? segments.map((segment) => segment.title).join('\n') : 'Available'}
+                role={!vehicleBlocked && !segments.length ? 'button' : undefined}
+                tabIndex={!vehicleBlocked && !segments.length ? 0 : undefined}
+                aria-label={!vehicleBlocked && !segments.length ? `${vehicle.name}, ${day.label}, available. Press Enter to add a ${selectedTypeStyle.label.toLowerCase()} block.` : undefined}
                 style={previewColor ? { '--block-color': previewColor } : undefined}
                 onMouseDown={() => {
                   if (segments.length) return;
@@ -2821,6 +2892,23 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                 }}
                 onMouseEnter={() => updatePaint(vehicle.id, day.iso)}
                 onMouseUp={() => !segments.length && finishPaint(vehicle.id, day.iso)}
+                onKeyDown={(event) => {
+                  if (vehicleBlocked || segments.length || !['Enter', ' '].includes(event.key)) return;
+                  event.preventDefault();
+                  setPaintModal({
+                    mode: 'create',
+                    vehicleId: vehicle.id,
+                    startDate: day.iso,
+                    endDate: day.iso,
+                    startTime: '12:00 AM',
+                    endTime: '11:59 PM',
+                    blockType: selectedType,
+                    label: selectedTypeStyle.label,
+                    notes: '',
+                    error: '',
+                    saving: false,
+                  });
+                }}
               >
                 {segments.map((segment) => <button
                   type="button"
@@ -2890,6 +2978,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
 }
 
 function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, onCancel, onSave }) {
+  const dialogRef = useDialogFocus(onCancel);
   const update = (key, value) => {
     setModal((current) => {
       const next = { ...current, [key]: value, error: '' };
@@ -2901,7 +2990,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   const isClear = modal.blockType === 'available';
 
   return <div className="admin-modal-backdrop" role="presentation">
-    <form className="admin-modal availability-modal" role="dialog" aria-modal="true" aria-label="Calendar availability block" onSubmit={(event) => {
+    <form ref={dialogRef} className="admin-modal availability-modal" role="dialog" aria-modal="true" aria-label="Calendar availability block" onSubmit={(event) => {
       event.preventDefault();
       onSave(modal);
     }}>
@@ -3069,6 +3158,7 @@ function renderMessagePreview(value, profile, rental, charge) {
 }
 
 function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', charge = null, onClose }) {
+  const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const initialChannel = profile.phone && profile.phone_verified ? 'sms' : profile.email ? 'email' : 'sms';
   const [channel, setChannel] = useState(initialChannel);
   const initialTemplates = initialChannel === 'email' ? emailTemplates : smsTemplates;
@@ -3132,7 +3222,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
     : renderMessagePreview(selectedTemplate?.body, profile, selectedRental, charge);
 
   return <div className="admin-modal-backdrop customer-contact-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <form className="admin-modal customer-contact-modal" role="dialog" aria-modal="true" aria-label={`Message ${profile.full_name || 'customer'}`} onSubmit={sendMessage}>
+    <form ref={dialogRef} className="admin-modal customer-contact-modal" role="dialog" aria-modal="true" aria-label={`Message ${profile.full_name || 'customer'}`} onSubmit={sendMessage}>
       <header className="admin-modal-header customer-contact-header">
         <span className="customer-contact-icon"><MessageCircle size={20}/></span>
         <div><small>Customer communication</small><strong>Send a message</strong><span>{profile.full_name || 'Unnamed Client'}{profile.email ? ` • ${profile.email}` : ''}</span></div>
@@ -3158,6 +3248,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
 }
 
 function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onClose }) {
+  const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const risk = customerRiskProfile(profile, rentals, documents, reports);
   const age = adminCustomerAge(profile.date_of_birth);
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
@@ -3165,7 +3256,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
   return <div className="admin-modal-backdrop customer-details-backdrop" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
-    <section className="admin-modal customer-details-modal" role="dialog" aria-modal="true" aria-label={`Customer details for ${profile.full_name || profile.email || 'customer'}`}>
+    <section ref={dialogRef} className="admin-modal customer-details-modal" role="dialog" aria-modal="true" aria-label={`Customer details for ${profile.full_name || profile.email || 'customer'}`} tabIndex={-1}>
       <header className="admin-modal-header">
         <UserRound size={22}/>
         <div><strong>{profile.full_name || 'Unnamed Client'}</strong><span>{profile.email || profile.id}</span></div>
@@ -3584,6 +3675,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
+  const [vehicleActionBusy, setVehicleActionBusy] = useState({});
   const normalizeVehicleField = (key, value) => {
     if (key === 'vin') return normalizeVinInput(value);
     if (key === 'plate_number') return normalizePlateInput(value);
@@ -3660,6 +3752,21 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
     startEditVehicle(vehicle);
   }
 
+  async function runVehicleAction(vehicleId, action, operation) {
+    const key = `${vehicleId}:${action}`;
+    if (vehicleActionBusy[key]) return;
+    setVehicleActionBusy((current) => ({ ...current, [key]: true }));
+    try {
+      await operation();
+    } finally {
+      setVehicleActionBusy((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
   async function addUploadedVehicleImages(files, editing = false) {
     const selectedFiles = Array.from(files || []);
     if (!selectedFiles.length) return;
@@ -3726,16 +3833,16 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
               {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) || v.maintenance_lock_active ? (
                 <span className="system-owned-status">System controlled</span>
               ) : (
-                <label className="vehicle-status-control"><span>Status</span><select value={v.status || 'available'} onClick={(event) => event.stopPropagation()} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+                <label className="vehicle-status-control"><span>{vehicleActionBusy[`${v.id}:status`] ? 'Updating…' : 'Status'}</span><select value={v.status || 'available'} disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => event.stopPropagation()} onChange={(e)=>runVehicleAction(v.id, 'status', () => updateVehicleStatus(v.id, e.target.value))}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
               )}
               <button className="secondary-btn vehicle-edit-btn" type="button" onClick={(event) => {
                 event.stopPropagation();
                 openVehicleEditor(v);
               }}><Pencil size={15}/> Edit</button>
-              <button className="secondary-btn vehicle-publish-btn" type="button" onClick={(event) => {
+              <button className="secondary-btn vehicle-publish-btn" type="button" disabled={Boolean(vehicleActionBusy[`${v.id}:publish`])} onClick={(event) => {
                 event.stopPropagation();
-                updateVehiclePublished(v.id, v.published === false);
-              }}>{v.published === false ? 'Publish' : 'Unpublish'}</button>
+                runVehicleAction(v.id, 'publish', () => updateVehiclePublished(v.id, v.published === false));
+              }}>{vehicleActionBusy[`${v.id}:publish`] ? 'Saving…' : v.published === false ? 'Publish' : 'Unpublish'}</button>
             </div>
           </div>
         </div>;
@@ -4474,7 +4581,7 @@ function SettingsTab({
     <div className="settings-workspace-nav">
       <div><p className="eyebrow">Configuration</p><h2>Settings</h2><span>Choose the area you need instead of scanning every business control at once.</span></div>
       <div className="filter-pills" role="tablist" aria-label="Settings area">
-        {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration']].map(([key, label]) => <button type="button" key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
+        {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration']].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
       </div>
     </div>
 
@@ -4908,6 +5015,7 @@ function emergencyDateTimeValue(date) {
 }
 
 function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
   const missingScopes = Object.keys(EMERGENCY_SCOPE_LABELS).filter((scope) => !checklist[scope]);
   const [form, setForm] = useState({
     scopes: missingScopes,
@@ -4937,7 +5045,7 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
   }
 
   return <div className="admin-modal-backdrop" role="presentation">
-    <form className="admin-modal emergency-exception-modal" role="dialog" aria-modal="true" aria-label="Create Emergency Rental Exception" onSubmit={submit}>
+    <form ref={dialogRef} className="admin-modal emergency-exception-modal" role="dialog" aria-modal="true" aria-label="Create Emergency Rental Exception" onSubmit={submit}>
       <div className="admin-modal-header danger">
         <div><p className="eyebrow">Extraordinary Case</p><h3>Release With Emergency Exception</h3></div>
         <button type="button" onClick={onCancel} aria-label="Close"><XCircle size={20}/></button>
@@ -5055,9 +5163,10 @@ function ReminderMenu({ rental, sendManualReminder }) {
 }
 
 function CancelRentalModal({ rental, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
   const [reason, setReason] = useState('');
   return <div className="admin-modal-backdrop" role="presentation">
-    <form className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation" onSubmit={(event) => {
+    <form ref={dialogRef} className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation" onSubmit={(event) => {
       event.preventDefault();
       if (reason.trim().length >= 3) onConfirm(reason.trim());
     }}>
@@ -5084,8 +5193,9 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
 }
 
 function RentalOverrideModal({ title, actionLabel, rental, missingRequirements = [], onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
   return <div className="admin-modal-backdrop" role="presentation">
-    <div className="admin-modal" role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={dialogRef} className="admin-modal" role="dialog" aria-modal="true" aria-label={title} tabIndex="-1">
       <div className="admin-modal-header">
         <ShieldCheck size={20} />
         <div>
@@ -5107,6 +5217,7 @@ function RentalOverrideModal({ title, actionLabel, rental, missingRequirements =
 }
 
 function PickupOverrideModal({ rental, defaultMileage, missingRequirements = [], override, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
   const [startingMileage, setStartingMileage] = useState(defaultMileage ? String(defaultMileage) : '');
   const [error, setError] = useState('');
   const currentMileage = parseMileageInput(rental?.vehicles?.current_mileage);
@@ -5127,7 +5238,7 @@ function PickupOverrideModal({ rental, defaultMileage, missingRequirements = [],
   }
 
   return <div className="admin-modal-backdrop" role="presentation">
-    <form className="admin-modal" role="dialog" aria-modal="true" aria-label={override ? 'Override Pickup' : 'Mark Vehicle Picked Up'} onSubmit={submit}>
+    <form ref={dialogRef} className="admin-modal" role="dialog" aria-modal="true" aria-label={override ? 'Override Pickup' : 'Mark Vehicle Picked Up'} onSubmit={submit}>
       <div className="admin-modal-header">
         <Car size={20} />
         <div>
@@ -5436,7 +5547,7 @@ function DocumentMiniList({ documents = [], openDocument, markDocument, deleteDo
 function Panel({ title, eyebrow, children }) { return <section className="panel"><p className="eyebrow">{eyebrow}</p><h3>{title}</h3>{children}</section>; }
 function Metric({ icon: Icon, label, value, danger }) { return <div className={danger ? 'metric-card danger' : 'metric-card'}><Icon size={22}/><span>{label}</span><strong>{value}</strong></div>; }
 function QueueItem({ icon: Icon, label, value }) { return <div className="queue-item"><Icon size={18}/><span>{label}</span><strong>{value}</strong></div>; }
-function Loading() { return <div className="loading-screen"><div className="road"><div className="loading-car">▰</div></div><h1>Loading admin portal...</h1></div>; }
+function Loading({ message = 'Loading admin portal…' }) { return <div className="loading-screen" role="status" aria-live="polite"><div className="road" aria-hidden="true"><div className="loading-car">▰</div></div><h1>{message}</h1></div>; }
 function Login({ authForm, setAuthForm, handleLogin, authMessage, showPassword, setShowPassword, handleForgotPassword }) {
   return <div className="auth-screen admin-auth-light">
     <form className="auth-card" onSubmit={handleLogin}>
@@ -5460,23 +5571,120 @@ function NotAdmin({ email, signOut }) {
   return <div className="auth-screen">
     <div className="auth-card">
       <h2>Not Authorized</h2>
-      <p className="muted">{email} is signed in, but this account is not marked as an admin in Supabase.</p>
-      <div className="auth-help-box">
-        <strong>Fix in Supabase SQL Editor</strong>
-        <code>{`insert into public.profiles (id, email, role)
-select id, email, 'admin'
-from auth.users
-where lower(email) = lower('${email}')
-on conflict (id) do update
-set email = excluded.email,
-    role = 'admin';`}</code>
-        <span>Then refresh this page.</span>
-      </div>
+      <p className="muted">{email} is signed in, but this account does not have administrator access.</p>
+      <div className="auth-help-box"><strong>Need access?</strong><span>Contact the Rent Me CT account owner and ask them to verify your administrator role.</span></div>
       <button className="primary-btn" onClick={signOut}>Log Out</button>
     </div>
   </div>;
 }
-function Notice({ notice, onDismiss }) { return <div className={`notice-banner ${notice.type || 'info'}`}><span>{notice.text}</span><button type="button" onClick={onDismiss}>Dismiss</button></div>; }
+function Notice({ notice, onDismiss }) {
+  const isError = notice.type === 'error';
+  return <div className={`notice-banner ${notice.type || 'info'}`} role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'} aria-atomic="true">
+    <span>{notice.text}</span>
+    <button type="button" onClick={onDismiss} aria-label="Dismiss notification">Dismiss</button>
+  </div>;
+}
+
+function PortalDataHealth({ health, onRetry, audience = 'portal' }) {
+  if (!health?.errors?.length && !health?.refreshing) return null;
+  const lastUpdated = health.lastUpdated ? new Date(health.lastUpdated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  if (!health.errors.length) {
+    return <div className="portal-data-health refreshing" role="status" aria-live="polite"><Clock size={18}/><span>Refreshing live data{lastUpdated ? ` • last updated ${lastUpdated}` : ''}…</span></div>;
+  }
+  const labels = health.errors.map((item) => item.label);
+  return <section className="portal-data-health error" role="alert" aria-live="assertive">
+    <AlertTriangle size={20}/>
+    <div>
+      <strong>Some {audience} data could not refresh</strong>
+      <span>{labels.join(', ')} may be incomplete{lastUpdated ? `. Last refresh attempt: ${lastUpdated}.` : '.'} Existing records have not been changed.</span>
+      <details><summary>View details</summary><ul>{health.errors.map((item) => <li key={item.label}><strong>{item.label}:</strong> {item.message}</li>)}</ul></details>
+    </div>
+    <button type="button" className="secondary-btn" onClick={onRetry} disabled={health.refreshing}>{health.refreshing ? 'Retrying…' : 'Retry failed data'}</button>
+  </section>;
+}
+
+function userFacingPortalError(error, fallback = 'Something went wrong. Please try again.') {
+  const message = String(error?.message || error || '').trim();
+  if (!message) return fallback;
+  if (/failed to fetch|network|load failed|connection|timeout/i.test(message)) return 'The connection was interrupted. Check your internet connection and try again.';
+  if (/jwt|token|session|not authenticated/i.test(message)) return 'Your secure session needs to be refreshed. Sign in again and retry.';
+  if (/row-level security|\\brls\\b|schema cache|relation .* does not exist|function .* does not exist|policy/i.test(message)) return fallback;
+  if (/duplicate key|already exists/i.test(message)) return 'That change was already recorded. Refresh to see the latest status.';
+  return fallback;
+}
+
+function useDialogFocus(onClose, { closeOnEscape = true } = {}) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const opener = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    const dialog = dialogRef.current;
+    document.body.style.overflow = 'hidden';
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    window.requestAnimationFrame(() => dialog?.querySelector(focusableSelector)?.focus());
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape' && closeOnEscape) {
+        event.preventDefault();
+        closeRef.current?.();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = [...dialog.querySelectorAll(focusableSelector)].filter((element) => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+      if (opener instanceof HTMLElement) opener.focus();
+    };
+  }, [closeOnEscape]);
+
+  return dialogRef;
+}
+
+class PortalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Admin portal render failure', error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <div className="portal-fatal-state" role="alert">
+      <AlertTriangle size={34}/>
+      <h1>This admin view could not be displayed.</h1>
+      <p>No rental data was changed. Refresh the portal to reload the latest records.</p>
+      <button type="button" className="primary-btn" onClick={() => window.location.reload()}>Refresh admin portal</button>
+    </div>;
+  }
+}
 
 function availabilityTableError(error) {
   const message = error?.message || String(error || 'Unable to save availability block.');
@@ -6221,6 +6429,7 @@ function buildPaymentEvents({
       const amount = rentalAmount || totalAmount;
       events.push({
         id: `ledger-${payment.id}`,
+        rentalId: rental?.id || payment.rental_id,
         customer,
         vehicle,
         type,
@@ -6245,6 +6454,7 @@ function buildPaymentEvents({
         || ['held', 'release_pending', 'released'].includes(depositStatus);
       events.push({
         id: `ledger-deposit-${payment.id}`,
+        rentalId: rental?.id || payment.rental_id,
         customer,
         vehicle,
         type: 'deposit',
@@ -6263,6 +6473,7 @@ function buildPaymentEvents({
     if (refundedAmount > 0 && !allocationHolderIds.has(payment.rental_id)) {
       events.push({
         id: `ledger-refund-${payment.id}`,
+        rentalId: rental?.id || payment.rental_id,
         customer,
         vehicle,
         type: 'refund',
@@ -6295,6 +6506,7 @@ function buildPaymentEvents({
         : statusGroup === 'partially_paid' ? Math.min(recordedPayment, totalDue) : 0;
       events.push({
         id: `rental-${rental.id}`,
+        rentalId: rental.id,
         customer,
         vehicle,
         type: 'rental',
@@ -6316,6 +6528,7 @@ function buildPaymentEvents({
         const depositCollected = ['held', 'adjustment_refund_due', 'release_pending', 'released', 'transferred'].includes(depositStatus);
         events.push({
           id: `deposit-${rental.id}`,
+          rentalId: rental.id,
           customer,
           vehicle,
           type: 'deposit',
@@ -6331,6 +6544,7 @@ function buildPaymentEvents({
         if (Number(rental.deposit_released_amount || 0) > 0) {
           events.push({
             id: `deposit-refund-${rental.id}`,
+            rentalId: rental.id,
             customer,
             vehicle,
             type: 'refund',
@@ -6354,6 +6568,7 @@ function buildPaymentEvents({
     const rawStatus = String(allocation.status || 'held').toLowerCase();
     events.push({
       id: `allocation-${allocation.id}`,
+      rentalId: allocation.holder_rental_id,
       customer,
       vehicle,
       type: 'deposit',
@@ -6373,6 +6588,7 @@ function buildPaymentEvents({
     if (amountReleased > 0) {
       events.push({
         id: `allocation-refund-${allocation.id}`,
+        rentalId: allocation.holder_rental_id,
         customer,
         vehicle,
         type: 'refund',
@@ -6407,6 +6623,7 @@ function buildPaymentEvents({
         : statusGroup === 'partially_paid' ? recordedPayment : 0;
       events.push({
         id: `extension-${request.id}`,
+        rentalId: request.rental_id,
         customer,
         vehicle,
         type: 'extension',
@@ -6435,6 +6652,7 @@ function buildPaymentEvents({
         : statusGroup === 'partially_paid' ? recordedPayment : 0;
       events.push({
         id: `charge-${charge.id}`,
+        rentalId: charge.rental_id,
         customer,
         vehicle,
         type: 'charge',
@@ -6683,4 +6901,4 @@ function calendarTimeOptions(currentValue = '') {
   return times;
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(<PortalErrorBoundary><App /></PortalErrorBoundary>);

@@ -325,6 +325,166 @@
   }
 }
 
+/* Portal reliability and action clarity */
+.portal-data-health,
+.calendar-refresh-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #d9e2dd;
+  border-radius: 10px;
+  background: #f7faf8;
+  color: var(--admin-ink);
+}
+
+.portal-data-health.error,
+.calendar-refresh-error {
+  border-color: #e6bbb8;
+  background: var(--ui-red-soft);
+  color: var(--ui-red);
+}
+
+.portal-data-health > div,
+.calendar-refresh-error > div {
+  display: grid;
+  gap: 3px;
+}
+
+.portal-data-health span,
+.calendar-refresh-error span {
+  color: inherit;
+  font-size: 13px;
+}
+
+.portal-data-health details {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.portal-data-health ul {
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+.payment-date-cell {
+  display: grid;
+  align-items: start;
+  gap: 6px;
+}
+
+.payment-open-rental {
+  width: fit-content;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--ui-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ui-green);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.portal-error-boundary {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: #f4f7f5;
+}
+
+.portal-error-boundary > div {
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid var(--ui-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #25704a !important;
+  outline-offset: 3px !important;
+}
+
+@media (max-width: 760px) {
+  .portal-data-health,
+  .calendar-refresh-error {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .portal-data-health > button,
+  .calendar-refresh-error > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .payments-table {
+    overflow: visible !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  .payments-table-head {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    white-space: nowrap !important;
+  }
+
+  .payments-table-row {
+    grid-template-columns: 1fr !important;
+    min-width: 0 !important;
+    margin-bottom: 10px !important;
+    padding: 14px !important;
+    border: 1px solid var(--ui-line) !important;
+    border-radius: 10px !important;
+  }
+
+  .payments-table-row > span {
+    display: grid !important;
+    grid-template-columns: 92px minmax(0, 1fr) !important;
+    gap: 8px !important;
+    align-items: start !important;
+  }
+
+  .payments-table-row > span::before {
+    content: attr(data-label);
+    color: var(--ui-muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+
+  .payment-open-rental {
+    grid-column: 2;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
 .calendar-date-navigation,
 .calendar-focus-toolbar {
   display: flex;
