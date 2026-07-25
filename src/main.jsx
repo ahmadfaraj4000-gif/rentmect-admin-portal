@@ -296,16 +296,6 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileAdminNav, setIsMobileAdminNav] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [navCollapsed, setNavCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
-  const [mobileFabPosition, setMobileFabPosition] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      return JSON.parse(window.localStorage.getItem('rentmect_admin_mobile_fab_position') || 'null');
-    } catch {
-      return null;
-    }
-  });
-  const mobileFabDragRef = useRef(null);
-  const suppressFabClickRef = useRef(false);
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -428,6 +418,20 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('rentmect_availability_types', JSON.stringify(availabilityTypes));
   }, [availabilityTypes]);
+
+  useEffect(() => {
+    if (!isMobileAdminNav || navCollapsed) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setNavCollapsed(true);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isMobileAdminNav, navCollapsed]);
 
   function notify(text, type = 'info') {
     const resolvedType = type === 'info' && /could not|failed|error|invalid|expired|cannot|must|required|choose|enter|complete|verify|unavailable/i.test(text)
@@ -2372,55 +2376,8 @@ function App() {
     }
   }
 
-  function handleMobileFabPointerDown(event) {
-    if (typeof window === 'undefined' || !isMobileAdminNav) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    mobileFabDragRef.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      initialX: rect.left,
-      initialY: rect.top,
-      moved: false,
-    };
-
-    const moveFab = (moveEvent) => {
-      const drag = mobileFabDragRef.current;
-      if (!drag) return;
-      const deltaX = moveEvent.clientX - drag.startX;
-      const deltaY = moveEvent.clientY - drag.startY;
-      if (Math.abs(deltaX) + Math.abs(deltaY) > 8) drag.moved = true;
-      const nextX = Math.min(Math.max(8, drag.initialX + deltaX), window.innerWidth - 64);
-      const nextY = Math.min(Math.max(8, drag.initialY + deltaY), window.innerHeight - 64);
-      drag.lastPosition = { x: nextX, y: nextY };
-      setMobileFabPosition(drag.lastPosition);
-    };
-
-    const stopDragging = () => {
-      const drag = mobileFabDragRef.current;
-      if (drag?.moved) {
-        suppressFabClickRef.current = true;
-        setTimeout(() => { suppressFabClickRef.current = false; }, 0);
-      }
-      mobileFabDragRef.current = null;
-      window.removeEventListener('pointermove', moveFab);
-      window.removeEventListener('pointerup', stopDragging);
-      window.removeEventListener('pointercancel', stopDragging);
-      if (drag?.moved && drag.lastPosition) {
-        window.localStorage.setItem('rentmect_admin_mobile_fab_position', JSON.stringify(drag.lastPosition));
-      }
-    };
-
-    window.addEventListener('pointermove', moveFab);
-    window.addEventListener('pointerup', stopDragging);
-    window.addEventListener('pointercancel', stopDragging);
-  }
-
-  function toggleMobileNav(event) {
-    if (suppressFabClickRef.current) return;
-    setNavCollapsed(!navCollapsed);
-    if (isMobileAdminNav) {
-      event?.currentTarget?.blur();
-    }
+  function toggleMobileNav() {
+    setNavCollapsed((current) => !current);
   }
 
   if (loading || (session && adminRoleChecking)) return <Loading message={session ? 'Verifying admin access…' : 'Loading admin portal…'} />;
@@ -2429,17 +2386,23 @@ function App() {
 
   return (
     <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
-      <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} style={isMobileAdminNav && mobileFabPosition ? { left: `${mobileFabPosition.x}px`, top: `${mobileFabPosition.y}px`, right: 'auto', bottom: 'auto' } : undefined}>
+      {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-nav-backdrop" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
+      <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
         <div className="brand-block">
           <picture>
             <source media="(max-width: 760px)" srcSet={logoMobileUrl} />
             <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
           </picture>
         </div>
-        <button className="nav-toggle" type="button" onPointerDown={handleMobileFabPointerDown} onClick={toggleMobileNav} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>
-          <Menu size={18} /><span>{navCollapsed ? 'Expand' : 'Collapse'}</span>
+        <div className="mobile-nav-heading">
+          <div><span>Admin Menu</span><strong>{tabTitle(activeTab)}</strong></div>
+          <small>Choose where you need to work.</small>
+        </div>
+        <button className="nav-toggle" type="button" onClick={toggleMobileNav} aria-expanded={!navCollapsed} aria-controls="admin-primary-navigation" aria-label={navCollapsed ? 'Open admin navigation' : 'Close admin navigation'}>
+          {navCollapsed ? <Menu size={18} /> : <X size={18} />}<span>{navCollapsed ? 'Menu' : 'Close'}</span>
         </button>
-        <nav className="side-nav">
+        <button type="button" className="mobile-nav-new-booking" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={19}/><span>New Booking</span></button>
+        <nav className="side-nav" id="admin-primary-navigation">
           {adminTabs.map(({ key, label, icon: Icon }) => (
             <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
               <Icon size={18}/><span>{label}</span>
