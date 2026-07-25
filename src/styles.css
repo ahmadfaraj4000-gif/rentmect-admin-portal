@@ -4147,7 +4147,7 @@ body{
 }
 .identifier-row{
     display:grid;
-    grid-template-columns:auto minmax(180px,1fr) minmax(180px,1fr) 72px;
+    grid-template-columns:auto minmax(180px,1fr) 72px;
     gap:12px;
     align-items:center;
     padding:12px;

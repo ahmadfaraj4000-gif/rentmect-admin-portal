@@ -70,8 +70,16 @@ const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES, 'completed'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
 
-const vehicleStatuses = ['available', 'maintenance', 'unavailable', 'inactive'];
-const SYSTEM_VEHICLE_STATUSES = ['rented'];
+const OPERATIONAL_VEHICLE_STATUS_OPTIONS = [
+  ['available', 'In Service'],
+  ['maintenance', 'Maintenance'],
+  ['unavailable', 'Out of Service'],
+  ['inactive', 'Inactive'],
+];
+const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented', 'on_road'];
+const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', 'maintenance'];
+const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
+const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
 const VIN_MAX_LENGTH = 17;
 const PLATE_MAX_LENGTH = 12;
 const MONEY_MAX = 100000;
@@ -134,10 +142,12 @@ const VEHICLE_FEATURE_GROUPS = [
 const KNOWN_VEHICLE_FEATURES = new Set(VEHICLE_FEATURE_GROUPS.flatMap((group) => group.features));
 const DEFAULT_AVAILABILITY_TYPES = {
   available: { label: 'Available', color: '#ffffff' },
+  admin_hold: { label: 'Admin Hold', color: '#486a83' },
   unavailable: { label: 'Unavailable', color: '#9f241f' },
   reserved: { label: 'Reserved', color: '#d0a017' },
   on_road: { label: 'On the Road', color: '#2f8f5b' },
   maintenance: { label: 'Maintenance', color: '#171717' },
+  extension_hold: { label: 'Extension Hold', color: '#9a6a11' },
 };
 const SITE_PAGE_OPTIONS = [
   { value: 'index.html', label: 'Home page (index.html)' },
@@ -332,9 +342,9 @@ function App() {
   const [availabilityTypes, setAvailabilityTypes] = useState(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem('rentmect_availability_types') || '{}');
-      const validSaved = Object.fromEntries(Object.entries(saved || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, {
-        label: String(value.label || prettyStatus(key)),
-        color: String(value.color || DEFAULT_AVAILABILITY_TYPES[key]?.color || '#171717'),
+      const validSaved = Object.fromEntries(Object.entries(DEFAULT_AVAILABILITY_TYPES).map(([key, defaults]) => [key, {
+        label: defaults.label,
+        color: String(saved?.[key]?.color || defaults.color),
       }]));
       return { ...DEFAULT_AVAILABILITY_TYPES, ...validSaved };
     } catch {
@@ -1259,15 +1269,24 @@ function App() {
   }
 
   async function updateVehicleStatus(id, status) {
+    const allowedStatus = OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === status);
+    if (!allowedStatus) {
+      notify('Reserved and On the Road are controlled by the rental schedule, not the vehicle condition control.', 'error');
+      return false;
+    }
     const { error } = await supabase.from('vehicles').update({ status }).eq('id', id);
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message);
+      return false;
+    }
     setVehicles((current) => current.map((vehicle) =>
       vehicle.id === id ? { ...vehicle, status } : vehicle
     ));
     setRentals((current) => current.map((rental) =>
       rental.vehicle_id === id && rental.vehicles ? { ...rental, vehicles: { ...rental.vehicles, status } } : rental
     ));
-    notify(`Vehicle set to ${prettyVehicleStatus(status)}.`, 'success');
+    notify(`Vehicle condition set to ${operationalVehicleStatusLabel(status)}.`, 'success');
+    return true;
   }
 
   async function updateVehiclePublished(id, published) {
@@ -1432,6 +1451,9 @@ function App() {
     if (lastServiceMileage !== null && lastServiceMileage > currentMileage) return notify('Last service mileage cannot be above the current odometer.');
 
     const { status, ...vehicleFields } = editVehicleForm;
+    if (status && !OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === status)) {
+      return notify('Choose a vehicle condition. Reservation states are controlled by the rental schedule.');
+    }
     const { error } = await supabase
       .from('vehicles')
       .update({
@@ -1728,10 +1750,23 @@ function App() {
     if (!availabilityBlockForm.start_date || !availabilityBlockForm.end_date) return notify('Choose start and end dates.');
     if (availabilityBlockForm.end_date < availabilityBlockForm.start_date) return notify('End date must be after the start date.');
     const selectedType = availabilityBlockForm.block_type || 'unavailable';
+    if (!MANUAL_CALENDAR_ACTION_KEYS.includes(selectedType)) {
+      return notify('Reserved, On the Road, and extension holds are created by the rental schedule and cannot be added manually.', 'error');
+    }
+    const editingBlock = editingAvailabilityBlockId
+      ? availabilityBlocks.find((block) => block.id === editingAvailabilityBlockId)
+      : null;
+    if (editingBlock && !MANUAL_CALENDAR_BLOCK_TYPES.has(String(editingBlock.block_type || '').toLowerCase())) {
+      return notify('This is a system-created calendar hold. Manage it from the related rental or extension request.', 'error');
+    }
 
     if (selectedType === 'available') {
       const idsToClear = availabilityBlocks
-        .filter((block) => block.vehicle_id === vehicleId && datesOverlap(block.start_date, block.end_date, availabilityBlockForm.start_date, availabilityBlockForm.end_date))
+        .filter((block) =>
+          block.vehicle_id === vehicleId
+          && MANUAL_CALENDAR_BLOCK_TYPES.has(String(block.block_type || '').toLowerCase())
+          && datesOverlap(block.start_date, block.end_date, availabilityBlockForm.start_date, availabilityBlockForm.end_date)
+        )
         .map((block) => block.id)
         .filter((id) => !String(id).startsWith('pending-'));
 
@@ -1823,9 +1858,16 @@ function App() {
     if (!vehicleId || !startDate || !endDate) return;
     const sortedDates = [startDate, endDate].sort();
     const type = blockType || 'unavailable';
+    if (!MANUAL_CALENDAR_ACTION_KEYS.includes(type)) {
+      return { ok: false, error: 'Reserved, On the Road, and extension holds are controlled by the rental schedule.' };
+    }
     if (type === 'available') {
       const idsToClear = availabilityBlocks
-        .filter((block) => block.vehicle_id === vehicleId && datesOverlap(block.start_date, block.end_date, sortedDates[0], sortedDates[1]))
+        .filter((block) =>
+          block.vehicle_id === vehicleId
+          && MANUAL_CALENDAR_BLOCK_TYPES.has(String(block.block_type || '').toLowerCase())
+          && datesOverlap(block.start_date, block.end_date, sortedDates[0], sortedDates[1])
+        )
         .map((block) => block.id)
         .filter((id) => !String(id).startsWith('pending-'));
       if (idsToClear.length === 0) return { ok: true };
@@ -1872,6 +1914,13 @@ function App() {
   }
 
   async function updateAvailabilityBlock(id, updates) {
+    const currentBlock = availabilityBlocks.find((block) => block.id === id);
+    if (!currentBlock || !MANUAL_CALENDAR_BLOCK_TYPES.has(String(currentBlock.block_type || '').toLowerCase())) {
+      return { ok: false, error: 'System-created calendar holds must be managed from the related rental or extension request.' };
+    }
+    if (!MANUAL_CALENDAR_BLOCK_TYPES.has(String(updates.block_type || '').toLowerCase())) {
+      return { ok: false, error: 'Choose Admin Hold, Unavailable, or Maintenance for a manual calendar block.' };
+    }
     const payload = {
       vehicle_id: updates.vehicle_id,
       start_date: updates.start_date,
@@ -1896,6 +1945,10 @@ function App() {
   }
 
   function editAvailabilityBlock(block) {
+    if (!MANUAL_CALENDAR_BLOCK_TYPES.has(String(block?.block_type || '').toLowerCase())) {
+      notify('This is a system-created calendar hold. Manage it from the related rental or extension request.', 'info');
+      return;
+    }
     setEditingAvailabilityBlockId(block.id);
     setAvailabilityBlockForm({
       vehicle_id: block.vehicle_id || '',
@@ -1911,6 +1964,11 @@ function App() {
   }
 
   async function deleteAvailabilityBlock(id) {
+    const block = availabilityBlocks.find((item) => item.id === id);
+    if (!block || !MANUAL_CALENDAR_BLOCK_TYPES.has(String(block.block_type || '').toLowerCase())) {
+      notify('System-created calendar holds cannot be removed here. Manage the related rental or extension request.', 'error');
+      return;
+    }
     const confirmed = window.confirm('Remove this calendar block?');
     if (!confirmed) return;
     const { error } = await supabase
@@ -2223,6 +2281,10 @@ function App() {
 
   async function addVehicle(event) {
     event.preventDefault();
+    if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
+      notify('Choose a valid vehicle condition.');
+      return false;
+    }
     const originalMileage = parseMileageInput(vehicleForm.original_mileage);
     if (originalMileage === null) {
       notify('Enter the vehicle’s original odometer mileage.');
@@ -2412,7 +2474,7 @@ function App() {
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
-        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
+        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
@@ -2678,7 +2740,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     if (query && ![vehicle.name, vehicle.brand, vehicle.model, vehicle.plate_number, vehicle.vin].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))) return false;
     if (vehicleStatusFilter === 'all') return true;
     if (vehicleStatusFilter === 'attention') return vehicle.maintenance_lock_active || ['maintenance', 'unavailable'].includes(String(vehicle.status || '').toLowerCase());
-    return String(vehicle.status || 'available').toLowerCase() === vehicleStatusFilter;
+    return operationalVehicleStatus(vehicle.status) === vehicleStatusFilter;
   });
 
   const rentalsByVehicle = useMemo(() => {
@@ -2705,6 +2767,11 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   const selectedTypeStyle = availabilityTypes[selectedType] || DEFAULT_AVAILABILITY_TYPES[selectedType] || { label: prettyStatus(selectedType), color: '#394852' };
 
   function openBlockEdit(block) {
+    if (!MANUAL_CALENDAR_BLOCK_TYPES.has(String(block?.block_type || '').toLowerCase())) {
+      setCalendarHint('This hold was created by the rental system. Manage the related rental or extension request; it cannot be edited or cleared from the calendar.');
+      setPaintRange(null);
+      return;
+    }
     setPaintModal({
       mode: 'edit',
       id: block.id,
@@ -2742,7 +2809,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
           startTime: '12:00 AM',
           endTime: '11:59 PM',
           blockType: selectedType,
-          label: selectedTypeStyle.label,
+          label: calendarActionLabel(selectedType, availabilityTypes),
           notes: '',
           error: '',
           saving: false,
@@ -2770,7 +2837,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       startTime: segment.startTime,
       endTime: segment.endTime,
       blockType: selectedType,
-      label: selectedTypeStyle.label,
+      label: calendarActionLabel(selectedType, availabilityTypes),
       notes: '',
       error: '',
       saving: false,
@@ -2803,13 +2870,12 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     <div className="calendar-focus-toolbar">
       <div className="search-row"><Search size={17}/><input value={vehicleSearch} maxLength="120" onChange={(event) => setVehicleSearch(limitText(event.target.value, 120))} placeholder="Find vehicle, plate, or VIN…"/></div>
       <select value={vehicleStatusFilter} onChange={(event) => setVehicleStatusFilter(event.target.value)} aria-label="Filter calendar vehicles">
-        <option value="all">All vehicle statuses</option>
+        <option value="all">All vehicle conditions</option>
         <option value="attention">Maintenance attention</option>
-        <option value="available">Available status</option>
-        <option value="rented">Rented status</option>
-        <option value="maintenance">Maintenance status</option>
-        <option value="unavailable">Unavailable status</option>
-        <option value="inactive">Inactive status</option>
+        <option value="available">In service</option>
+        <option value="maintenance">Maintenance</option>
+        <option value="unavailable">Out of service</option>
+        <option value="inactive">Inactive</option>
       </select>
       <span>{filteredVehicles.length} of {vehicles.length} vehicles{calendarLoading ? ' • refreshing…' : ''}</span>
     </div>
@@ -2826,7 +2892,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
         {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}
       </select>
       <select aria-label="Availability block type" value={availabilityBlockForm.block_type} onChange={(event) => updateBlock('block_type', event.target.value)}>
-        {Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}
+        {manualCalendarActionEntries(availabilityTypes).map(([key]) => <option key={key} value={key}>{calendarActionLabel(key, availabilityTypes)}</option>)}
       </select>
       <input aria-label="Block start date" type="date" value={availabilityBlockForm.start_date} onChange={(event) => updateBlock('start_date', event.target.value)} required />
       <input aria-label="Block end date" type="date" value={availabilityBlockForm.end_date} onChange={(event) => updateBlock('end_date', event.target.value)} required />
@@ -2836,20 +2902,20 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     </form>
 
     <div className="availability-legend" aria-label="Calendar paint colors">
-      {Object.entries(availabilityTypes).map(([key, type]) => (
+      {manualCalendarActionEntries(availabilityTypes).map(([key, type]) => (
         <button
           type="button"
           key={key}
           className={selectedType === key ? 'active' : ''}
           onClick={() => updateBlock('block_type', key)}
           aria-pressed={selectedType === key}
-          title={`Paint ${type.label}`}
+          title={key === 'available' ? 'Clear manual blocks' : `Paint ${type.label}`}
         >
           <span className={key === 'available' ? 'clear-swatch' : ''} style={{ backgroundColor: type.color }} />
-          {type.label}
+          {calendarActionLabel(key, availabilityTypes)}
         </button>
       ))}
-      <em>Drag across open dates to add a block. Click any colored time segment to edit it.</em>
+      <em>Reserved and On the Road appear automatically from rentals. Clear Manual Block never removes rentals, extension holds, or turnaround time.</em>
     </div>
 
     <div className="calendar-scroller">
@@ -2869,7 +2935,11 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
               className={`calendar-cell sticky-col vehicle-name ${availabilityBlockForm.vehicle_id === vehicle.id ? 'selected-vehicle-row' : ''}`}
             >
               <strong>{vehicle.name}</strong>
-              <span>{vehicle.maintenance_lock_active ? vehicle.maintenance_lock_reason || 'Maintenance lock' : prettyVehicleStatus(vehicle.status)}</span>
+              <span>{vehicle.maintenance_lock_active
+                ? vehicle.maintenance_lock_reason || 'Maintenance lock'
+                : vehicleScheduleStatus(vehicle.status)
+                  ? `Schedule: ${vehicleScheduleStatus(vehicle.status) === 'rented' ? 'On the Road' : prettyVehicleStatus(vehicleScheduleStatus(vehicle.status))}`
+                  : `Condition: ${operationalVehicleStatusLabel(vehicle.status)}`}</span>
             </div>
             {days.map((day) => {
               const segments = vehicleBlocked ? [] : buildCalendarDaySegments({
@@ -2888,7 +2958,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                 title={vehicleBlocked ? prettyVehicleStatus(vehicle.status) : segments.length ? segments.map((segment) => segment.title).join('\n') : 'Available'}
                 role={!vehicleBlocked && !segments.length ? 'button' : undefined}
                 tabIndex={!vehicleBlocked && !segments.length ? 0 : undefined}
-                aria-label={!vehicleBlocked && !segments.length ? `${vehicle.name}, ${day.label}, available. Press Enter to add a ${selectedTypeStyle.label.toLowerCase()} block.` : undefined}
+                aria-label={!vehicleBlocked && !segments.length ? `${vehicle.name}, ${day.label}, available. Press Enter to apply ${calendarActionLabel(selectedType, availabilityTypes).toLowerCase()}.` : undefined}
                 style={previewColor ? { '--block-color': previewColor } : undefined}
                 onMouseDown={() => {
                   if (segments.length) return;
@@ -2907,7 +2977,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                     startTime: '12:00 AM',
                     endTime: '11:59 PM',
                     blockType: selectedType,
-                    label: selectedTypeStyle.label,
+                    label: calendarActionLabel(selectedType, availabilityTypes),
                     notes: '',
                     error: '',
                     saving: false,
@@ -2919,7 +2989,11 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                   className={`calendar-time-segment ${segment.kind}`}
                   key={segment.id}
                   title={segment.title}
-                  aria-label={segment.kind === 'grace' ? `Protected three-hour turnaround until ${formatTimeOnly(segment.standardAvailableAt)}.` : `${segment.label}. Click to edit.`}
+                  aria-label={segment.kind === 'grace'
+                    ? `Protected three-hour turnaround until ${formatTimeOnly(segment.standardAvailableAt)}.`
+                    : segment.kind === 'manual-block' && !MANUAL_CALENDAR_BLOCK_TYPES.has(String(segment.item?.block_type || '').toLowerCase())
+                      ? `${segment.label}. System controlled.`
+                      : `${segment.label}. Click to edit.`}
                   style={{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: segment.color }}
                   onMouseDown={(event) => {
                     event.stopPropagation();
@@ -2983,6 +3057,8 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
 
 function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, onCancel, onSave }) {
   const dialogRef = useDialogFocus(onCancel);
+  const actionEntries = manualCalendarActionEntries(availabilityTypes)
+    .filter(([key]) => modal.mode !== 'edit' || key !== 'available');
   const update = (key, value) => {
     setModal((current) => {
       const next = { ...current, [key]: value, error: '' };
@@ -3002,18 +3078,18 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
         <CalendarClock size={22}/>
         <div>
           <strong>{modal.mode === 'edit' ? 'Edit Calendar Block' : isClear ? 'Clear Availability Blocks' : 'Confirm Calendar Block'}</strong>
-          <span>{isClear ? 'Available removes manual color blocks only. It cannot remove a rental’s three-hour turnaround.' : 'Adjust the vehicle, dates, and label before saving.'}</span>
+          <span>{isClear ? 'Only admin-created blocks are cleared. Rentals, extension holds, and turnaround time stay protected.' : 'Adjust the vehicle, dates, and block type before saving.'}</span>
         </div>
       </div>
       <div className="availability-modal-grid">
         <label><span>Vehicle</span><select value={modal.vehicleId} onChange={(event) => update('vehicleId', event.target.value)}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label>
-        <label><span>Label</span><select value={modal.blockType} onChange={(event) => update('blockType', event.target.value)}>{Object.entries(availabilityTypes).map(([key, type]) => <option key={key} value={key}>{type.label}</option>)}</select></label>
+        <label><span>Block type</span><select value={modal.blockType} onChange={(event) => update('blockType', event.target.value)}>{actionEntries.map(([key]) => <option key={key} value={key}>{calendarActionLabel(key, availabilityTypes)}</option>)}</select></label>
         <label><span>Start date</span><input type="date" value={modal.startDate} onChange={(event) => update('startDate', event.target.value)} /></label>
         <label><span>End date</span><input type="date" value={modal.endDate} onChange={(event) => update('endDate', event.target.value)} /></label>
         {!isClear && <label><span>Start time</span><select value={modal.startTime} onChange={(event) => update('startTime', event.target.value)}>{calendarTimeOptions(modal.startTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
         {!isClear && <label><span>End time</span><select value={modal.endTime} onChange={(event) => update('endTime', event.target.value)}>{calendarTimeOptions(modal.endTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>}
       </div>
-      <div className="availability-modal-swatch"><span className={isClear ? 'clear-swatch' : ''} style={{ backgroundColor: selectedType.color }} />{selectedType.label}</div>
+      <div className="availability-modal-swatch"><span className={isClear ? 'clear-swatch' : ''} style={{ backgroundColor: selectedType.color }} />{calendarActionLabel(modal.blockType, availabilityTypes)}</div>
       {modal.error && <p className="form-error">{modal.error}</p>}
       <div className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
@@ -3674,7 +3750,7 @@ function emailAdminPreview(htmlBody, preheader = '') {
   return `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif"><div style="display:none">${preheader || ''}</div><table width="100%" cellpadding="0" cellspacing="0" style="padding:18px"><tr><td align="center"><table width="100%" style="max-width:620px;background:#fff;border:1px solid #ddd"><tr><td style="padding:20px 26px;background:#050505;color:#fff;font-size:22px;font-weight:800">RENT ME CT</td></tr><tr><td style="padding:28px;line-height:1.6">${rendered}<hr style="border:0;border-top:1px solid #ddd;margin-top:26px"><small>Rent Me CT · 12 Holmes Circle, Farmington, CT</small></td></tr></table></td></tr></table></body></html>`;
 }
 
-function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs = [], vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, updateVehiclePublished, completeMaintenanceSchedule, saveMaintenanceSchedule, overrideVehicleMaintenance, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
+function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs = [], vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, updateVehiclePublished, completeMaintenanceSchedule, saveMaintenanceSchedule, overrideVehicleMaintenance, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
@@ -3692,7 +3768,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
   };
   const update = (k, v) => setVehicleForm({ ...vehicleForm, [k]: normalizeVehicleField(k, v) });
   const updateEdit = (k, v) => setEditVehicleForm({ ...editVehicleForm, [k]: normalizeVehicleField(k, v) });
-  const statusOptions = Object.entries(availabilityTypes).map(([key, type]) => [key, type.label]);
+  const statusOptions = OPERATIONAL_VEHICLE_STATUS_OPTIONS;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0];
   const editingVehicle = vehicles.find((vehicle) => vehicle.id === editingVehicleId);
   const normalizedVehicleSearch = vehicleSearch.trim().toLowerCase();
@@ -3812,6 +3888,8 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
         const maintenance = scheduleStates.find((state) => state.due)
           || scheduleStates.find((state) => state.soon)
           || getVehicleMaintenanceState(v);
+        const scheduleStatus = vehicleScheduleStatus(v.status);
+        const conditionStatus = v.maintenance_lock_active ? 'maintenance' : operationalVehicleStatus(v.status);
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
         }}>
@@ -3831,13 +3909,14 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             </div>
             <div className="vehicle-row-state">
               <span className={`vehicle-publish-badge ${v.published === false ? 'unpublished' : 'published'}`}>{v.published === false ? 'Unpublished' : 'Published'}</span>
-              <span className={`fleet-status-badge ${String(v.status || 'available').toLowerCase()}`}>{prettyVehicleStatus(v.status)}</span>
+              <span className={`fleet-status-badge ${conditionStatus}`}>Condition: {v.maintenance_lock_active ? 'Maintenance' : operationalVehicleStatusLabel(v.status)}</span>
+              {scheduleStatus && <span className={`fleet-status-badge ${scheduleStatus}`}>Schedule: {vehicleScheduleStatusLabel(scheduleStatus)}</span>}
             </div>
             <div className="vehicle-row-controls">
-              {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) || v.maintenance_lock_active ? (
-                <span className="system-owned-status">System controlled</span>
+              {scheduleStatus || v.maintenance_lock_active ? (
+                <span className="system-owned-status">{v.maintenance_lock_active ? 'Condition locked by maintenance' : 'Schedule state is automatic'}</span>
               ) : (
-                <label className="vehicle-status-control"><span>{vehicleActionBusy[`${v.id}:status`] ? 'Updating…' : 'Status'}</span><select value={v.status || 'available'} disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => event.stopPropagation()} onChange={(e)=>runVehicleAction(v.id, 'status', () => updateVehicleStatus(v.id, e.target.value))}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+                <label className="vehicle-status-control"><span>{vehicleActionBusy[`${v.id}:status`] ? 'Updating…' : 'Condition'}</span><select value={operationalVehicleStatus(v.status)} disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => event.stopPropagation()} onChange={(e)=>runVehicleAction(v.id, 'status', () => updateVehicleStatus(v.id, e.target.value))}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
               )}
               <button className="secondary-btn vehicle-edit-btn" type="button" onClick={(event) => {
                 event.stopPropagation();
@@ -3906,7 +3985,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             <label className="field-label">Last service mileage <span className="field-optional">Optional</span>
           <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.last_maintenance_mileage} onChange={(e)=>update('last_maintenance_mileage', e.target.value)} placeholder="Defaults to original mileage" />
             </label>
-            <label className="field-label">Initial status<select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="field-label">Initial condition<select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
             <label className="vehicle-publish-control">
           <input type="checkbox" checked={vehicleForm.published} onChange={(event)=>update('published', event.target.checked)} />
           <span><strong>Publish immediately</strong><small>Published vehicles appear in customer-facing fleet views. Leave this off to save a draft.</small></span>
@@ -4006,10 +4085,18 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             <label className="field-label">Last service mileage
               <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.last_maintenance_mileage} onChange={(e)=>updateEdit('last_maintenance_mileage', e.target.value)} />
             </label>
-            <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
-              <option value="">Keep system status ({prettyVehicleStatus(editingVehicle.status)})</option>
-              {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
-            </select>
+            {vehicleScheduleStatus(editingVehicle.status) ? (
+              <div className="vehicle-system-state-note">
+                <strong>Schedule: {vehicleScheduleStatusLabel(editingVehicle.status)}</strong>
+                <span>This state comes from the active rental and cannot be overridden here.</span>
+              </div>
+            ) : (
+              <label className="field-label">Vehicle condition
+                <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
+                  {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
+                </select>
+              </label>
+            )}
             <label className="vehicle-publish-control">
               <input type="checkbox" checked={editVehicleForm.published} onChange={(event)=>updateEdit('published', event.target.checked)} />
               <span><strong>Published</strong><small>Turn this off to remove the vehicle from customer-facing fleet views.</small></span>
@@ -4753,16 +4840,20 @@ function SettingsTab({
       </div>
     </Panel>}
 
-    {settingsSection === 'fleet' && <Panel title="Calendar Labels" eyebrow="Availability Colors">
+    {settingsSection === 'fleet' && <Panel title="Calendar Status Colors" eyebrow="Source of Truth">
+      <p className="muted">Colors change presentation only. Reserved, On the Road, and Extension Hold are generated automatically; admins can create only Admin Hold, Unavailable, or Maintenance blocks.</p>
       <div className="identifier-settings">
         {Object.entries(availabilityTypes).map(([key, type]) => (
           <div className="identifier-row" key={key}>
             <span className="identifier-swatch" style={{ backgroundColor: type.color }} />
             <div>
-              <strong>{prettyStatus(key)}</strong>
-              <small>Used by the fleet calendar paint brush and vehicle status dropdown.</small>
+              <strong>{type.label}</strong>
+              <small>{SYSTEM_CALENDAR_DISPLAY_KEYS.includes(key)
+                ? 'System-generated schedule state. Display color only.'
+                : key === 'available'
+                  ? 'Clear Manual Block action. Never clears system records.'
+                  : 'Admin-controlled calendar block. Display color only.'}</small>
             </div>
-            <input value={type.label} maxLength="28" onChange={(event) => updateAvailabilityType(key, 'label', limitText(event.target.value, 28))} aria-label={`${key} label`} title="Calendar label, 28 characters max." />
             <input type="color" value={type.color} onChange={(event) => updateAvailabilityType(key, 'color', event.target.value)} aria-label={`${key} color`} />
           </div>
         ))}
@@ -6890,6 +6981,29 @@ function normalizePaymentStatus(status) {
 function prettyStatus(status) { return String(status || '').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function docLabel(type) { return type === 'license' ? 'Driver License' : type === 'insurance' ? 'Insurance Policy' : prettyStatus(type); }
 function prettyVehicleStatus(status) { return prettyStatus(status || 'available'); }
+function operationalVehicleStatus(status) {
+  const normalized = String(status || 'available').toLowerCase();
+  return SYSTEM_VEHICLE_STATUSES.includes(normalized) ? 'available' : normalized;
+}
+function operationalVehicleStatusLabel(status) {
+  return OPERATIONAL_VEHICLE_STATUS_OPTIONS.find(([key]) => key === operationalVehicleStatus(status))?.[1] || 'Out of Service';
+}
+function vehicleScheduleStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  return SYSTEM_VEHICLE_STATUSES.includes(normalized) ? normalized : '';
+}
+function vehicleScheduleStatusLabel(status) {
+  const scheduleStatus = vehicleScheduleStatus(status);
+  if (['rented', 'on_road'].includes(scheduleStatus)) return 'On the Road';
+  return scheduleStatus === 'reserved' ? 'Reserved' : '';
+}
+function manualCalendarActionEntries(availabilityTypes) {
+  return MANUAL_CALENDAR_ACTION_KEYS.map((key) => [key, availabilityTypes[key] || DEFAULT_AVAILABILITY_TYPES[key]]);
+}
+function calendarActionLabel(key, availabilityTypes) {
+  if (key === 'available') return 'Clear Manual Block';
+  return availabilityTypes[key]?.label || DEFAULT_AVAILABILITY_TYPES[key]?.label || prettyStatus(key);
+}
 function timeOptions() { const times=[]; for(let h=9; h<=21; h++){ const suffix=h>=12?'PM':'AM'; const dh=h>12?h-12:h; times.push(`${dh}:00 ${suffix}`); } return times; }
 function calendarTimeOptions(currentValue = '') {
   const times = [];
