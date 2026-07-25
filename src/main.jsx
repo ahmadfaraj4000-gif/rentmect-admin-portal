@@ -291,6 +291,7 @@ function App() {
   const mobileFabDragRef = useRef(null);
   const suppressFabClickRef = useRef(false);
   const [paymentFilter, setPaymentFilter] = useState('all');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [rentalFilter, setRentalFilter] = useState('needs_action');
 
@@ -2166,7 +2167,6 @@ function App() {
     { key: 'queue', label: 'Queue', icon: ClipboardList },
     { key: 'payments', label: 'Payments', icon: DollarSign },
     { key: 'calendar', label: 'Calendar', icon: CalendarDays },
-    { key: 'new-booking', label: 'New Booking', icon: CalendarClock },
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
@@ -2263,12 +2263,16 @@ function App() {
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
         <header className="admin-header">
           <div><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
-          <div className="header-actions"><AdminQuickLinks/><button onClick={loadAllData} className="secondary-btn">Refresh</button></div>
+          <div className="header-actions">
+            <button type="button" className="primary-btn" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={17}/> New Booking</button>
+            <AdminQuickLinks/>
+            <button onClick={loadAllData} className="secondary-btn">Refresh</button>
+          </div>
         </header>
 
-        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} rentals={paidRentals} vehicles={vehicles} operationsQueue={operationsQueue} emergencyExceptions={emergencyExceptions} documents={documents} messages={messages} reports={reports} sendManualReminder={sendManualReminder} updateRentalStatus={updateRentalStatus} openDocument={openDocument} markDocument={markDocument} documentsByRentalId={documentsByRentalId} />}
+        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
-        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} rentals={rentals} loadError={paymentLoadError} />}
+        {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
@@ -2284,12 +2288,7 @@ function App() {
   );
 }
 
-function Dashboard({ dashboard, rentals, vehicles, operationsQueue, emergencyExceptions = [], documents, messages, reports, sendManualReminder, updateRentalStatus, openDocument, markDocument, documentsByRentalId }) {
-  const recentRentals = rentals.slice(0, 5);
-  const paidRentalIds = new Set(rentals.map((rental) => rental.id));
-  const paidDocuments = documents.filter((document) => paidRentalIds.has(document.rental_id || document.rentals?.id));
-  const paidMessages = messages.filter((message) => paidRentalIds.has(message.rental_id || message.rentals?.id));
-  const paidReports = reports.filter((report) => paidRentalIds.has(report.rental_id || report.rentals?.id));
+function Dashboard({ dashboard, vehicles, emergencyExceptions = [], sendManualReminder }) {
   const maintenanceDue = vehicles.filter((vehicle) => getVehicleMaintenanceState(vehicle).due).length;
   const openEmergencyExceptions = emergencyExceptions.filter((item) => item.status === 'active');
   return <>
@@ -2308,20 +2307,9 @@ function Dashboard({ dashboard, rentals, vehicles, operationsQueue, emergencyExc
         return <span className={expired ? 'expired' : ''} key={item.id}>{expired ? 'EXPIRED — ' : ''}{rental?.profiles?.full_name || item.rentals?.profiles?.full_name || 'Customer'} • {(item.exception_scopes || []).map(prettyStatus).join(', ')} • due {new Date(item.expires_at).toLocaleString()}</span>;
       })}
     </section>}
-    <section className="content-grid">
-      <Panel title="Due Soon / Overdue" eyebrow="Return Monitor">
-        {dashboard.dueSoon.length === 0 && dashboard.overdue.length === 0 && <p className="muted">No due-soon rentals right now.</p>}
-        {[...dashboard.overdue, ...dashboard.dueSoon].slice(0, 6).map((r) => <ReturnMonitorRow key={r.id} rental={r} sendManualReminder={sendManualReminder} />)}
-      </Panel>
-      <Panel title="Action Queue" eyebrow="What Needs Review">
-        <QueueItem icon={CreditCard} label="Payments needed" value={operationsQueue.filter((item) => item.bucket === 'payment_needed').length} />
-        <QueueItem icon={FileText} label="Documents uploaded" value={paidDocuments.filter(d => d.status === 'pending_review').length} />
-        <QueueItem icon={MessageCircle} label="Client messages" value={paidMessages.filter(m => m.sender_role === 'client' && !m.read_by_admin).length} />
-        <QueueItem icon={Wrench} label="Open reports" value={paidReports.filter(r => r.status === 'open').length} />
-      </Panel>
-    </section>
-    <Panel title="Recent Rentals" eyebrow="Latest Activity">
-      {recentRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} sendManualReminder={sendManualReminder} rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} />)}
+    <Panel title="Due Soon / Overdue" eyebrow="Return Monitor">
+      {dashboard.dueSoon.length === 0 && dashboard.overdue.length === 0 && <p className="muted">No due-soon rentals right now.</p>}
+      {[...dashboard.overdue, ...dashboard.dueSoon].slice(0, 6).map((r) => <ReturnMonitorRow key={r.id} rental={r} sendManualReminder={sendManualReminder} />)}
     </Panel>
   </>;
 }
@@ -2369,12 +2357,12 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
   </Panel>;
 }
 
-function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals, loadError = '' }) {
+function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '' }) {
   const collected = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.cashImpact || 0)), 0);
   const refunded = paymentEvents.reduce((sum, event) => sum + Math.abs(Math.min(0, Number(event.cashImpact || 0))), 0);
   const outstanding = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
   const depositsHeld = rentals.filter((rental) => ['held', 'adjustment_refund_due', 'release_pending'].includes(String(rental.deposit_status || '').toLowerCase()));
-  const visibleEvents = paymentEvents.filter((event) => paymentEventMatchesFilter(event, paymentFilter));
+  const visibleEvents = paymentEvents.filter((event) => paymentEventMatchesFilter(event, paymentFilter, paymentTypeFilter));
 
   return <>
     <section className="metric-grid payments-metrics">
@@ -2385,21 +2373,28 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, rentals, 
     </section>
     <Panel title="Payments" eyebrow="Payment Activity">
       {loadError && <p className="form-error" role="alert">Some payment sources could not be loaded: {loadError}</p>}
-      <div className="filter-pills" role="group" aria-label="Payment filters">
-        {[
-          ['all', 'All'],
-          ['paid', 'Paid'],
-          ['partially_paid', 'Partially Paid'],
-          ['pending', 'Pending'],
-          ['refunded', 'Refunded'],
-          ['failed', 'Failed'],
-          ['deposit', 'Deposits'],
-          ['rental', 'Rentals'],
-          ['extension', 'Extensions'],
-          ['charge', 'Charges'],
-        ].map(([key, label]) => (
-          <button key={key} type="button" className={paymentFilter === key ? 'active' : ''} onClick={() => setPaymentFilter(key)}>{label}</button>
-        ))}
+      <div className="payments-filter-bar">
+        <div className="filter-pills" role="group" aria-label="Payment activity views">
+          {[
+            ['all', 'All Activity'],
+            ['attention', 'Needs Attention'],
+            ['received', 'Money Received'],
+            ['refunds', 'Refunds'],
+          ].map(([key, label]) => (
+            <button key={key} type="button" className={paymentFilter === key ? 'active' : ''} onClick={() => setPaymentFilter(key)}>{label}</button>
+          ))}
+        </div>
+        <label className="payments-type-filter">
+          <span>Type</span>
+          <select value={paymentTypeFilter} onChange={(event) => setPaymentTypeFilter(event.target.value)}>
+            <option value="all">All types</option>
+            <option value="rental">Rentals</option>
+            <option value="deposit">Deposits</option>
+            <option value="extension">Extensions and switches</option>
+            <option value="charge">Additional charges</option>
+            <option value="refund">Refunds</option>
+          </select>
+        </label>
       </div>
       <div className="payments-table">
         <div className="payments-table-head">
@@ -2725,39 +2720,9 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
 }
 
 function Rentals({ rentals, focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
-  const pendingExtensions = extensionRequests.filter((request) => request.status === 'pending');
-  const approvedUnpaidExtensions = extensionRequests.filter((request) => request.status === 'approved_pending_payment');
   const displayedRentals = focusRentalId ? rentals.filter((rental) => rental.id === focusRentalId) : rentals;
 
   return <>
-    {!focusRentalId && <Panel title="Extension Requests" eyebrow="Return Changes">
-      <div className="table-list">
-        {pendingExtensions.length === 0 && <p className="muted">No pending extension requests.</p>}
-        {pendingExtensions.map((request) => <div className="data-row" key={request.id}>
-          <div>
-            <strong>{request.rentals?.vehicles?.name || 'Vehicle'}</strong>
-            <span>{request.rentals?.profiles?.full_name || 'Client'} • current return {formatRentalDate(request.rentals?.return_date, request.rentals?.return_time)}</span>
-            <small>Requested return {formatRentalDate(request.requested_return_date, request.requested_return_time)}</small>
-            {request.customer_note && <small>Customer note: {request.customer_note}</small>}
-          </div>
-          <div className="row-actions">
-            <button className="approve" onClick={()=>decideExtension(request.id, true)}><CheckCircle2 size={15}/> Approve</button>
-            <button className="reject" onClick={()=>decideExtension(request.id, false)}><XCircle size={15}/> Reject</button>
-          </div>
-        </div>)}
-        {approvedUnpaidExtensions.map((request) => <div className="data-row" key={request.id}>
-          <div>
-            <strong>{request.rentals?.vehicles?.name || 'Vehicle'} extension approved</strong>
-            <span>{request.rentals?.profiles?.full_name || 'Client'} • payment required before {formatRentalDate(request.requested_return_date, request.requested_return_time)} activates</span>
-            <small>{money(request.extension_total_amount)} due for {request.extension_days || 1} extension day(s){request.request_kind === 'switch_car_continuation' ? ` • ${money(request.deposit_carried_amount || 0)} deposit carried${Number(request.deposit_increase_amount || 0) > 0 ? ` • collect ${money(request.deposit_increase_amount)} deposit difference` : ''}${Number(request.deposit_decrease_amount || 0) > 0 ? ` • refund ${money(request.deposit_decrease_amount)} after switch inspection` : ''}` : ' • existing deposit remains held'}</small>
-          </div>
-          <div className="row-actions">
-            <button className="approve" onClick={()=>recordExtensionPayment(request.id)}><CreditCard size={15}/> Record Extension Payment</button>
-            <button className="reject" onClick={()=>cancelApprovedExtension(request.id)}><XCircle size={15}/> Cancel Hold</button>
-          </div>
-        </div>)}
-      </div>
-    </Panel>}
     <Panel title="All Rentals" eyebrow="Reservations">
       {focusRentalId && <div className="manual-booking-focus-banner"><CheckCircle2 size={20}/><div><strong>Manual booking created</strong><span>Finish this customer’s required steps below. The payment controls unlock only after verification, approved documents, and agreement.</span></div><button type="button" className="secondary-btn" onClick={clearRentalFocus}>Show All Rentals</button></div>}
       {!focusRentalId && <>
@@ -3128,8 +3093,6 @@ function DepositReleaseStatus({ rental }) {
 function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply, adminEmail, notify, onTemplatesChanged }) {
   const [section, setSection] = useState('inbox');
   const [templateChannel, setTemplateChannel] = useState('email');
-  const [contactSearch, setContactSearch] = useState('');
-  const [contactProfile, setContactProfile] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [textTemplates, setTextTemplates] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -3145,15 +3108,6 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
   });
 
   const optedInProfiles = profiles.filter((profile) => profile.email && profile.email_marketing_opt_in && !profile.email_marketing_unsubscribed_at);
-  const contactableProfiles = profiles
-    .filter((profile) => profile.role !== 'admin' && (profile.email || profile.phone))
-    .filter((profile) => {
-      const query = contactSearch.trim().toLowerCase();
-      if (!query) return true;
-      return [profile.full_name, profile.email, profile.phone].filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
-    })
-    .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
-
   async function loadEmailData(silent = false) {
     if (!silent) setLoadingEmails(true);
     const [templatesRes, textTemplatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
@@ -3304,7 +3258,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       });
       setComposer({ name: '', templateId: '', subject: '', preheader: '', htmlBody: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', textBody: '', audienceType: 'marketing_opted_in', selectedUserIds: [], scheduledFor: '' });
       await loadEmailData(true);
-      setSection('history');
+      setSection('campaigns');
       notify(schedule ? 'Campaign scheduled.' : 'Campaign started.', 'success');
     } catch (error) {
       notify(error.message);
@@ -3328,23 +3282,12 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       <div className="email-admin-health"><MessageCircle size={19}/><strong>{messages.filter((message) => !message.read_by_admin && message.sender_role !== 'admin').length}</strong><span>unread messages</span></div>
     </div>
     <div className="email-admin-tabs" role="tablist">
-      {[['inbox', 'Inbox'], ['contact', 'Contact Customer'], ['templates', 'Templates'], ['automated', 'Automations'], ['compose', 'Campaigns'], ['history', 'History']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
+      {[['inbox', 'Inbox'], ['campaigns', 'Campaigns'], ['setup', 'Messaging Setup']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
     </div>
 
     {section === 'inbox' && <CommunicationsInbox rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={onSelectThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
 
-    {section === 'contact' && <Panel title="Contact a Customer" eyebrow="One-to-One Email or Text">
-      <div className="communications-contact-toolbar"><div className="search-row"><Search size={18}/><input value={contactSearch} maxLength="140" onChange={(event) => setContactSearch(limitText(event.target.value, 140))} placeholder="Search customer name, email, or phone…" /></div><span>{contactableProfiles.length} customers</span></div>
-      <div className="communications-customer-list">
-        {contactableProfiles.map((profile) => {
-          const customerRentals = rentals.filter((rental) => rental.user_id === profile.id);
-          return <article key={profile.id}><div className="communications-customer-avatar">{String(profile.full_name || profile.email || 'C').trim().charAt(0).toUpperCase()}</div><div><strong>{profile.full_name || 'Unnamed customer'}</strong><span>{[profile.email, profile.phone].filter(Boolean).join(' • ')}</span><small>{customerRentals.length} rental{customerRentals.length === 1 ? '' : 's'} • {profile.phone_verified ? 'phone verified' : 'phone not verified'}</small></div><button className="primary-btn" type="button" onClick={() => setContactProfile(profile)}><Send size={15}/> Contact</button></article>;
-        })}
-        {!contactableProfiles.length && <p className="muted">No customers match that search.</p>}
-      </div>
-    </Panel>}
-
-    {section === 'automated' && <div className="email-card-grid">
+    {section === 'setup' && <div className="email-card-grid">
       {automated.map((template) => <article className="email-setting-card" key={template.id}>
         <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Email • Trigger: {prettyStatus(template.trigger_key || 'manual')}</small></div></div>
         <p>{template.subject}</p>
@@ -3358,7 +3301,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       {!automated.length && !automatedTexts.length && <p className="muted">Run the communications migrations to install automated email and text templates.</p>}
     </div>}
 
-    {section === 'templates' && <Panel title="Reusable Templates" eyebrow="Email & Text Library">
+    {section === 'setup' && <Panel title="Reusable Templates" eyebrow="Email & Text Library">
       <div className="communications-template-toolbar">
         <div className="contact-channel-toggle" role="group" aria-label="Template type"><button type="button" className={templateChannel === 'email' ? 'active' : ''} onClick={() => setTemplateChannel('email')}><Mail size={16}/> Email</button><button type="button" className={templateChannel === 'sms' ? 'active' : ''} onClick={() => setTemplateChannel('sms')}><MessageCircle size={16}/> Text</button></div>
         {templateChannel === 'email'
@@ -3373,7 +3316,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       </div></>}
     </Panel>}
 
-    {section === 'compose' && <div className="email-compose-layout">
+    {section === 'campaigns' && <div className="email-compose-layout">
       <Panel title="Create Custom Email" eyebrow="Broadcast">
         <div className="portal-form email-compose-form">
           <input placeholder="Campaign name (internal only)" value={composer.name} onChange={(event) => setComposer({ ...composer, name: limitText(event.target.value, 120) })}/>
@@ -3390,7 +3333,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       <Panel title="Preview" eyebrow="Customer View"><iframe className="email-preview-frame" title="Email preview" sandbox="" srcDoc={composerPreview}/></Panel>
     </div>}
 
-    {section === 'history' && <div className="email-history-grid">
+    {section === 'campaigns' && <div className="email-history-grid">
       <Panel title="Campaigns" eyebrow="Custom Emails"><div className="email-history-list">{campaigns.map((campaign) => <article key={campaign.id}><span className={`email-history-status ${campaign.status}`}>{prettyStatus(campaign.status)}</span><div><strong>{campaign.name}</strong><small>{campaign.subject}</small></div><em>{campaign.sent_count || 0}/{campaign.recipient_count || 0} sent</em></article>)}{!campaigns.length && <p className="muted">No custom campaigns yet.</p>}</div></Panel>
       <Panel title="Automated Queue" eyebrow="Transactional"><div className="email-history-list">{outbox.map((job) => <article key={job.id}><span className={`email-history-status ${job.status}`}>{prettyStatus(job.status)}</span><div><strong>{prettyStatus(job.email_type)}</strong><small>{job.recipient_email}</small></div><em>{job.sent_at ? new Date(job.sent_at).toLocaleString() : job.last_error || 'Queued'}</em></article>)}{!outbox.length && <p className="muted">No automated emails queued yet.</p>}</div></Panel>
       <Panel title="Recent Provider Events" eyebrow="SendGrid"><div className="email-history-list">{events.slice(0, 50).map((event) => <article key={event.id}><span className={`email-history-status ${event.event_type}`}>{prettyStatus(event.event_type)}</span><div><strong>{event.email || 'Recipient unavailable'}</strong><small>{event.provider_message_id || 'SendGrid event'}</small></div><em>{new Date(event.event_at).toLocaleString()}</em></article>)}{!events.length && <p className="muted">Delivery events will appear after the SendGrid webhook is connected.</p>}</div></Panel>
@@ -3416,7 +3359,6 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
         <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTextTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Text Template</button></div>
       </form>
     </div>}
-    {contactProfile && <CustomerContactModal profile={contactProfile} rentals={rentals.filter((rental) => rental.user_id === contactProfile.id)} emailTemplates={manual.filter((template) => template.enabled)} smsTemplates={manualTexts.filter((template) => template.enabled)} notify={notify} onClose={() => setContactProfile(null)} />}
   </section>;
 }
 
@@ -4128,6 +4070,7 @@ function SettingsTab({
   availabilityTypes,
   updateAvailabilityType,
 }) {
+  const [settingsSection, setSettingsSection] = useState('pricing');
   const updateDiscount = (key, value) => setDiscountForm({ ...discountForm, [key]: key === 'code' ? normalizeCodeInput(value) : value });
   const updateFee = (key, value) => {
     const normalizedValue = key === 'name' ? limitText(value, 60)
@@ -4148,7 +4091,14 @@ function SettingsTab({
   };
 
   return <section className="settings-grid">
-    <div className="under25-settings-panel">
+    <div className="settings-workspace-nav">
+      <div><p className="eyebrow">Configuration</p><h2>Settings</h2><span>Choose the area you need instead of scanning every business control at once.</span></div>
+      <div className="filter-pills" role="tablist" aria-label="Settings area">
+        {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration']].map(([key, label]) => <button type="button" key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
+      </div>
+    </div>
+
+    {settingsSection === 'pricing' && <div className="under25-settings-panel">
       <Panel title="Under-25 Pricing" eyebrow="Age-Based Pricing">
         <p className="muted">These adjustments apply on top of each vehicle’s own daily rate and refundable deposit. Changes apply to newly priced rentals; paid rentals keep their captured terms.</p>
         <form className="portal-form settings-form" onSubmit={saveUnder25Pricing}>
@@ -4183,9 +4133,9 @@ function SettingsTab({
           </div>
         </form>
       </Panel>
-    </div>
+    </div>}
 
-    <div className="promotion-settings-panel">
+    {settingsSection === 'marketing' && <div className="promotion-settings-panel">
       <Panel title="Website Promotion Manager" eyebrow="Advertising">
         <p className="muted promotion-manager-intro">Create one campaign, write the popup and banner messages, choose where each appears, and schedule when both automatically disappear. The coupon buttons keep the same tap-to-copy action used on the current website.</p>
         <form className="portal-form settings-form promotion-form" onSubmit={saveSitePromotion}>
@@ -4269,9 +4219,9 @@ function SettingsTab({
           </div>)}
         </div>
       </Panel>
-    </div>
+    </div>}
 
-    <Panel title="Discount Codes" eyebrow="Pricing">
+    {settingsSection === 'pricing' && <Panel title="Discount Codes" eyebrow="Pricing">
       <form className="portal-form settings-form" onSubmit={createDiscountCode}>
         <div className="form-row">
           <input placeholder="Code e.g. SUMMER25" maxLength="24" pattern="[A-Z0-9-]{3,24}" title="Discount code: 3-24 characters, uppercase letters, numbers, and hyphens only." value={discountForm.code} onChange={(event) => updateDiscount('code', event.target.value)} />
@@ -4310,9 +4260,9 @@ function SettingsTab({
           </div>
         </div>)}
       </div>
-    </Panel>
+    </Panel>}
 
-    <Panel title="Calendar Labels" eyebrow="Availability Colors">
+    {settingsSection === 'fleet' && <Panel title="Calendar Labels" eyebrow="Availability Colors">
       <div className="identifier-settings">
         {Object.entries(availabilityTypes).map(([key, type]) => (
           <div className="identifier-row" key={key}>
@@ -4326,9 +4276,9 @@ function SettingsTab({
           </div>
         ))}
       </div>
-    </Panel>
+    </Panel>}
 
-    <Panel title="Custom Fees" eyebrow="Pricing">
+    {settingsSection === 'pricing' && <Panel title="Custom Fees" eyebrow="Pricing">
       <form className="portal-form settings-form" onSubmit={createServiceFee}>
         <input placeholder="Fee name e.g. Gas refill, late return, delivery, cleaning" maxLength="60" value={serviceFeeForm.name} onChange={(event) => updateFee('name', event.target.value)} />
         <div className="form-row">
@@ -4358,7 +4308,7 @@ function SettingsTab({
           </div>
         </div>)}
       </div>
-    </Panel>
+    </Panel>}
   </section>;
 }
 
@@ -6089,9 +6039,12 @@ function buildPaymentEvents({
 
   return events.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
-function paymentEventMatchesFilter(event, filter) {
-  if (filter === 'all') return true;
-  return event.type === filter || event.statusGroup === filter;
+function paymentEventMatchesFilter(event, filter, typeFilter = 'all') {
+  if (typeFilter !== 'all' && event.type !== typeFilter) return false;
+  if (filter === 'attention') return ['pending', 'partially_paid', 'failed'].includes(event.statusGroup);
+  if (filter === 'received') return event.statusGroup === 'paid';
+  if (filter === 'refunds') return event.statusGroup === 'refunded' || event.type === 'refund';
+  return true;
 }
 function normalizeLedgerStatus(status) {
   const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
