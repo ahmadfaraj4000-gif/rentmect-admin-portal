@@ -2448,7 +2448,7 @@ function App() {
           <div className="admin-header-copy"><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
           <div className="header-actions">
             <button type="button" className="primary-btn" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={17}/> New Booking</button>
-            <AdminQuickLinks/>
+            {isMobileAdminNav ? <MobileAdminQuickLinks/> : <AdminQuickLinks/>}
             <button type="button" onClick={() => loadAllData({ silent: true })} className="secondary-btn" disabled={dataHealth.refreshing}>{dataHealth.refreshing ? 'Refreshing…' : 'Refresh'}</button>
           </div>
         </header>
@@ -4887,6 +4887,85 @@ function AdminQuickLinks() {
       </section>)}
     </div>
   </details>;
+}
+
+function MobileAdminQuickLinks() {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const closeRef = useRef(null);
+  const sheetRef = useRef(null);
+
+  function closeSheet() {
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function handleSheetKeyDown(event) {
+    if (event.key !== 'Tab') return;
+    const focusable = [...(sheetRef.current?.querySelectorAll('button:not([disabled]), a[href]') || [])];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') closeSheet();
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    window.requestAnimationFrame(() => closeRef.current?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return <div className="mobile-admin-quick-links">
+    <button
+      ref={triggerRef}
+      type="button"
+      className="mobile-quick-links-trigger"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls="mobile-quick-links-sheet"
+      onClick={() => setOpen(true)}
+    >
+      Quick Links
+    </button>
+    {open && <>
+      <button type="button" className="mobile-quick-links-scrim" aria-label="Close Quick Links" onClick={closeSheet}/>
+      <section
+        ref={sheetRef}
+        id="mobile-quick-links-sheet"
+        className="mobile-quick-links-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-quick-links-title"
+        onKeyDown={handleSheetKeyDown}
+      >
+        <header className="mobile-quick-links-heading">
+          <div><p>Shortcuts</p><h2 id="mobile-quick-links-title">Quick Links</h2></div>
+          <button ref={closeRef} type="button" aria-label="Close Quick Links" onClick={closeSheet}><X size={22}/></button>
+        </header>
+        <div className="mobile-quick-links-content">
+          {ADMIN_QUICK_LINK_GROUPS.map((group) => <section key={group.label}>
+            <h3>{group.label}</h3>
+            <div>{group.links.map((link) => <a key={`${group.label}-${link.label}`} href={link.href} target="_blank" rel="noopener noreferrer" onClick={closeSheet}><span>{link.label}</span><ExternalLink size={18}/></a>)}</div>
+          </section>)}
+        </div>
+      </section>
+    </>}
+  </div>;
 }
 
 function InsuranceLinksPanel() {
