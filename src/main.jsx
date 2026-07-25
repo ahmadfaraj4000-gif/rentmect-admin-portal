@@ -2387,25 +2387,10 @@ function App() {
 
   return (
     <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
-      {isMobileAdminNav && navCollapsed && (
-        <button
-          type="button"
-          className="mobile-menu-trigger"
-          aria-label="Open admin navigation"
-          aria-controls="admin-primary-navigation"
-          aria-expanded="false"
-          onClick={() => setNavCollapsed(false)}
-        >
-          <Menu size={25} />
-        </button>
-      )}
       {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-nav-backdrop" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
       <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
         <div className="brand-block">
-          <picture>
-            <source media="(max-width: 760px)" srcSet={logoMobileUrl} />
-            <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
-          </picture>
+          <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
         </div>
         <div className="mobile-nav-heading">
           <div><span>Admin Menu</span><strong>{tabTitle(activeTab)}</strong></div>
@@ -2428,7 +2413,19 @@ function App() {
       <main className="admin-main">
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
         <header className="admin-header">
-          <div><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
+          {isMobileAdminNav && navCollapsed && (
+            <button
+              type="button"
+              className="mobile-menu-trigger"
+              aria-label="Open admin navigation"
+              aria-controls="admin-primary-navigation"
+              aria-expanded="false"
+              onClick={() => setNavCollapsed(false)}
+            >
+              <Menu size={22} />
+            </button>
+          )}
+          <div className="admin-header-copy"><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
           <div className="header-actions">
             <button type="button" className="primary-btn" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={17}/> New Booking</button>
             <AdminQuickLinks/>
