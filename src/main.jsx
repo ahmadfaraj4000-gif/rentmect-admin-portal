@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
@@ -4930,6 +4931,30 @@ function MobileAdminQuickLinks() {
     };
   }, [open]);
 
+  const sheet = open ? createPortal(<>
+    <button type="button" className="mobile-quick-links-scrim" aria-label="Close Quick Links" onClick={closeSheet}/>
+    <section
+      ref={sheetRef}
+      id="mobile-quick-links-sheet"
+      className="mobile-quick-links-sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mobile-quick-links-title"
+      onKeyDown={handleSheetKeyDown}
+    >
+      <header className="mobile-quick-links-heading">
+        <div><p>Shortcuts</p><h2 id="mobile-quick-links-title">Quick Links</h2></div>
+        <button ref={closeRef} type="button" aria-label="Close Quick Links" onClick={closeSheet}><X size={22}/></button>
+      </header>
+      <div className="mobile-quick-links-content">
+        {ADMIN_QUICK_LINK_GROUPS.map((group) => <section key={group.label}>
+          <h3>{group.label}</h3>
+          <div>{group.links.map((link) => <a key={`${group.label}-${link.label}`} href={link.href} target="_blank" rel="noopener noreferrer" onClick={closeSheet}><span>{link.label}</span><ExternalLink size={18}/></a>)}</div>
+        </section>)}
+      </div>
+    </section>
+  </>, document.body) : null;
+
   return <div className="mobile-admin-quick-links">
     <button
       ref={triggerRef}
@@ -4942,29 +4967,7 @@ function MobileAdminQuickLinks() {
     >
       Quick Links
     </button>
-    {open && <>
-      <button type="button" className="mobile-quick-links-scrim" aria-label="Close Quick Links" onClick={closeSheet}/>
-      <section
-        ref={sheetRef}
-        id="mobile-quick-links-sheet"
-        className="mobile-quick-links-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mobile-quick-links-title"
-        onKeyDown={handleSheetKeyDown}
-      >
-        <header className="mobile-quick-links-heading">
-          <div><p>Shortcuts</p><h2 id="mobile-quick-links-title">Quick Links</h2></div>
-          <button ref={closeRef} type="button" aria-label="Close Quick Links" onClick={closeSheet}><X size={22}/></button>
-        </header>
-        <div className="mobile-quick-links-content">
-          {ADMIN_QUICK_LINK_GROUPS.map((group) => <section key={group.label}>
-            <h3>{group.label}</h3>
-            <div>{group.links.map((link) => <a key={`${group.label}-${link.label}`} href={link.href} target="_blank" rel="noopener noreferrer" onClick={closeSheet}><span>{link.label}</span><ExternalLink size={18}/></a>)}</div>
-          </section>)}
-        </div>
-      </section>
-    </>}
+    {sheet}
   </div>;
 }
 
