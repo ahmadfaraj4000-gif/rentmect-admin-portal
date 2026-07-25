@@ -687,7 +687,11 @@ function App() {
         .from('rental_extension_requests')
         .select(`
           *,
-          rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))
+          rentals!rental_extension_requests_rental_id_fkey(
+            *,
+            vehicles(*),
+            profiles!rentals_user_id_profiles_fkey(*)
+          )
         `)
         .order('created_at', { ascending: false }),
 
