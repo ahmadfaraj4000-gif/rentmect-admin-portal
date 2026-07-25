@@ -2387,6 +2387,18 @@ function App() {
 
   return (
     <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
+      {isMobileAdminNav && navCollapsed && (
+        <button
+          type="button"
+          className="mobile-menu-trigger"
+          aria-label="Open admin navigation"
+          aria-controls="admin-primary-navigation"
+          aria-expanded="false"
+          onClick={() => setNavCollapsed(false)}
+        >
+          <Menu size={25} />
+        </button>
+      )}
       {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-nav-backdrop" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
       <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
         <div className="brand-block">
