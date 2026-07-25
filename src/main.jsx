@@ -5501,10 +5501,12 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
     const releaseDocsApproved = latestLicense?.status === 'approved' && latestInsurance?.status === 'approved';
     const identityVerified = rental.profiles?.identity_verification_status === 'verified';
 
-    if (isOverdue(rental.return_date, rental.status)) {
-      items.push({ id: `overdue-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Rental overdue', subtitle: `${customer} • ${vehicle}`, detail: `Return was due ${formatRentalDate(rental.return_date, rental.return_time)}`, rental, nextStatus: 'overdue' });
-    } else if (isDueSoon(rental.return_date)) {
-      items.push({ id: `due-${rental.id}`, bucket: 'return_attention', severity: 'warning', title: 'Return due soon', subtitle: `${customer} • ${vehicle}`, detail: `Due ${formatRentalDate(rental.return_date, rental.return_time)}`, rental });
+    if (!terminal) {
+      if (isOverdue(rental.return_date, rental.status)) {
+        items.push({ id: `overdue-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Rental overdue', subtitle: `${customer} • ${vehicle}`, detail: `Return was due ${formatRentalDate(rental.return_date, rental.return_time)}`, rental, nextStatus: 'overdue' });
+      } else if (isDueSoon(rental.return_date)) {
+        items.push({ id: `due-${rental.id}`, bucket: 'return_attention', severity: 'warning', title: 'Return due soon', subtitle: `${customer} • ${vehicle}`, detail: `Due ${formatRentalDate(rental.return_date, rental.return_time)}`, rental });
+      }
     }
     if (!terminal && rental.agreement_signed && paymentPaid && (!hasLicense || !hasInsurance)) {
       const missing = [
