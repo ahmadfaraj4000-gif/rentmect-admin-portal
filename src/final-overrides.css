@@ -325,6 +325,188 @@
   }
 }
 
+/* TollSpot command center */
+.tollspot-command-center {
+  display: grid;
+  gap: 18px;
+}
+
+.tollspot-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.tollspot-connection-state,
+.tollspot-sync-controls {
+  display: grid;
+  align-items: start;
+  gap: 14px;
+}
+
+.tollspot-connection-state .fleet-status-badge {
+  width: fit-content;
+}
+
+.tollspot-connection-state p,
+.tollspot-sync-controls small {
+  margin: 0;
+  color: var(--muted, #626262);
+}
+
+.tollspot-date-window,
+.tollspot-code-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tollspot-date-window label,
+.tollspot-code-fields label,
+.tollspot-vehicle-config label {
+  display: grid;
+  gap: 6px;
+  color: #343434;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.tollspot-fleet-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 18px;
+}
+
+.tollspot-fleet-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-height: 480px;
+  overflow: auto;
+}
+
+.tollspot-fleet-list > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #dedede;
+  border-radius: 12px;
+  background: #fff;
+  color: #171717;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tollspot-fleet-list > button.selected {
+  border-color: #171717;
+  box-shadow: inset 3px 0 0 #171717;
+}
+
+.tollspot-fleet-list button span {
+  display: grid;
+  gap: 3px;
+}
+
+.tollspot-fleet-list button small {
+  color: #666;
+}
+
+.tollspot-fleet-list button em {
+  color: #666;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tollspot-vehicle-config {
+  align-content: start;
+  padding: 18px;
+  border: 1px solid #dedede;
+  border-radius: 14px;
+  background: #fafafa;
+}
+
+.tollspot-filter-row {
+  margin-bottom: 14px;
+}
+
+.tollspot-transaction-list {
+  display: grid;
+  gap: 12px;
+}
+
+.tollspot-transaction-list article {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #dedede;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.tollspot-transaction-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.tollspot-transaction-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.tollspot-transaction-heading span,
+.tollspot-transaction-details {
+  color: #666;
+  font-size: 0.84rem;
+}
+
+.tollspot-transaction-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.tollspot-review-reason {
+  width: 100%;
+  color: #8f241f;
+  font-weight: 700;
+}
+
+.tollspot-review-actions {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto auto;
+  gap: 8px;
+}
+
+@media (max-width: 980px) {
+  .tollspot-summary-grid,
+  .tollspot-fleet-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .tollspot-review-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .tollspot-date-window,
+  .tollspot-code-fields,
+  .tollspot-review-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .tollspot-transaction-heading {
+    display: grid;
+  }
+}
+
 /* Portal reliability and action clarity */
 .portal-data-health,
 .calendar-refresh-error {

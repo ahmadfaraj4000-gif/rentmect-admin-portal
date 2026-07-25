@@ -2360,6 +2360,7 @@ function App() {
     { key: 'dashboard', label: 'Dashboard', icon: Gauge },
     { key: 'queue', label: 'Queue', icon: ClipboardList },
     { key: 'payments', label: 'Payments', icon: DollarSign },
+    { key: 'tolls', label: 'Tolls', icon: ReceiptText },
     { key: 'calendar', label: 'Calendar', icon: CalendarDays },
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
@@ -2432,6 +2433,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
+        {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
@@ -2584,6 +2586,299 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
       </div>
     </Panel>
   </>;
+}
+
+function TollsTab({ rentals = [], notify }) {
+  const [transactions, setTransactions] = useState([]);
+  const [syncRuns, setSyncRuns] = useState([]);
+  const [mappings, setMappings] = useState([]);
+  const [fleet, setFleet] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [connection, setConnection] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [matchSelections, setMatchSelections] = useState({});
+  const [dateWindow, setDateWindow] = useState({
+    fromDate: adminBookingDateOffset(-30),
+    toDate: adminBookingDateOffset(0),
+  });
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [vehicleConfig, setVehicleConfig] = useState({
+    tollspot_enabled: false,
+    tollspot_vehicle_type: '',
+    plate_state: 'CT',
+    plate_country: 'US',
+    plate_assigned_at: '',
+    model_year: '',
+  });
+
+  async function loadTollspotData({ silent = false } = {}) {
+    if (!silent) setLoading(true);
+    const [transactionsRes, runsRes, mappingsRes, fleetRes] = await Promise.all([
+      supabase
+        .from('admin_tollspot_transactions')
+        .select('*')
+        .order('occurred_at', { ascending: false })
+        .limit(500),
+      supabase
+        .from('tollspot_sync_runs')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(30),
+      supabase
+        .from('tollspot_vehicle_mappings')
+        .select('*')
+        .order('updated_at', { ascending: false }),
+      supabase
+        .from('vehicles')
+        .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
+        .neq('id', '00000000-0000-4000-8000-000000000015')
+        .order('name'),
+    ]);
+    const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error].filter(Boolean);
+    setLoadError(errors.map((error) => error.message).join(' '));
+    if (transactionsRes.data) setTransactions(transactionsRes.data);
+    if (runsRes.data) setSyncRuns(runsRes.data);
+    if (mappingsRes.data) setMappings(mappingsRes.data);
+    if (fleetRes.data) {
+      setFleet(fleetRes.data);
+      if (!selectedVehicleId && fleetRes.data[0]) setSelectedVehicleId(fleetRes.data[0].id);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadTollspotData();
+  }, []);
+
+  useEffect(() => {
+    const vehicle = fleet.find((item) => item.id === selectedVehicleId);
+    if (!vehicle) return;
+    setVehicleConfig({
+      tollspot_enabled: Boolean(vehicle.tollspot_enabled),
+      tollspot_vehicle_type: vehicle.tollspot_vehicle_type || '',
+      plate_state: vehicle.plate_state || 'CT',
+      plate_country: vehicle.plate_country || 'US',
+      plate_assigned_at: formatEasternDateTimeInput(vehicle.plate_assigned_at),
+      model_year: vehicle.model_year || '',
+    });
+  }, [selectedVehicleId, fleet]);
+
+  async function parseFunctionError(error, fallback) {
+    let message = error?.message || fallback;
+    try {
+      const payload = await error?.context?.clone?.().json();
+      message = payload?.error || message;
+    } catch {
+      // Keep the Supabase Functions error.
+    }
+    return message;
+  }
+
+  async function invokeTollspot(action, extra = {}) {
+    if (busy) return null;
+    setBusy(action);
+    const { data, error } = await supabase.functions.invoke('tollspot-sync', {
+      body: { action, ...extra },
+    });
+    setBusy('');
+    if (error || data?.error) {
+      const message = data?.error || await parseFunctionError(error, 'TollSpot action failed.');
+      setConnection(action === 'health' ? { connected: false, error: message } : connection);
+      notify(message);
+      await loadTollspotData({ silent: true });
+      return null;
+    }
+    if (action === 'health') setConnection(data);
+    notify(
+      action === 'health'
+        ? `Connected to TollSpot API ${data.apiVersion}.`
+        : action === 'sync_fleet'
+          ? `${data.synced || 0} TollSpot fleet records synchronized.`
+          : `${data.received || data.tolls?.received || 0} TollSpot charges checked.`,
+      'success'
+    );
+    await loadTollspotData({ silent: true });
+    return data;
+  }
+
+  async function saveVehicleConfig(event) {
+    event.preventDefault();
+    const vehicle = fleet.find((item) => item.id === selectedVehicleId);
+    if (!vehicle) return;
+    if (vehicleConfig.tollspot_enabled) {
+      if (!vehicleConfig.tollspot_vehicle_type) return notify('Choose a TollSpot vehicle type.');
+      if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_state)) return notify('Enter a 2–3 letter plate state.');
+      if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_country)) return notify('Enter a 2–3 letter plate country.');
+      if (!vehicleConfig.plate_assigned_at) return notify('Enter when this plate became active on the vehicle.');
+    }
+    setBusy('save_vehicle');
+    const { error } = await supabase.from('vehicles').update({
+      tollspot_enabled: Boolean(vehicleConfig.tollspot_enabled),
+      tollspot_vehicle_type: vehicleConfig.tollspot_vehicle_type || null,
+      plate_state: vehicleConfig.plate_state || null,
+      plate_country: vehicleConfig.plate_country || 'US',
+      plate_assigned_at: vehicleConfig.plate_assigned_at
+        ? easternDateTimeInputToIso(vehicleConfig.plate_assigned_at)
+        : null,
+      model_year: vehicleConfig.model_year ? Number(vehicleConfig.model_year) : null,
+    }).eq('id', vehicle.id);
+    setBusy('');
+    if (error) return notify(error.message);
+    notify(`${vehicle.name} TollSpot settings saved.`, 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  async function matchTransaction(transaction) {
+    const rentalId = matchSelections[transaction.id];
+    if (!rentalId) return notify('Choose the rental that was using this vehicle.');
+    setBusy(`match:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_match_tollspot_transaction', {
+      p_transaction_id: transaction.id,
+      p_rental_id: rentalId,
+    });
+    setBusy('');
+    if (error) return notify(error.message);
+    notify('TollSpot charge matched to the rental.', 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  async function createTollCharge(transaction) {
+    const confirmed = window.confirm(
+      `Create a pending ${money(transaction.total_amount)} customer charge for TollSpot transaction ${transaction.tollspot_transaction_id}? This does not charge the saved card.`
+    );
+    if (!confirmed) return;
+    setBusy(`charge:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_create_tollspot_charge', {
+      p_transaction_id: transaction.id,
+      p_taxable: false,
+    });
+    setBusy('');
+    if (error) return notify(error.message);
+    notify('Pending toll charge created. The customer can pay through the secure portal.', 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  async function ignoreTransaction(transaction) {
+    const reason = window.prompt('Why should this TollSpot transaction be ignored? Enter at least 8 characters.');
+    if (!reason) return;
+    setBusy(`ignore:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_ignore_tollspot_transaction', {
+      p_transaction_id: transaction.id,
+      p_reason: reason,
+    });
+    setBusy('');
+    if (error) return notify(error.message);
+    notify('TollSpot transaction ignored with an audit reason.', 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  const selectedVehicle = fleet.find((item) => item.id === selectedVehicleId);
+  const openStatuses = new Set(['received', 'needs_review', 'matched']);
+  const visibleTransactions = transactions.filter((item) =>
+    statusFilter === 'all'
+      ? true
+      : statusFilter === 'open'
+        ? openStatuses.has(item.status)
+        : item.status === statusFilter
+  );
+  const mappingByVehicle = new Map(mappings.map((mapping) => [mapping.vehicle_id, mapping]));
+  const latestRun = syncRuns[0];
+
+  if (loading) return <Loading message="Loading TollSpot operations…" />;
+
+  return <section className="tollspot-command-center">
+    {loadError && <div className="data-health-banner error"><AlertTriangle size={18}/><div><strong>TollSpot data could not load</strong><span>{loadError}</span></div></div>}
+
+    <div className="tollspot-summary-grid">
+      <Panel title="API Connection" eyebrow="TollSpot Customer API">
+        <div className="tollspot-connection-state">
+          <span className={`fleet-status-badge ${connection?.connected ? 'available' : connection?.error ? 'unavailable' : 'reserved'}`}>
+            {connection?.connected ? 'Connected' : connection?.error ? 'Needs configuration' : 'Not tested'}
+          </span>
+          <p>{connection?.connected
+            ? `${connection.visibleVehicles} provider vehicles visible • API ${connection.apiVersion}`
+            : connection?.error || 'Test the server-only connection. The API key is never sent to this browser.'}</p>
+          <button className="primary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('health')}>
+            {busy === 'health' ? 'Testing…' : 'Test Connection'}
+          </button>
+        </div>
+      </Panel>
+      <Panel title="Synchronization" eyebrow="Manual Safe Start">
+        <div className="tollspot-sync-controls">
+          <div className="tollspot-date-window">
+            <label>From<input type="date" value={dateWindow.fromDate} onChange={(event) => setDateWindow({ ...dateWindow, fromDate: event.target.value })}/></label>
+            <label>To<input type="date" value={dateWindow.toDate} onChange={(event) => setDateWindow({ ...dateWindow, toDate: event.target.value })}/></label>
+          </div>
+          <div className="row-actions">
+            <button className="secondary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_fleet')}>{busy === 'sync_fleet' ? 'Syncing…' : 'Sync Enabled Fleet'}</button>
+            <button className="primary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_tolls', dateWindow)}>{busy === 'sync_tolls' ? 'Fetching…' : 'Fetch Toll Charges'}</button>
+          </div>
+          <small>{latestRun ? `Last run: ${prettyStatus(latestRun.status)} • ${new Date(latestRun.started_at).toLocaleString()}` : 'No TollSpot sync has run yet.'}</small>
+        </div>
+      </Panel>
+    </div>
+
+    <Panel title="Fleet Enrollment" eyebrow="Vehicles & Plate Assignments">
+      <div className="tollspot-fleet-layout">
+        <div className="tollspot-fleet-list">
+          {fleet.map((vehicle) => {
+            const mapping = mappingByVehicle.get(vehicle.id);
+            return <button type="button" key={vehicle.id} className={selectedVehicleId === vehicle.id ? 'selected' : ''} onClick={() => setSelectedVehicleId(vehicle.id)}>
+              <span><strong>{vehicle.name}</strong><small>{vehicle.plate_number || 'No plate'} • {vehicle.vin ? `VIN …${vehicle.vin.slice(-5)}` : 'No VIN'}</small></span>
+              <em>{mapping?.sync_status ? prettyStatus(mapping.sync_status) : vehicle.tollspot_enabled ? 'Pending' : 'Disabled'}</em>
+            </button>;
+          })}
+        </div>
+        {selectedVehicle && <form className="portal-form tollspot-vehicle-config" onSubmit={saveVehicleConfig}>
+          <div className="vehicle-form-card-heading"><strong>{selectedVehicle.name}</strong><span>Provider-only enrollment settings</span></div>
+          <label className="vehicle-publish-control"><input type="checkbox" checked={vehicleConfig.tollspot_enabled} onChange={(event) => setVehicleConfig({ ...vehicleConfig, tollspot_enabled: event.target.checked })}/><span><strong>Enable TollSpot</strong><small>Only enabled vehicles are sent to TollSpot.</small></span></label>
+          <label>Provider vehicle type<select value={vehicleConfig.tollspot_vehicle_type} onChange={(event) => setVehicleConfig({ ...vehicleConfig, tollspot_vehicle_type: event.target.value })}><option value="">Choose type</option>{['SEDAN','SUV','TRUCK','MOTORCYCLE','RV','TRAILER'].map((value) => <option key={value} value={value}>{prettyStatus(value)}</option>)}</select></label>
+          <label>Model year<input type="number" min="1900" max="2200" value={vehicleConfig.model_year} onChange={(event) => setVehicleConfig({ ...vehicleConfig, model_year: event.target.value })}/></label>
+          <div className="tollspot-code-fields">
+            <label>Plate state<input maxLength="3" value={vehicleConfig.plate_state} onChange={(event) => setVehicleConfig({ ...vehicleConfig, plate_state: event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) })}/></label>
+            <label>Plate country<input maxLength="3" value={vehicleConfig.plate_country} onChange={(event) => setVehicleConfig({ ...vehicleConfig, plate_country: event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) })}/></label>
+          </div>
+          <label>Plate active since<input type="datetime-local" value={vehicleConfig.plate_assigned_at} onChange={(event) => setVehicleConfig({ ...vehicleConfig, plate_assigned_at: event.target.value })}/></label>
+          <button className="primary-btn" disabled={busy === 'save_vehicle'}>{busy === 'save_vehicle' ? 'Saving…' : 'Save Enrollment'}</button>
+        </form>}
+      </div>
+    </Panel>
+
+    <Panel title="Toll Review Queue" eyebrow="No Automatic Customer Charges">
+      <div className="filter-row tollspot-filter-row">
+        {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{prettyStatus(status)}</button>)}
+      </div>
+      {!visibleTransactions.length && <p className="muted">No TollSpot transactions in this view.</p>}
+      <div className="tollspot-transaction-list">
+        {visibleTransactions.map((transaction) => {
+          const candidateRentals = rentals.filter((rental) => !transaction.vehicle_id || rental.vehicle_id === transaction.vehicle_id);
+          return <article key={transaction.id}>
+            <div className="tollspot-transaction-heading">
+              <div><strong>{money(transaction.total_amount)} • {transaction.agency || 'Toll agency'}</strong><span>{transaction.exit_location || transaction.entry_location || 'Location unavailable'} • {new Date(transaction.occurred_at).toLocaleString()}</span></div>
+              <span className={`fleet-status-badge ${transaction.status === 'matched' ? 'available' : transaction.status === 'needs_review' ? 'maintenance' : 'reserved'}`}>{prettyStatus(transaction.status)}</span>
+            </div>
+            <div className="tollspot-transaction-details">
+              <span>{transaction.license_plate || 'No plate'} {transaction.license_plate_state || ''}</span>
+              <span>{prettyStatus(transaction.transaction_type || 'tolls')}</span>
+              <span>Provider #{transaction.tollspot_transaction_id}</span>
+              {transaction.review_reason && <span className="tollspot-review-reason">{transaction.review_reason}</span>}
+            </div>
+            {openStatuses.has(transaction.status) && <div className="tollspot-review-actions">
+              <select aria-label="Rental match" value={matchSelections[transaction.id] || transaction.rental_id || ''} onChange={(event) => setMatchSelections({ ...matchSelections, [transaction.id]: event.target.value })}>
+                <option value="">Choose rental</option>
+                {candidateRentals.map((rental) => <option key={rental.id} value={rental.id}>{rental.profiles?.full_name || rental.user_email || 'Customer'} • {rental.vehicles?.name || 'Vehicle'} • {formatDateOnly(rental.pickup_date)}–{formatDateOnly(rental.return_date)}</option>)}
+              </select>
+              <button className="secondary-btn" disabled={busy === `match:${transaction.id}`} onClick={() => matchTransaction(transaction)}>Match Rental</button>
+              {transaction.status === 'matched' && <button className="primary-btn" disabled={busy === `charge:${transaction.id}`} onClick={() => createTollCharge(transaction)}>Create Pending Charge</button>}
+              <button className="reject" disabled={busy === `ignore:${transaction.id}`} onClick={() => ignoreTransaction(transaction)}>Ignore</button>
+            </div>}
+          </article>;
+        })}
+      </div>
+    </Panel>
+  </section>;
 }
 
 function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilitySaving, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
@@ -6782,7 +7077,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function manualPaymentPreferenceLabel(preference) {
   return ({
