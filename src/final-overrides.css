@@ -325,6 +325,264 @@
   }
 }
 
+.calendar-date-navigation,
+.calendar-focus-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.calendar-date-navigation {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.calendar-focus-toolbar {
+  padding: 12px 0 14px;
+}
+
+.calendar-focus-toolbar .search-row {
+  flex: 1;
+  min-width: 220px;
+}
+
+.calendar-focus-toolbar select {
+  min-width: 190px;
+}
+
+.calendar-focus-toolbar > span {
+  color: #66766d;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.calendar-cell.vehicle-name.selected-vehicle-row {
+  background: #eaf7ee;
+  box-shadow: inset 4px 0 #238a46;
+}
+
+.calendar-row-focus-pulse {
+  animation: calendar-row-focus 1.35s ease;
+}
+
+@keyframes calendar-row-focus {
+  0%, 100% { background: #eaf7ee; }
+  35% { background: #bfe8ca; }
+}
+
+@media (max-width: 760px) {
+  .calendar-date-navigation,
+  .calendar-focus-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .calendar-date-navigation button,
+  .calendar-focus-toolbar select {
+    width: 100%;
+  }
+}
+
+.maintenance-lock-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #cfe0d4;
+  border-radius: 14px;
+  background: #f3faf5;
+}
+
+.maintenance-lock-banner.locked {
+  border-color: #e0a4a4;
+  background: #fff1f1;
+  color: #8b2020;
+}
+
+.maintenance-lock-banner.overridden {
+  border-color: #e4c46c;
+  background: #fff9e7;
+  color: #765913;
+}
+
+.maintenance-lock-banner > div {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+}
+
+.maintenance-lock-banner span {
+  color: inherit;
+  opacity: .82;
+  font-size: 13px;
+}
+
+.maintenance-schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.maintenance-schedule-card {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid #d9e3dc;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.maintenance-schedule-card.due {
+  border-color: #e0a4a4;
+  box-shadow: inset 4px 0 #b32d2d;
+}
+
+.maintenance-schedule-card.soon:not(.due) {
+  border-color: #e4c46c;
+  box-shadow: inset 4px 0 #c99a21;
+}
+
+.maintenance-schedule-card.inactive {
+  opacity: .65;
+}
+
+.maintenance-schedule-card header,
+.maintenance-schedule-card footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.maintenance-schedule-card header > div {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.maintenance-schedule-card header small,
+.maintenance-schedule-card dl,
+.maintenance-schedule-card p {
+  margin: 0;
+  color: #607068;
+  font-size: 12px;
+}
+
+.maintenance-schedule-card header em {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef5f0;
+  color: #305a3e;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.maintenance-schedule-card.due header em {
+  background: #fee1e1;
+  color: #992323;
+}
+
+.maintenance-schedule-card.soon:not(.due) header em {
+  background: #fff1c6;
+  color: #75570c;
+}
+
+.maintenance-card-icon {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: #eaf5ed;
+  color: #1e7040;
+}
+
+.maintenance-schedule-card dl {
+  display: grid;
+  gap: 7px;
+}
+
+.maintenance-schedule-card dl div {
+  display: grid;
+  gap: 2px;
+}
+
+.maintenance-schedule-card dt {
+  color: #829087;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.maintenance-schedule-card dd {
+  margin: 0;
+  color: #28362e;
+  font-weight: 650;
+}
+
+.maintenance-schedule-card footer {
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.maintenance-history {
+  margin-top: 16px;
+  border-top: 1px solid #e1e8e3;
+  padding-top: 13px;
+}
+
+.maintenance-history summary {
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.maintenance-history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.maintenance-history-list article {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f6f9f7;
+}
+
+.maintenance-history-list article div {
+  display: grid;
+  gap: 2px;
+}
+
+.maintenance-action-modal {
+  width: min(620px, calc(100vw - 28px));
+}
+
+.maintenance-config-form {
+  max-height: min(68vh, 680px);
+  overflow: auto;
+}
+
+@media (max-width: 760px) {
+  .maintenance-lock-banner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .maintenance-schedule-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-schedule-card footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 /* Compact, aligned rental charge editor. */
 .rental-charge-manager {
   margin-top: 14px !important;

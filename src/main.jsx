@@ -297,6 +297,8 @@ function App() {
 
   const [profiles, setProfiles] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [maintenanceSchedules, setMaintenanceSchedules] = useState([]);
+  const [maintenanceServiceLogs, setMaintenanceServiceLogs] = useState([]);
   const [rentals, setRentals] = useState([]);
   const [pendingBookings, setPendingBookings] = useState([]);
   const [documents, setDocuments] = useState([]);
@@ -476,7 +478,10 @@ function App() {
     const calendarChannel = supabase
       .channel('admin-calendar-source-of-truth')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, refreshCalendarSourceOfTruth)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_bookings' }, refreshCalendarSourceOfTruth)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, refreshCalendarSourceOfTruth)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, refreshCalendarSourceOfTruth)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, refreshCalendarSourceOfTruth)
       .subscribe();
     calendarPoll = window.setInterval(refreshCalendarSourceOfTruth, 15 * 1000);
 
@@ -609,7 +614,7 @@ function App() {
 
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -736,6 +741,17 @@ function App() {
         .eq('category', 'manual')
         .eq('enabled', true)
         .order('name'),
+
+      supabase
+        .from('vehicle_maintenance_schedules')
+        .select('*')
+        .order('service_type'),
+
+      supabase
+        .from('vehicle_maintenance_service_logs')
+        .select('*')
+        .order('completed_at', { ascending: false })
+        .limit(500),
     ]);
 
     if (profilesRes.data) setProfiles(profilesRes.data);
@@ -764,6 +780,8 @@ function App() {
     );
     if (customerEmailTemplatesRes.data) setCustomerEmailTemplates(customerEmailTemplatesRes.data);
     if (smsTemplatesRes.data) setSmsTemplates(smsTemplatesRes.data);
+    if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
+    if (maintenanceServiceLogsRes.data) setMaintenanceServiceLogs(maintenanceServiceLogsRes.data);
     if (!silent) setLoading(false);
   }
 
@@ -1228,6 +1246,63 @@ function App() {
       maintenance_completed_at: new Date().toISOString(),
     } : item));
     notify(`Maintenance recorded. Next service is due at ${formatMiles(currentMileage + interval)}.`, 'success');
+  }
+
+  async function completeMaintenanceSchedule(schedule, completion) {
+    const mileage = parseMileageInput(completion.mileage);
+    if (mileage === null) return notify('Enter the vehicle mileage recorded when this service was completed.');
+    if (!completion.completedAt) return notify('Enter the service completion date.');
+    const { error } = await supabase.rpc('admin_complete_vehicle_service', {
+      p_schedule_id: schedule.id,
+      p_completed_mileage: mileage,
+      p_completed_at: completion.completedAt,
+      p_notes: completion.notes?.trim() || null,
+    });
+    if (error) return notify(error.message);
+    await loadAllData({ silent: true });
+    notify(`${schedule.label} recorded at ${formatMiles(mileage)}. The next milestone and calendar lock were recalculated.`, 'success');
+    return true;
+  }
+
+  async function saveMaintenanceSchedule(schedule, updates) {
+    const intervalMiles = parseOptionalPositiveInteger(updates.interval_miles);
+    const intervalMonths = parseOptionalPositiveInteger(updates.interval_months);
+    const lastServiceMileage = parseMileageInput(updates.last_service_mileage);
+    if (intervalMiles === null && intervalMonths === null) return notify('Set a mileage interval, time interval, or both.');
+    const { error } = await supabase.rpc('admin_save_vehicle_maintenance_schedule', {
+      p_schedule_id: schedule.id || null,
+      p_vehicle_id: schedule.vehicle_id,
+      p_service_type: schedule.service_type,
+      p_label: updates.label?.trim() || schedule.label,
+      p_interval_miles: intervalMiles,
+      p_interval_months: intervalMonths,
+      p_warning_miles: parseOptionalPositiveInteger(updates.warning_miles) ?? 0,
+      p_warning_days: parseOptionalPositiveInteger(updates.warning_days) ?? 0,
+      p_last_service_mileage: lastServiceMileage,
+      p_last_service_at: updates.last_service_at || null,
+      p_lock_when_due: updates.lock_when_due !== false,
+      p_active: updates.active !== false,
+      p_notes: updates.notes?.trim() || null,
+    });
+    if (error) return notify(error.message);
+    await loadAllData({ silent: true });
+    notify(`${updates.label || schedule.label} schedule saved.`, 'success');
+    return true;
+  }
+
+  async function overrideVehicleMaintenance(vehicle, reason, hours) {
+    const duration = Number(hours);
+    if (String(reason || '').trim().length < 10) return notify('Enter a specific maintenance override reason of at least 10 characters.');
+    if (!Number.isInteger(duration) || duration < 1 || duration > 168) return notify('Choose an override between 1 and 168 hours.');
+    const { error } = await supabase.rpc('admin_override_vehicle_maintenance', {
+      p_vehicle_id: vehicle.id,
+      p_reason: String(reason).trim(),
+      p_hours: duration,
+    });
+    if (error) return notify(error.message);
+    await loadAllData({ silent: true });
+    notify(`${vehicle.name} temporarily returned to service. The override is audited and will expire automatically.`, 'success');
+    return true;
   }
 
   async function updateDamageCase(id, updates) {
@@ -2270,7 +2345,7 @@ function App() {
           </div>
         </header>
 
-        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
+        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
@@ -2278,7 +2353,7 @@ function App() {
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
-        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} markVehicleServiced={markVehicleServiced} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
+        {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} availabilityTypes={availabilityTypes} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
@@ -2288,8 +2363,11 @@ function App() {
   );
 }
 
-function Dashboard({ dashboard, vehicles, emergencyExceptions = [], sendManualReminder }) {
-  const maintenanceDue = vehicles.filter((vehicle) => getVehicleMaintenanceState(vehicle).due).length;
+function Dashboard({ dashboard, vehicles, maintenanceSchedules = [], emergencyExceptions = [], sendManualReminder }) {
+  const maintenanceDue = vehicles.filter((vehicle) => {
+    const schedules = maintenanceSchedules.filter((schedule) => schedule.vehicle_id === vehicle.id);
+    return vehicle.maintenance_lock_active || schedules.some((schedule) => getMaintenanceScheduleState(schedule, vehicle).due);
+  }).length;
   const openEmergencyExceptions = emergencyExceptions.filter((item) => item.status === 'active');
   return <>
     <section className="metric-grid">
@@ -2422,29 +2500,139 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
 }
 
 function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilitySaving, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
-  const days = calendarDays(28);
+  const [viewStart, setViewStart] = useState(() => adminBookingDateOffset(0));
+  const [canonicalEvents, setCanonicalEvents] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [vehicleSearch, setVehicleSearch] = useState('');
+  const [vehicleStatusFilter, setVehicleStatusFilter] = useState('all');
   const [paintRange, setPaintRange] = useState(null);
   const [paintModal, setPaintModal] = useState(null);
   const [calendarHint, setCalendarHint] = useState('');
+  const vehicleRowRefs = useRef(new Map());
+  const days = calendarDaysFrom(viewStart, 28);
+  const viewEnd = days[days.length - 1]?.iso || viewStart;
   const updateBlock = (key, value) => setAvailabilityBlockForm({ ...availabilityBlockForm, [key]: value });
+  const canonicalRentals = canonicalEvents
+    .filter((event) => ['rental', 'checkout_hold'].includes(event.event_type))
+    .map((event) => ({
+      id: event.id,
+      vehicle_id: event.vehicle_id,
+      pickup_date: event.start_date,
+      return_date: event.end_date,
+      pickup_time: event.start_time,
+      return_time: event.end_time,
+      status: event.status,
+      profiles: { full_name: event.customer_name },
+      booking_source: event.label,
+      checkout_expires_at: event.expires_at,
+    }));
+  const canonicalBlocks = canonicalEvents
+    .filter((event) => event.event_type === 'manual_block')
+    .map((event) => ({
+      id: event.id,
+      vehicle_id: event.vehicle_id,
+      start_date: event.start_date,
+      end_date: event.end_date,
+      start_time: event.start_time,
+      end_time: event.end_time,
+      block_type: event.status,
+      label: event.label,
+      notes: event.notes,
+      active: true,
+    }));
+  const calendarRentals = canonicalEvents.length || !calendarLoading ? canonicalRentals : rentals;
+  const calendarBlocks = canonicalEvents.length || !calendarLoading ? canonicalBlocks : availabilityBlocks;
+
+  async function loadCanonicalCalendar() {
+    setCalendarLoading(true);
+    const { data, error } = await supabase.rpc('get_admin_calendar_events', {
+      p_start_date: viewStart,
+      p_end_date: viewEnd,
+    });
+    if (error) {
+      setCalendarHint(`Calendar source could not refresh: ${error.message}`);
+    } else {
+      setCanonicalEvents(data || []);
+    }
+    setCalendarLoading(false);
+  }
+
+  useEffect(() => {
+    loadCanonicalCalendar();
+  }, [viewStart, viewEnd]);
+
+  useEffect(() => {
+    let refreshTimer;
+    const refresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(loadCanonicalCalendar, 150);
+    };
+    const channel = supabase
+      .channel(`fleet-calendar-window-${viewStart}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_bookings' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, refresh)
+      .subscribe();
+    return () => {
+      window.clearTimeout(refreshTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [viewStart, viewEnd]);
+
+  function moveCalendarDays(amount) {
+    const next = new Date(`${viewStart}T12:00:00`);
+    next.setDate(next.getDate() + amount);
+    setViewStart(next.toISOString().slice(0, 10));
+  }
+
+  function focusVehicleRow(vehicleId) {
+    updateBlock('vehicle_id', vehicleId);
+    window.requestAnimationFrame(() => {
+      const row = vehicleRowRefs.current.get(vehicleId);
+      if (!row) return;
+      const scroller = row.closest('.calendar-scroller');
+      const rowRect = row.getBoundingClientRect();
+      const scrollerRect = scroller?.getBoundingClientRect();
+      const visibleTop = Math.max(scrollerRect?.top ?? 0, 0);
+      const visibleBottom = Math.min(scrollerRect?.bottom ?? window.innerHeight, window.innerHeight);
+      const isVisible = scrollerRect
+        && rowRect.top >= visibleTop
+        && rowRect.bottom <= visibleBottom;
+      if (!isVisible) row.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      row.classList.remove('calendar-row-focus-pulse');
+      window.requestAnimationFrame(() => row.classList.add('calendar-row-focus-pulse'));
+      window.setTimeout(() => row.classList.remove('calendar-row-focus-pulse'), 1400);
+    });
+  }
+
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const query = vehicleSearch.trim().toLowerCase();
+    if (query && ![vehicle.name, vehicle.brand, vehicle.model, vehicle.plate_number, vehicle.vin].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))) return false;
+    if (vehicleStatusFilter === 'all') return true;
+    if (vehicleStatusFilter === 'attention') return vehicle.maintenance_lock_active || ['maintenance', 'unavailable'].includes(String(vehicle.status || '').toLowerCase());
+    return String(vehicle.status || 'available').toLowerCase() === vehicleStatusFilter;
+  });
+
   const rentalsByVehicle = useMemo(() => {
     const grouped = {};
-    rentals.filter((r) => AVAILABILITY_RENTAL_STATUSES.includes(String(r.status || '').toLowerCase())).forEach((r) => {
+    calendarRentals.filter((r) => AVAILABILITY_RENTAL_STATUSES.includes(String(r.status || '').toLowerCase())).forEach((r) => {
       if (!grouped[r.vehicle_id]) grouped[r.vehicle_id] = [];
       grouped[r.vehicle_id].push(r);
     });
     return grouped;
-  }, [rentals]);
+  }, [calendarRentals]);
 
   const blocksByVehicle = useMemo(() => {
     const grouped = {};
-    availabilityBlocks.forEach((block) => {
+    calendarBlocks.forEach((block) => {
       if (String(block.block_type || '').toLowerCase() === 'available') return;
       if (!grouped[block.vehicle_id]) grouped[block.vehicle_id] = [];
       grouped[block.vehicle_id].push(block);
     });
     return grouped;
-  }, [availabilityBlocks]);
+  }, [calendarBlocks]);
 
   const activeVehicle = vehicles.find((vehicle) => vehicle.id === availabilityBlockForm.vehicle_id) || vehicles[0];
   const selectedType = availabilityBlockForm.block_type || 'unavailable';
@@ -2538,14 +2726,31 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     <div className="calendar-toolbar">
       <div>
         <strong>{days[0]?.label} - {days[days.length - 1]?.label}</strong>
-        <span>Bookings update this grid automatically. Return-day cells show the due-back time and become bookable after the three-hour turnaround. Available clears manual blocks only.</span>
+        <span>Live customer bookings, checkout holds, admin bookings, manual blocks, and vehicle maintenance locks. Times are Eastern; every return includes the protected three-hour turnaround.</span>
       </div>
-      <button type="button" className="secondary-btn" onClick={() => updateBlock('start_date', new Date().toISOString().split('T')[0])}><CalendarClock size={16}/> Today</button>
+      <div className="calendar-date-navigation">
+        <button type="button" className="secondary-btn" onClick={() => moveCalendarDays(-14)} aria-label="Previous two weeks">← 2 weeks</button>
+        <button type="button" className="secondary-btn" onClick={() => setViewStart(adminBookingDateOffset(0))}><CalendarClock size={16}/> Today</button>
+        <button type="button" className="secondary-btn" onClick={() => moveCalendarDays(14)} aria-label="Next two weeks">2 weeks →</button>
+      </div>
+    </div>
+    <div className="calendar-focus-toolbar">
+      <div className="search-row"><Search size={17}/><input value={vehicleSearch} maxLength="120" onChange={(event) => setVehicleSearch(limitText(event.target.value, 120))} placeholder="Find vehicle, plate, or VIN…"/></div>
+      <select value={vehicleStatusFilter} onChange={(event) => setVehicleStatusFilter(event.target.value)} aria-label="Filter calendar vehicles">
+        <option value="all">All vehicle statuses</option>
+        <option value="attention">Maintenance attention</option>
+        <option value="available">Available status</option>
+        <option value="rented">Rented status</option>
+        <option value="maintenance">Maintenance status</option>
+        <option value="unavailable">Unavailable status</option>
+        <option value="inactive">Inactive status</option>
+      </select>
+      <span>{filteredVehicles.length} of {vehicles.length} vehicles{calendarLoading ? ' • refreshing…' : ''}</span>
     </div>
     {calendarHint && <div className="calendar-hint"><AlertTriangle size={16}/><span>{calendarHint}</span></div>}
 
     <form className="availability-form" onSubmit={createAvailabilityBlock}>
-      <select value={availabilityBlockForm.vehicle_id || activeVehicle?.id || ''} onChange={(event) => updateBlock('vehicle_id', event.target.value)} required>
+      <select value={availabilityBlockForm.vehicle_id || activeVehicle?.id || ''} onChange={(event) => focusVehicleRow(event.target.value)} required>
         <option value="">Choose vehicle</option>
         {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}
       </select>
@@ -2579,14 +2784,20 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       <div className="fleet-calendar">
         <div className="calendar-cell calendar-head sticky-col">Vehicle</div>
         {days.map((day) => <div className="calendar-cell calendar-head" key={day.iso}><strong>{day.weekday}</strong><span>{day.shortLabel}</span></div>)}
-        {vehicles.map((vehicle) => {
+        {filteredVehicles.map((vehicle) => {
           const vehicleRentals = rentalsByVehicle[vehicle.id] || [];
           const vehicleBlocks = blocksByVehicle[vehicle.id] || [];
-          const vehicleBlocked = BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase());
+          const vehicleBlocked = vehicle.maintenance_lock_active || BLOCKING_VEHICLE_STATUSES.includes(String(vehicle.status || '').toLowerCase());
           return <React.Fragment key={vehicle.id}>
-            <div className="calendar-cell sticky-col vehicle-name">
+            <div
+              ref={(node) => {
+                if (node) vehicleRowRefs.current.set(vehicle.id, node);
+                else vehicleRowRefs.current.delete(vehicle.id);
+              }}
+              className={`calendar-cell sticky-col vehicle-name ${availabilityBlockForm.vehicle_id === vehicle.id ? 'selected-vehicle-row' : ''}`}
+            >
               <strong>{vehicle.name}</strong>
-              <span>{prettyVehicleStatus(vehicle.status)}</span>
+              <span>{vehicle.maintenance_lock_active ? vehicle.maintenance_lock_reason || 'Maintenance lock' : prettyVehicleStatus(vehicle.status)}</span>
             </div>
             {days.map((day) => {
               const segments = vehicleBlocked ? [] : buildCalendarDaySegments({
@@ -3368,7 +3579,7 @@ function emailAdminPreview(htmlBody, preheader = '') {
   return `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif"><div style="display:none">${preheader || ''}</div><table width="100%" cellpadding="0" cellspacing="0" style="padding:18px"><tr><td align="center"><table width="100%" style="max-width:620px;background:#fff;border:1px solid #ddd"><tr><td style="padding:20px 26px;background:#050505;color:#fff;font-size:22px;font-weight:800">RENT ME CT</td></tr><tr><td style="padding:28px;line-height:1.6">${rendered}<hr style="border:0;border-top:1px solid #ddd;margin-top:26px"><small>Rent Me CT · 12 Holmes Circle, Farmington, CT</small></td></tr></table></td></tr></table></body></html>`;
 }
 
-function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, updateVehiclePublished, markVehicleServiced, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
+function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs = [], vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, updateVehiclePublished, completeMaintenanceSchedule, saveMaintenanceSchedule, overrideVehicleMaintenance, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, availabilityTypes, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
@@ -3485,7 +3696,11 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
       {visibleVehicles.length === 0 && <p className="muted list-empty-state">No vehicles match “{vehicleSearch.trim()}”.</p>}
       {visibleVehicles.map((v) => {
         const isSelected = selectedVehicle?.id === v.id;
-        const maintenance = getVehicleMaintenanceState(v);
+        const vehicleSchedules = maintenanceSchedules.filter((schedule) => schedule.vehicle_id === v.id && schedule.active !== false);
+        const scheduleStates = vehicleSchedules.map((schedule) => getMaintenanceScheduleState(schedule, v));
+        const maintenance = scheduleStates.find((state) => state.due)
+          || scheduleStates.find((state) => state.soon)
+          || getVehicleMaintenanceState(v);
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
         }}>
@@ -3508,7 +3723,7 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
               <span className={`fleet-status-badge ${String(v.status || 'available').toLowerCase()}`}>{prettyVehicleStatus(v.status)}</span>
             </div>
             <div className="vehicle-row-controls">
-              {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) ? (
+              {SYSTEM_VEHICLE_STATUSES.includes(String(v.status || '').toLowerCase()) || v.maintenance_lock_active ? (
                 <span className="system-owned-status">System controlled</span>
               ) : (
                 <label className="vehicle-status-control"><span>Status</span><select value={v.status || 'available'} onClick={(event) => event.stopPropagation()} onChange={(e)=>updateVehicleStatus(v.id, e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
@@ -3521,15 +3736,19 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
                 event.stopPropagation();
                 updateVehiclePublished(v.id, v.published === false);
               }}>{v.published === false ? 'Publish' : 'Unpublish'}</button>
-              {(maintenance.due || maintenance.soon) && <button className="secondary-btn" type="button" onClick={(event) => {
-                event.stopPropagation();
-                markVehicleServiced(v);
-              }}><Wrench size={15}/> Serviced</button>}
             </div>
           </div>
         </div>;
       })}
     </Panel>
+    {selectedVehicle && <MaintenanceCommandCenter
+      vehicle={selectedVehicle}
+      schedules={maintenanceSchedules.filter((schedule) => schedule.vehicle_id === selectedVehicle.id)}
+      serviceLogs={maintenanceServiceLogs.filter((log) => log.vehicle_id === selectedVehicle.id)}
+      completeMaintenanceSchedule={completeMaintenanceSchedule}
+      saveMaintenanceSchedule={saveMaintenanceSchedule}
+      overrideVehicleMaintenance={overrideVehicleMaintenance}
+    />}
     {addVehicleOpen && <div className="admin-modal-backdrop vehicle-editor-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeAddVehicle();
     }}>
@@ -3696,6 +3915,167 @@ function Vehicles({ vehicles, vehicleForm, setVehicleForm, addVehicle, updateVeh
       </div>
     </div>}
   </section>;
+}
+
+function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMaintenanceSchedule, saveMaintenanceSchedule, overrideVehicleMaintenance }) {
+  const [completionSchedule, setCompletionSchedule] = useState(null);
+  const [completion, setCompletion] = useState({ mileage: '', completedAt: adminBookingDateOffset(0), notes: '' });
+  const [editingSchedule, setEditingSchedule] = useState(null);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [overrideHours, setOverrideHours] = useState('24');
+  const [busy, setBusy] = useState(false);
+  const sortedSchedules = [...schedules].sort((a, b) => {
+    const aState = getMaintenanceScheduleState(a, vehicle);
+    const bState = getMaintenanceScheduleState(b, vehicle);
+    return Number(bState.due) - Number(aState.due)
+      || Number(bState.soon) - Number(aState.soon)
+      || String(a.label).localeCompare(String(b.label));
+  });
+
+  function openCompletion(schedule) {
+    setCompletionSchedule(schedule);
+    setCompletion({
+      mileage: String(vehicle.current_mileage ?? ''),
+      completedAt: adminBookingDateOffset(0),
+      notes: '',
+    });
+  }
+
+  function openScheduleEditor(schedule) {
+    setEditingSchedule({
+      ...schedule,
+      interval_miles: schedule.interval_miles ?? '',
+      interval_months: schedule.interval_months ?? '',
+      warning_miles: schedule.warning_miles ?? 0,
+      warning_days: schedule.warning_days ?? 0,
+      last_service_mileage: schedule.last_service_mileage ?? '',
+      last_service_at: schedule.last_service_at || '',
+    });
+  }
+
+  async function submitCompletion(event) {
+    event.preventDefault();
+    setBusy(true);
+    const saved = await completeMaintenanceSchedule(completionSchedule, completion);
+    setBusy(false);
+    if (saved) setCompletionSchedule(null);
+  }
+
+  async function submitSchedule(event) {
+    event.preventDefault();
+    setBusy(true);
+    const saved = await saveMaintenanceSchedule(editingSchedule, editingSchedule);
+    setBusy(false);
+    if (saved) setEditingSchedule(null);
+  }
+
+  async function submitOverride(event) {
+    event.preventDefault();
+    setBusy(true);
+    const saved = await overrideVehicleMaintenance(vehicle, overrideReason, Number(overrideHours));
+    setBusy(false);
+    if (saved) {
+      setOverrideOpen(false);
+      setOverrideReason('');
+    }
+  }
+
+  return <Panel title={`${vehicle.name} Maintenance`} eyebrow="Fleet Safety Command Center">
+    <div className={`maintenance-lock-banner ${vehicle.maintenance_lock_active ? 'locked' : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date() ? 'overridden' : 'clear'}`}>
+      {vehicle.maintenance_lock_active ? <AlertTriangle size={21}/> : <ShieldCheck size={21}/>}
+      <div>
+        <strong>{vehicle.maintenance_lock_active ? 'Automatically locked from new bookings' : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date() ? 'Temporary maintenance override active' : 'No active maintenance lock'}</strong>
+        <span>{vehicle.maintenance_lock_active
+          ? vehicle.maintenance_lock_reason || 'Required service is due.'
+          : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date()
+            ? `${vehicle.maintenance_override_reason || 'Admin override'} • expires ${new Date(vehicle.maintenance_override_until).toLocaleString()}`
+            : `Current odometer ${formatMiles(vehicle.current_mileage)}. Every active milestone is enforced automatically.`}</span>
+      </div>
+      {vehicle.maintenance_lock_active && <button type="button" className="reject" onClick={() => setOverrideOpen(true)}>Emergency Override</button>}
+    </div>
+
+    <div className="maintenance-schedule-grid">
+      {sortedSchedules.map((schedule) => {
+        const state = getMaintenanceScheduleState(schedule, vehicle);
+        return <article className={`maintenance-schedule-card ${state.due ? 'due' : state.soon ? 'soon' : ''} ${schedule.active === false ? 'inactive' : ''}`} key={schedule.id}>
+          <header>
+            <span className="maintenance-card-icon"><Wrench size={17}/></span>
+            <div><strong>{schedule.label}</strong><small>{maintenanceIntervalLabel(schedule)}</small></div>
+            <em>{state.due ? 'Due now' : state.soon ? 'Due soon' : schedule.active === false ? 'Paused' : 'On schedule'}</em>
+          </header>
+          <p>{state.label}</p>
+          <dl>
+            <div><dt>Last service</dt><dd>{schedule.last_service_mileage != null ? formatMiles(schedule.last_service_mileage) : 'Mileage not recorded'}{schedule.last_service_at ? ` • ${new Date(`${schedule.last_service_at}T12:00:00`).toLocaleDateString()}` : ''}</dd></div>
+            <div><dt>Next milestone</dt><dd>{[schedule.next_due_mileage != null ? formatMiles(schedule.next_due_mileage) : '', schedule.next_due_at ? new Date(`${schedule.next_due_at}T12:00:00`).toLocaleDateString() : ''].filter(Boolean).join(' • ') || 'Not configured'}</dd></div>
+          </dl>
+          <footer>
+            <button type="button" className="secondary-btn" onClick={() => openScheduleEditor(schedule)}><Pencil size={14}/> Configure</button>
+            <button type="button" className="primary-btn" onClick={() => openCompletion(schedule)}><CheckCircle2 size={15}/> Record Service</button>
+          </footer>
+        </article>;
+      })}
+      {!sortedSchedules.length && <p className="muted">No maintenance milestones are installed for this vehicle yet.</p>}
+    </div>
+
+    <details className="maintenance-history">
+      <summary>Service history ({serviceLogs.length})</summary>
+      <div className="maintenance-history-list">
+        {serviceLogs.slice(0, 20).map((log) => <article key={log.id}><div><strong>{prettyStatus(log.service_type)}</strong><span>{formatMiles(log.completed_mileage)} • {new Date(`${log.completed_at}T12:00:00`).toLocaleDateString()}</span></div><small>{log.notes || 'No service note'}</small></article>)}
+        {!serviceLogs.length && <p className="muted">Completed services will appear here.</p>}
+      </div>
+    </details>
+
+    {completionSchedule && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setCompletionSchedule(null)}>
+      <form className="admin-modal maintenance-action-modal" onSubmit={submitCompletion}>
+        <div className="admin-modal-header"><Wrench size={21}/><div><strong>Record {completionSchedule.label}</strong><span>Mileage is mandatory and recalculates the next milestone.</span></div><button type="button" className="vehicle-editor-close" onClick={() => setCompletionSchedule(null)}><X size={18}/></button></div>
+        <div className="portal-form">
+          <label><span>Service mileage</span><input required type="number" min={vehicle.current_mileage || 0} max={MILEAGE_MAX} step="1" value={completion.mileage} onChange={(event) => setCompletion({ ...completion, mileage: event.target.value })}/></label>
+          <label><span>Service date</span><input required type="date" max={adminBookingDateOffset(0)} value={completion.completedAt} onChange={(event) => setCompletion({ ...completion, completedAt: event.target.value })}/></label>
+          <label><span>Service notes / invoice reference</span><textarea maxLength="1000" value={completion.notes} onChange={(event) => setCompletion({ ...completion, notes: event.target.value })} placeholder="Work completed, shop, invoice number, parts used…"/></label>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setCompletionSchedule(null)}>Cancel</button><button className="approve" disabled={busy}>{busy ? 'Recording…' : 'Complete Service'}</button></div>
+      </form>
+    </div>}
+
+    {editingSchedule && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setEditingSchedule(null)}>
+      <form className="admin-modal maintenance-action-modal" onSubmit={submitSchedule}>
+        <div className="admin-modal-header"><Wrench size={21}/><div><strong>Configure {editingSchedule.label}</strong><span>OEM defaults can be adjusted for this exact vehicle and service history.</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingSchedule(null)}><X size={18}/></button></div>
+        <div className="portal-form maintenance-config-form">
+          <label><span>Milestone label</span><input required maxLength="80" value={editingSchedule.label} onChange={(event) => setEditingSchedule({ ...editingSchedule, label: event.target.value })}/></label>
+          <div className="form-row">
+            <label><span>Every miles</span><input type="number" min="500" max="300000" step="1" value={editingSchedule.interval_miles} onChange={(event) => setEditingSchedule({ ...editingSchedule, interval_miles: event.target.value })}/></label>
+            <label><span>Every months</span><input type="number" min="1" max="240" step="1" value={editingSchedule.interval_months} onChange={(event) => setEditingSchedule({ ...editingSchedule, interval_months: event.target.value })}/></label>
+          </div>
+          <div className="form-row">
+            <label><span>Warn this many miles early</span><input type="number" min="0" max="25000" step="1" value={editingSchedule.warning_miles} onChange={(event) => setEditingSchedule({ ...editingSchedule, warning_miles: event.target.value })}/></label>
+            <label><span>Warn this many days early</span><input type="number" min="0" max="365" step="1" value={editingSchedule.warning_days} onChange={(event) => setEditingSchedule({ ...editingSchedule, warning_days: event.target.value })}/></label>
+          </div>
+          <div className="form-row">
+            <label><span>Last service mileage</span><input type="number" min="0" max={MILEAGE_MAX} step="1" value={editingSchedule.last_service_mileage} onChange={(event) => setEditingSchedule({ ...editingSchedule, last_service_mileage: event.target.value })}/></label>
+            <label><span>Last service date</span><input type="date" max={adminBookingDateOffset(0)} value={editingSchedule.last_service_at} onChange={(event) => setEditingSchedule({ ...editingSchedule, last_service_at: event.target.value })}/></label>
+          </div>
+          <label><span>Notes</span><textarea maxLength="1000" value={editingSchedule.notes || ''} onChange={(event) => setEditingSchedule({ ...editingSchedule, notes: event.target.value })}/></label>
+          <div className="form-row compact">
+            <label className="checkbox-pill"><input type="checkbox" checked={editingSchedule.lock_when_due !== false} onChange={(event) => setEditingSchedule({ ...editingSchedule, lock_when_due: event.target.checked })}/> Auto-lock when due</label>
+            <label className="checkbox-pill"><input type="checkbox" checked={editingSchedule.active !== false} onChange={(event) => setEditingSchedule({ ...editingSchedule, active: event.target.checked })}/> Active milestone</label>
+          </div>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingSchedule(null)}>Cancel</button><button className="approve" disabled={busy}>{busy ? 'Saving…' : 'Save Milestone'}</button></div>
+      </form>
+    </div>}
+
+    {overrideOpen && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setOverrideOpen(false)}>
+      <form className="admin-modal maintenance-action-modal" onSubmit={submitOverride}>
+        <div className="admin-modal-header"><AlertTriangle size={21}/><div><strong>Override Maintenance Lock</strong><span>This is time-limited, audited, and sends an admin push alert.</span></div><button type="button" className="vehicle-editor-close" onClick={() => setOverrideOpen(false)}><X size={18}/></button></div>
+        <div className="portal-form">
+          <label><span>Specific operational reason</span><textarea required minLength="10" maxLength="1000" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Explain why this vehicle is safe to release before service…"/></label>
+          <label><span>Override duration</span><select value={overrideHours} onChange={(event) => setOverrideHours(event.target.value)}><option value="4">4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option><option value="168">7 days maximum</option></select></label>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setOverrideOpen(false)}>Cancel</button><button className="reject" disabled={busy}>{busy ? 'Applying…' : 'Apply Audited Override'}</button></div>
+      </form>
+    </div>}
+  </Panel>;
 }
 
 function VehiclePhotoManager({ vehicleName, value, onChange }) {
@@ -5435,8 +5815,11 @@ function formatDateTime(date) {
   return `${date.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} ${formatTimeOnly(date)}`;
 }
 function calendarDays(count) {
+  return calendarDaysFrom(adminBookingDateOffset(0), count);
+}
+function calendarDaysFrom(startDate, count) {
   return Array.from({ length: count }, (_, index) => {
-    const date = new Date();
+    const date = new Date(`${startDate}T12:00:00`);
     date.setDate(date.getDate() + index);
     const iso = date.toISOString().split('T')[0];
     return {
@@ -5717,6 +6100,11 @@ function parseMileageInput(value) {
   const mileage = Number(String(value).replaceAll(',', '').trim());
   return Number.isInteger(mileage) && mileage >= 0 ? mileage : null;
 }
+function parseOptionalPositiveInteger(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const parsed = Number(String(value).replaceAll(',', '').trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
 function calculateMilesDriven(startingMileage, endingMileage) {
   const start = parseMileageInput(startingMileage);
   const end = parseMileageInput(endingMileage);
@@ -5751,6 +6139,35 @@ function getVehicleMaintenanceState(vehicle) {
     return { due: false, soon: true, remaining, next, label: `Maintenance due in ${remaining.toLocaleString('en-US')} mi` };
   }
   return { due: false, soon: false, remaining, next, label: `Next maintenance at ${formatMiles(next)}` };
+}
+function getMaintenanceScheduleState(schedule, vehicle) {
+  if (!schedule || schedule.active === false) return { due: false, soon: false, label: 'Milestone paused' };
+  const currentMileage = parseMileageInput(vehicle?.current_mileage);
+  const nextMileage = parseMileageInput(schedule.next_due_mileage);
+  const remainingMiles = currentMileage === null || nextMileage === null ? null : nextMileage - currentMileage;
+  const today = new Date(`${adminBookingDateOffset(0)}T12:00:00`);
+  const dueDate = schedule.next_due_at ? new Date(`${schedule.next_due_at}T12:00:00`) : null;
+  const remainingDays = dueDate ? Math.ceil((dueDate.getTime() - today.getTime()) / 86400000) : null;
+  const due = (remainingMiles !== null && remainingMiles <= 0) || (remainingDays !== null && remainingDays <= 0);
+  const soon = due
+    || (remainingMiles !== null && remainingMiles <= Number(schedule.warning_miles || 0))
+    || (remainingDays !== null && remainingDays <= Number(schedule.warning_days || 0));
+  if (due) {
+    const reasons = [];
+    if (remainingMiles !== null && remainingMiles <= 0) reasons.push(`${Math.abs(remainingMiles).toLocaleString('en-US')} mi overdue`);
+    if (remainingDays !== null && remainingDays <= 0) reasons.push(remainingDays === 0 ? 'due today' : `${Math.abs(remainingDays)} days overdue`);
+    return { due, soon, remainingMiles, remainingDays, label: `${schedule.label}: ${reasons.join(' • ')}` };
+  }
+  const targets = [];
+  if (remainingMiles !== null) targets.push(`${remainingMiles.toLocaleString('en-US')} mi remaining`);
+  if (remainingDays !== null) targets.push(`${remainingDays} days remaining`);
+  return { due, soon, remainingMiles, remainingDays, label: `${schedule.label}: ${targets.join(' • ') || 'add service baseline'}` };
+}
+function maintenanceIntervalLabel(schedule) {
+  const intervals = [];
+  if (schedule?.interval_miles) intervals.push(`every ${Number(schedule.interval_miles).toLocaleString('en-US')} mi`);
+  if (schedule?.interval_months) intervals.push(`every ${schedule.interval_months} months`);
+  return intervals.join(' or ') || 'No interval configured';
 }
 
 function customerRiskProfile(profile, rentals, documents, reports) {
