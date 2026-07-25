@@ -4034,3 +4034,278 @@ input[type="radio"] {
     min-height: 46px !important;
   }
 }
+
+/* Canonical mobile navigation. It does not reuse any legacy sidebar selectors. */
+.mobile-drawer,
+.mobile-drawer-scrim,
+.mobile-drawer-trigger {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .mobile-drawer-scrim {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 990 !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: rgba(3, 13, 7, .55) !important;
+    box-shadow: none !important;
+    animation: mobile-drawer-scrim-in 220ms ease both;
+  }
+
+  .mobile-drawer {
+    position: fixed !important;
+    inset: 0 auto 0 0 !important;
+    z-index: 1000 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: min(82vw, 300px) !important;
+    min-width: 0 !important;
+    max-width: 300px !important;
+    height: 100dvh !important;
+    margin: 0 !important;
+    padding: calc(20px + env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom)) !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #06140d !important;
+    color: rgba(255, 255, 255, .7) !important;
+    box-shadow: 18px 0 50px rgba(0, 0, 0, .28) !important;
+    transform: translateX(-105%) !important;
+    transition: transform 280ms ease, visibility 0s linear 280ms !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  .mobile-drawer.open {
+    transform: translateX(0) !important;
+    transition: transform 280ms ease, visibility 0s !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+  }
+
+  .mobile-drawer-brand {
+    flex: none !important;
+    display: grid !important;
+    place-items: center !important;
+    min-height: 112px !important;
+    margin: 0 0 24px !important;
+    padding: 4px 42px 18px 8px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, .14) !important;
+  }
+
+  .mobile-drawer-brand img {
+    display: block !important;
+    width: 170px !important;
+    max-width: 100% !important;
+    height: 76px !important;
+    max-height: 76px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    object-fit: contain !important;
+  }
+
+  .mobile-drawer-close {
+    position: absolute !important;
+    top: calc(16px + env(safe-area-inset-top)) !important;
+    right: 14px !important;
+    z-index: 2 !important;
+    display: grid !important;
+    place-items: center !important;
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1px solid rgba(255, 255, 255, .16) !important;
+    border-radius: 9px !important;
+    background: rgba(255, 255, 255, .06) !important;
+    color: rgba(255, 255, 255, .82) !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-drawer-nav {
+    flex: 1 1 auto !important;
+    display: grid !important;
+    grid-auto-rows: min-content !important;
+    align-content: start !important;
+    gap: 5px !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(255, 255, 255, .22) transparent !important;
+  }
+
+  .mobile-drawer-nav button {
+    position: static !important;
+    display: grid !important;
+    grid-template-columns: 25px minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    justify-content: normal !important;
+    gap: 11px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 48px !important;
+    margin: 0 !important;
+    padding: 12px 14px !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    background: transparent !important;
+    color: rgba(255, 255, 255, .68) !important;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+    line-height: 1.2 !important;
+    text-align: left !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-drawer-nav button:hover,
+  .mobile-drawer-nav button.active {
+    background: rgba(255, 255, 255, .1) !important;
+    color: #fff !important;
+  }
+
+  .mobile-drawer-nav button.active {
+    box-shadow: inset 3px 0 0 #72c392 !important;
+  }
+
+  .mobile-drawer-nav button svg {
+    position: static !important;
+    grid-column: 1 !important;
+    display: block !important;
+    width: 20px !important;
+    height: 20px !important;
+    margin: 0 !important;
+    color: #72c392 !important;
+  }
+
+  .mobile-drawer-nav button span {
+    position: static !important;
+    grid-column: 2 !important;
+    display: block !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: currentColor !important;
+    font: inherit !important;
+    line-height: inherit !important;
+    text-align: left !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    opacity: 1 !important;
+    transform: none !important;
+    visibility: visible !important;
+  }
+
+  .mobile-drawer-footer {
+    flex: none !important;
+    display: grid !important;
+    gap: 8px !important;
+    margin: 14px 0 0 !important;
+    padding: 12px 0 0 !important;
+    border-top: 1px solid rgba(255, 255, 255, .14) !important;
+  }
+
+  .mobile-drawer-footer button {
+    display: grid !important;
+    grid-template-columns: 25px minmax(0, 1fr) !important;
+    align-items: center !important;
+    justify-content: normal !important;
+    gap: 11px !important;
+    width: 100% !important;
+    min-height: 48px !important;
+    margin: 0 !important;
+    padding: 12px 14px !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    background: transparent !important;
+    color: rgba(255, 255, 255, .66) !important;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+    text-align: left !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-drawer-footer button:hover {
+    background: rgba(255, 255, 255, .08) !important;
+    color: #fff !important;
+  }
+
+  .mobile-drawer-footer button svg {
+    width: 19px !important;
+    height: 19px !important;
+    margin: 0 !important;
+    color: currentColor !important;
+  }
+
+  .mobile-drawer-footer button span {
+    color: currentColor !important;
+    font: inherit !important;
+    text-align: left !important;
+  }
+
+  .admin-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 30 !important;
+    grid-template-columns: 44px minmax(0, 1fr) auto !important;
+    min-height: 72px !important;
+    gap: 10px !important;
+    margin: 0 -12px 14px !important;
+    padding: 10px 14px !important;
+    background: rgba(255, 255, 255, .96) !important;
+    backdrop-filter: blur(12px) !important;
+  }
+
+  .admin-header .mobile-drawer-trigger {
+    position: static !important;
+    grid-column: 1 !important;
+    display: grid !important;
+    place-items: center !important;
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1px solid var(--ui-line) !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    color: var(--brand-red-shell) !important;
+    box-shadow: none !important;
+  }
+
+  .admin-header-copy .eyebrow {
+    font-size: 8px !important;
+    letter-spacing: .08em !important;
+  }
+
+  .admin-header-copy h1 {
+    font-size: 21px !important;
+    line-height: 1.15 !important;
+  }
+}
+
+@keyframes mobile-drawer-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

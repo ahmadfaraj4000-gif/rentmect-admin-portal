@@ -2387,28 +2387,48 @@ function App() {
 
   return (
     <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
-      {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-nav-backdrop" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
-      <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
-        <div className="brand-block">
-          <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
-        </div>
-        <div className="mobile-nav-heading">
-          <div><span>Admin Menu</span><strong>{tabTitle(activeTab)}</strong></div>
-          <small>Choose where you need to work.</small>
-        </div>
-        <button className="nav-toggle" type="button" onClick={toggleMobileNav} aria-expanded={!navCollapsed} aria-controls="admin-primary-navigation" aria-label={navCollapsed ? 'Open admin navigation' : 'Close admin navigation'}>
-          {navCollapsed ? <Menu size={18} /> : <X size={18} />}<span>{navCollapsed ? 'Menu' : 'Close'}</span>
-        </button>
-        <button type="button" className="mobile-nav-new-booking" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={19}/><span>New Booking</span></button>
-        <nav className="side-nav" id="admin-primary-navigation">
-          {adminTabs.map(({ key, label, icon: Icon }) => (
-            <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
-              <Icon size={18}/><span>{label}</span>
+      {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-drawer-scrim" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
+      {isMobileAdminNav && (
+        <aside className={`mobile-drawer admin-mobile-drawer ${navCollapsed ? '' : 'open'}`} aria-label="Admin navigation">
+          <div className="mobile-drawer-brand">
+            <img src={logoUrl} alt="Rent Me CT" />
+          </div>
+          <button className="mobile-drawer-close" type="button" onClick={() => setNavCollapsed(true)} aria-label="Close admin navigation">
+            <X size={22} />
+          </button>
+          <nav className="mobile-drawer-nav" id="admin-mobile-drawer-navigation">
+            <button type="button" className={activeTab === 'new-booking' ? 'active' : ''} onClick={() => selectAdminTab('new-booking')} aria-current={activeTab === 'new-booking' ? 'page' : undefined}>
+              <CalendarClock size={20}/><span>New Booking</span>
             </button>
-          ))}
-        </nav>
-        <button className="logout-btn" onClick={signOut} title="Log Out"><LogOut size={18}/><span>Log Out</span></button>
-      </aside>
+            {adminTabs.map(({ key, label, icon: Icon }) => (
+              <button key={key} type="button" className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
+                <Icon size={20}/><span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="mobile-drawer-footer">
+            <button type="button" onClick={signOut}><LogOut size={19}/><span>Log Out</span></button>
+          </div>
+        </aside>
+      )}
+      {!isMobileAdminNav && (
+        <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
+          <div className="brand-block">
+            <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
+          </div>
+          <button className="nav-toggle" type="button" onClick={toggleMobileNav} aria-expanded={!navCollapsed} aria-controls="admin-primary-navigation" aria-label={navCollapsed ? 'Expand admin navigation' : 'Collapse admin navigation'}>
+            {navCollapsed ? <Menu size={18} /> : <X size={18} />}<span>{navCollapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
+          <nav className="side-nav" id="admin-primary-navigation">
+            {adminTabs.map(({ key, label, icon: Icon }) => (
+              <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
+                <Icon size={18}/><span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <button className="logout-btn" onClick={signOut} title="Log Out"><LogOut size={18}/><span>Log Out</span></button>
+        </aside>
+      )}
 
       <main className="admin-main">
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
@@ -2416,9 +2436,9 @@ function App() {
           {isMobileAdminNav && navCollapsed && (
             <button
               type="button"
-              className="mobile-menu-trigger"
+              className="mobile-drawer-trigger"
               aria-label="Open admin navigation"
-              aria-controls="admin-primary-navigation"
+              aria-controls="admin-mobile-drawer-navigation"
               aria-expanded="false"
               onClick={() => setNavCollapsed(false)}
             >
