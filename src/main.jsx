@@ -70,6 +70,17 @@ const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_revie
 const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES, 'completed'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
+const SMS_TEMPLATE_MAX_LENGTH = 900;
+const SMS_COMPLIANCE_FOOTER = 'Reply STOP to unsubscribe or HELP for help.';
+
+function smsTemplateComplianceError(value) {
+  const body = String(value || '').trim();
+  if (!/\bRent Me CT\b/i.test(body)) return 'Text templates must identify the sender as Rent Me CT.';
+  if (!/\bReply\s+STOP\b/i.test(body)) return 'Text templates must include “Reply STOP to unsubscribe.”';
+  if (!/\bHELP\b/i.test(body)) return 'Text templates must tell customers they can reply HELP for help.';
+  if (body.length > SMS_TEMPLATE_MAX_LENGTH) return `Text templates must be ${SMS_TEMPLATE_MAX_LENGTH} characters or fewer before variables are rendered.`;
+  return '';
+}
 
 const OPERATIONAL_VEHICLE_STATUS_OPTIONS = [
   ['available', 'In Service'],
@@ -3861,6 +3872,8 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
   async function saveTextTemplate(event) {
     event.preventDefault();
     if (!editingTextTemplate?.name?.trim() || !editingTextTemplate?.body?.trim()) return notify('Text template name and message are required.');
+    const complianceError = smsTemplateComplianceError(editingTextTemplate.body);
+    if (complianceError) return notify(complianceError);
     setBusy(true);
     const values = {
       name: editingTextTemplate.name.trim(),
@@ -4022,7 +4035,8 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
         <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTextTemplate(null)}><X size={19}/></button></div>
         <div className="portal-form contact-text-template-editor">
           <label><span>Template name</span><input required maxLength="120" value={editingTextTemplate.name || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, name: limitText(event.target.value, 120) })}/></label>
-          <label className="full-field"><span>Text message</span><textarea required maxLength="1600" value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, 1600) })}/><small>{String(editingTextTemplate.body || '').length}/1600 characters. Longer messages may be delivered as multiple SMS segments.</small></label>
+          <label className="full-field"><span>Text message</span><textarea required maxLength={SMS_TEMPLATE_MAX_LENGTH} value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, SMS_TEMPLATE_MAX_LENGTH) })}/><small>{String(editingTextTemplate.body || '').length}/{SMS_TEMPLATE_MAX_LENGTH} characters before variables are rendered.</small></label>
+          <div className="contact-variable-help full-field"><strong>Required in every template</strong><span>Identify Rent Me CT and include: {SMS_COMPLIANCE_FOOTER}</span></div>
           <label className="checkbox-pill full-field"><input type="checkbox" checked={editingTextTemplate.enabled !== false} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, enabled: event.target.checked })}/> Enabled for admin use</label>
           <div className="contact-variable-help full-field"><strong>Available variables</strong><span>{'{{customer_first_name}}'} · {'{{vehicle_name}}'} · {'{{pickup_date}}'} · {'{{pickup_time}}'} · {'{{return_date}}'} · {'{{return_time}}'} · {'{{manage_booking_url}}'} · {'{{business_phone}}'} · {'{{charge_name}}'} · {'{{charge_total}}'}</span></div>
         </div>
