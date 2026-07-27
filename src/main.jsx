@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { optimizeVehicleImage } from './lib/imageOptimizer';
+import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
 import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
@@ -361,6 +362,8 @@ function App() {
   const [editingVehicleId, setEditingVehicleId] = useState('');
   const [editVehicleForm, setEditVehicleForm] = useState(null);
   const [vehiclePriceConfirmation, setVehiclePriceConfirmation] = useState(null);
+  const [vehiclePriceConfirmationError, setVehiclePriceConfirmationError] = useState('');
+  const [vehiclePriceConfirming, setVehiclePriceConfirming] = useState(false);
 
   const [manualBookingForm, setManualBookingForm] = useState({
     customerMode: 'existing',
@@ -1457,38 +1460,48 @@ function App() {
     setEditVehicleForm(null);
   }
 
-  async function saveVehicleEdit(id, { priceConfirmed = false } = {}) {
+  async function saveVehicleEdit(id, { priceConfirmed = false, onError = null } = {}) {
     if (!editVehicleForm) return;
+    const fail = (message) => {
+      if (onError) onError(message);
+      else notify(message);
+      return false;
+    };
 
     const vehicle = vehicles.find((item) => item.id === id);
     const previousDailyRate = Number(vehicle?.daily_rate || 0);
     const nextDailyRate = Number(editVehicleForm.daily_rate);
     if (!Number.isFinite(nextDailyRate) || nextDailyRate < 0 || nextDailyRate > MONEY_MAX) {
-      return notify(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
+      return fail(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
     }
-    const priceChanged = Math.abs(previousDailyRate - nextDailyRate) >= 0.005;
+    const priceConfirmation = getVehiclePriceConfirmation({
+      action: 'edit',
+      vehicleId: id,
+      vehicleName: vehicle?.name || editVehicleForm.name || 'this vehicle',
+      previousDailyRate,
+      nextDailyRate,
+      priceConfirmed,
+    });
+    if (priceConfirmation) {
+      setVehiclePriceConfirmationError('');
+      setVehiclePriceConfirmation(priceConfirmation);
+      return false;
+    }
 
+    const originalMileageEntered = String(editVehicleForm.original_mileage ?? '').trim() !== '';
+    const currentMileageEntered = String(editVehicleForm.current_mileage ?? '').trim() !== '';
     const originalMileage = parseMileageInput(editVehicleForm.original_mileage);
     const currentMileage = parseMileageInput(editVehicleForm.current_mileage);
     const lastServiceMileage = parseMileageInput(editVehicleForm.last_maintenance_mileage);
-    if (originalMileage === null || currentMileage === null) return notify('Original and current mileage are required.');
-    if (currentMileage < originalMileage) return notify('Current mileage cannot be below the original mileage.');
-    if (lastServiceMileage !== null && lastServiceMileage > currentMileage) return notify('Last service mileage cannot be above the current odometer.');
+    if (originalMileageEntered !== currentMileageEntered) return fail('Enter both original and current mileage, or leave both blank for a legacy vehicle.');
+    if (originalMileageEntered && (originalMileage === null || currentMileage === null)) return fail('Original and current mileage must be whole numbers.');
+    if (originalMileage !== null && currentMileage !== null && currentMileage < originalMileage) return fail('Current mileage cannot be below the original mileage.');
+    if (lastServiceMileage !== null && currentMileage === null) return fail('Enter current mileage before adding last service mileage.');
+    if (lastServiceMileage !== null && currentMileage !== null && lastServiceMileage > currentMileage) return fail('Last service mileage cannot be above the current odometer.');
 
     const { status, ...vehicleFields } = editVehicleForm;
     if (status && !OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === status)) {
-      return notify('Choose a vehicle condition. Reservation states are controlled by the rental schedule.');
-    }
-    if (priceChanged && !priceConfirmed) {
-      setVehiclePriceConfirmation({
-        action: 'edit',
-        vehicleId: id,
-        vehicleName: vehicle?.name || editVehicleForm.name || 'this vehicle',
-        previousDailyRate,
-        nextDailyRate,
-        singleDigit: nextDailyRate < 10,
-      });
-      return false;
+      return fail('Choose a vehicle condition. Reservation states are controlled by the rental schedule.');
     }
     const { error } = await supabase
       .from('vehicles')
@@ -1506,7 +1519,7 @@ function App() {
       })
       .eq('id', id);
 
-    if (error) return notify(error.message);
+    if (error) return fail(error.message);
 
     setEditingVehicleId('');
     setEditVehicleForm(null);
@@ -2317,36 +2330,38 @@ function App() {
     return data.url;
   }
 
-  async function addVehicle(event, { priceConfirmed = false } = {}) {
+  async function addVehicle(event, { priceConfirmed = false, onError = null } = {}) {
     event?.preventDefault();
-    if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
-      notify('Choose a valid vehicle condition.');
+    const fail = (message) => {
+      if (onError) onError(message);
+      else notify(message);
       return false;
+    };
+    if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
+      return fail('Choose a valid vehicle condition.');
     }
     const dailyRate = Number(vehicleForm.daily_rate);
     if (!Number.isFinite(dailyRate) || dailyRate < 0 || dailyRate > MONEY_MAX) {
-      notify(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
+      return fail(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
+    }
+    const priceConfirmation = getVehiclePriceConfirmation({
+      action: 'add',
+      vehicleName: vehicleForm.name || 'this new vehicle',
+      nextDailyRate: dailyRate,
+      priceConfirmed,
+    });
+    if (priceConfirmation) {
+      setVehiclePriceConfirmationError('');
+      setVehiclePriceConfirmation(priceConfirmation);
       return false;
     }
     const originalMileage = parseMileageInput(vehicleForm.original_mileage);
     if (originalMileage === null) {
-      notify('Enter the vehicle’s original odometer mileage.');
-      return false;
+      return fail('Enter the vehicle’s original odometer mileage.');
     }
     const lastServiceMileage = parseMileageInput(vehicleForm.last_maintenance_mileage);
     if (lastServiceMileage !== null && lastServiceMileage > originalMileage) {
-      notify('Last service mileage cannot be above the current odometer.');
-      return false;
-    }
-    if (dailyRate < 10 && !priceConfirmed) {
-      setVehiclePriceConfirmation({
-        action: 'add',
-        vehicleName: vehicleForm.name || 'this new vehicle',
-        previousDailyRate: null,
-        nextDailyRate: dailyRate,
-        singleDigit: true,
-      });
-      return false;
+      return fail('Last service mileage cannot be above the current odometer.');
     }
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
@@ -2360,8 +2375,7 @@ function App() {
       image_urls: linesToList(vehicleForm.image_urls),
     });
     if (error) {
-      notify(error.message);
-      return false;
+      return fail(error.message);
     }
     const wasPublished = vehicleForm.published;
     setVehicleForm(createEmptyVehicleForm());
@@ -2372,13 +2386,18 @@ function App() {
 
   async function confirmVehiclePriceChange() {
     const pending = vehiclePriceConfirmation;
-    if (!pending) return;
-    setVehiclePriceConfirmation(null);
-    if (pending.action === 'edit') {
-      await saveVehicleEdit(pending.vehicleId, { priceConfirmed: true });
-      return;
+    if (!pending || vehiclePriceConfirming) return;
+    setVehiclePriceConfirmationError('');
+    setVehiclePriceConfirming(true);
+    try {
+      const onError = (message) => setVehiclePriceConfirmationError(message);
+      const saved = pending.action === 'edit'
+        ? await saveVehicleEdit(pending.vehicleId, { priceConfirmed: true, onError })
+        : await addVehicle(null, { priceConfirmed: true, onError });
+      if (saved) setVehiclePriceConfirmation(null);
+    } finally {
+      setVehiclePriceConfirming(false);
     }
-    await addVehicle(null, { priceConfirmed: true });
   }
 
   async function sendManualReminder(rental, channel) {
@@ -2534,11 +2553,17 @@ function App() {
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
         {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
-      {vehiclePriceConfirmation && <VehiclePriceConfirmationModal
+      {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
         confirmation={vehiclePriceConfirmation}
-        onCancel={() => setVehiclePriceConfirmation(null)}
+        error={vehiclePriceConfirmationError}
+        confirming={vehiclePriceConfirming}
+        onCancel={() => {
+          if (vehiclePriceConfirming) return;
+          setVehiclePriceConfirmation(null);
+          setVehiclePriceConfirmationError('');
+        }}
         onConfirm={confirmVehiclePriceChange}
-      />}
+      />, document.body)}
     </div>
   );
 }
@@ -5734,7 +5759,7 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
   </div>;
 }
 
-function VehiclePriceConfirmationModal({ confirmation, onCancel, onConfirm }) {
+function VehiclePriceConfirmationModal({ confirmation, error = '', confirming = false, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
   const isNewVehicle = confirmation.action === 'add';
   const isSingleDigit = confirmation.singleDigit;
@@ -5778,11 +5803,15 @@ function VehiclePriceConfirmationModal({ confirmation, onCancel, onConfirm }) {
           : `This will change ${confirmation.vehicleName} from ${money(confirmation.previousDailyRate)} to ${money(confirmation.nextDailyRate)} per day.`
         }</span>
       </div>
+      {error && <div className="price-confirmation-error" role="alert">
+        <AlertTriangle size={17}/>
+        <span>{error}</span>
+      </div>}
       <div className="modal-actions price-confirmation-actions">
-        <button type="button" className="secondary-btn" onClick={onCancel}>Keep Editing</button>
-        <button type="button" className={isSingleDigit ? 'reject' : 'primary-btn'} onClick={onConfirm}>
+        <button type="button" className="secondary-btn" onClick={onCancel} disabled={confirming}>Keep Editing</button>
+        <button type="button" className={isSingleDigit ? 'reject' : 'primary-btn'} onClick={onConfirm} disabled={confirming}>
           {isSingleDigit ? <AlertTriangle size={16}/> : <CheckCircle2 size={16}/>}
-          {isNewVehicle ? 'Confirm Price & Add Vehicle' : 'Confirm Price & Save'}
+          {confirming ? 'Saving…' : isNewVehicle ? 'Confirm Price & Add Vehicle' : 'Confirm Price & Save'}
         </button>
       </div>
     </div>
