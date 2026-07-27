@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
@@ -11,6 +12,7 @@ import {
   ChevronDown,
   ClipboardList,
   Clock,
+  Copy,
   CreditCard,
   DollarSign,
   Eye,
@@ -63,12 +65,30 @@ const DEFAULT_UNDER_25_PRICING = {
   deposit_adjustment_value: 200,
   rental_markup_percentage: 10,
 };
+const DEFAULT_BILLING_AUTOMATION = {
+  id: true,
+  automatic_deposit_release_enabled: true,
+  deposit_release_delay_days: 7,
+  tollspot_automatic_sync_enabled: true,
+  tollspot_auto_create_charges: true,
+};
 const DOCUMENT_BUCKET = 'rental-documents';
 const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'checkout_hold'];
 const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES, 'completed'];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
+const SMS_TEMPLATE_MAX_LENGTH = 900;
+const SMS_COMPLIANCE_FOOTER = 'Reply STOP to unsubscribe or HELP for help.';
+
+function smsTemplateComplianceError(value) {
+  const body = String(value || '').trim();
+  if (!/\bRent Me CT\b/i.test(body)) return 'Text templates must identify the sender as Rent Me CT.';
+  if (!/\bReply\s+STOP\b/i.test(body)) return 'Text templates must include “Reply STOP to unsubscribe.”';
+  if (!/\bHELP\b/i.test(body)) return 'Text templates must tell customers they can reply HELP for help.';
+  if (body.length > SMS_TEMPLATE_MAX_LENGTH) return `Text templates must be ${SMS_TEMPLATE_MAX_LENGTH} characters or fewer before variables are rendered.`;
+  return '';
+}
 
 const OPERATIONAL_VEHICLE_STATUS_OPTIONS = [
   ['available', 'In Service'],
@@ -322,6 +342,8 @@ function App() {
   const [serviceFees, setServiceFees] = useState([]);
   const [under25Pricing, setUnder25Pricing] = useState(DEFAULT_UNDER_25_PRICING);
   const [under25PricingSaving, setUnder25PricingSaving] = useState(false);
+  const [billingAutomation, setBillingAutomation] = useState(DEFAULT_BILLING_AUTOMATION);
+  const [billingAutomationSaving, setBillingAutomationSaving] = useState(false);
   const [sitePromotions, setSitePromotions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
@@ -348,6 +370,7 @@ function App() {
 
   const [editingVehicleId, setEditingVehicleId] = useState('');
   const [editVehicleForm, setEditVehicleForm] = useState(null);
+  const [vehiclePriceConfirmation, setVehiclePriceConfirmation] = useState(null);
 
   const [manualBookingForm, setManualBookingForm] = useState({
     customerMode: 'existing',
@@ -644,7 +667,7 @@ function App() {
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
     setDataHealth((current) => ({ ...current, refreshing: true }));
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, billingAutomationRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -747,6 +770,12 @@ function App() {
         .maybeSingle(),
 
       supabase
+        .from('billing_automation_settings')
+        .select('*')
+        .eq('id', true)
+        .maybeSingle(),
+
+      supabase
         .from('admin_audit_logs')
         .select('*')
         .order('created_at', { ascending: false })
@@ -804,6 +833,7 @@ function App() {
       ['Promotions', sitePromotionsRes.error],
       ['Calendar blocks', availabilityBlocksRes.error],
       ['Under-25 pricing', under25PricingRes.error],
+      ['Billing automation', billingAutomationRes.error],
       ['Audit log', auditLogsRes.error],
       ['Payments', rentalPaymentsRes.error],
       ['Additional charges', rentalChargesRes.error],
@@ -831,6 +861,7 @@ function App() {
     if (sitePromotionsRes.data) setSitePromotions(sitePromotionsRes.data);
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
     if (under25PricingRes.data) setUnder25Pricing(under25PricingRes.data);
+    if (billingAutomationRes.data) setBillingAutomation(billingAutomationRes.data);
     if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
     if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
     if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
@@ -1444,8 +1475,16 @@ function App() {
     setEditVehicleForm(null);
   }
 
-  async function saveVehicleEdit(id) {
+  async function saveVehicleEdit(id, { priceConfirmed = false } = {}) {
     if (!editVehicleForm) return;
+
+    const vehicle = vehicles.find((item) => item.id === id);
+    const previousDailyRate = Number(vehicle?.daily_rate || 0);
+    const nextDailyRate = Number(editVehicleForm.daily_rate);
+    if (!Number.isFinite(nextDailyRate) || nextDailyRate < 0 || nextDailyRate > MONEY_MAX) {
+      return notify(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
+    }
+    const priceChanged = Math.abs(previousDailyRate - nextDailyRate) >= 0.005;
 
     const originalMileage = parseMileageInput(editVehicleForm.original_mileage);
     const currentMileage = parseMileageInput(editVehicleForm.current_mileage);
@@ -1458,12 +1497,23 @@ function App() {
     if (status && !OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === status)) {
       return notify('Choose a vehicle condition. Reservation states are controlled by the rental schedule.');
     }
+    if (priceChanged && !priceConfirmed) {
+      setVehiclePriceConfirmation({
+        action: 'edit',
+        vehicleId: id,
+        vehicleName: vehicle?.name || editVehicleForm.name || 'this vehicle',
+        previousDailyRate,
+        nextDailyRate,
+        singleDigit: nextDailyRate < 10,
+      });
+      return false;
+    }
     const { error } = await supabase
       .from('vehicles')
       .update({
         ...vehicleFields,
         ...(status ? { status } : {}),
-        daily_rate: Number(editVehicleForm.daily_rate || 0),
+        daily_rate: nextDailyRate,
         security_deposit: Number(editVehicleForm.security_deposit || 0),
         original_mileage: originalMileage,
         current_mileage: currentMileage,
@@ -1479,6 +1529,8 @@ function App() {
     setEditingVehicleId('');
     setEditVehicleForm(null);
     loadAllData();
+    notify(`${vehicle?.name || 'Vehicle'} updated.`, 'success');
+    return true;
   }
 
   async function deleteVehicle(id) {
@@ -1499,7 +1551,21 @@ function App() {
 
   function generateDiscountCode() {
     const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
-    setDiscountForm((current) => ({ ...current, code: `RENTME-${randomPart}` }));
+    const code = `RENTME-${randomPart}`;
+    setDiscountForm((current) => ({ ...current, code }));
+    navigator.clipboard?.writeText(code).then(
+      () => notify('Discount code generated and copied.', 'success'),
+      () => notify('Discount code generated. Use Copy after saving it.', 'success'),
+    );
+  }
+
+  async function copyDiscountCode(code) {
+    try {
+      await navigator.clipboard.writeText(code);
+      notify(`${code} copied.`, 'success');
+    } catch {
+      notify('Copy was blocked by the browser. Select the code and copy it manually.');
+    }
   }
 
   async function createDiscountCode(event) {
@@ -1527,8 +1593,13 @@ function App() {
     if (error) return notify(error.message);
 
     setDiscountCodes((current) => [data, ...current]);
+    setPromotionForm((current) => ({
+      ...current,
+      coupon_code: data.code,
+      discount_code_id: data.id,
+    }));
     setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true });
-    notify('Discount code created.', 'success');
+    notify('Discount code created and selected for the promotion manager.', 'success');
   }
 
   async function toggleDiscountCode(id, active) {
@@ -1650,6 +1721,33 @@ function App() {
     notify('Under-25 deposit adjustment removed. Vehicle deposits now apply without an age adjustment.', 'success');
   }
 
+  async function saveBillingAutomation(event) {
+    event?.preventDefault();
+    const delayDays = Number(billingAutomation.deposit_release_delay_days || 0);
+    if (!Number.isInteger(delayDays) || delayDays < 1 || delayDays > 30) {
+      return notify('Automatic deposit release delay must be a whole number from 1 to 30 days.');
+    }
+    setBillingAutomationSaving(true);
+    const payload = {
+      automatic_deposit_release_enabled: Boolean(billingAutomation.automatic_deposit_release_enabled),
+      deposit_release_delay_days: delayDays,
+      tollspot_automatic_sync_enabled: Boolean(billingAutomation.tollspot_automatic_sync_enabled),
+      tollspot_auto_create_charges: true,
+      updated_at: new Date().toISOString(),
+      updated_by: session?.user?.id || null,
+    };
+    const { data, error } = await supabase
+      .from('billing_automation_settings')
+      .update(payload)
+      .eq('id', true)
+      .select('*')
+      .single();
+    setBillingAutomationSaving(false);
+    if (error) return notify(error.message);
+    setBillingAutomation(data);
+    notify('Billing automation settings saved.', 'success');
+  }
+
   function resetPromotionForm() {
     setEditingPromotionId('');
     setPromotionForm({ ...EMPTY_PROMOTION_FORM, popup_pages: ['index.html'], banner_pages: ['cars.html'] });
@@ -1673,6 +1771,9 @@ function App() {
     const couponCode = normalizeCodeInput(promotionForm.coupon_code);
     if (!promotionForm.name.trim()) return notify('Enter an internal campaign name.');
     if (couponCode.length < 2) return notify('Enter a coupon code.');
+    const selectedDiscount = discountCodes.find((code) => code.code === couponCode);
+    if (!selectedDiscount) return notify('Choose a saved discount code so the advertised offer changes the customer total.');
+    if (!selectedDiscount.active) return notify('Activate this discount code before publishing the promotion.');
     if (!promotionForm.ends_at) return notify('Choose when the promotion ends.');
     if (!promotionForm.popup_enabled && !promotionForm.banner_enabled) return notify('Turn on the popup, the banner, or both.');
     if (promotionForm.popup_enabled && promotionForm.popup_pages.length === 0) return notify('Choose at least one page for the popup.');
@@ -1686,6 +1787,7 @@ function App() {
     const payload = {
       name: promotionForm.name.trim(),
       coupon_code: couponCode,
+      discount_code_id: selectedDiscount.id,
       badge_text: promotionForm.badge_text.trim() || 'SPECIAL OFFER',
       offer_value: promotionForm.offer_value.trim() || 'Offer',
       offer_suffix: promotionForm.offer_suffix.trim(),
@@ -2283,10 +2385,15 @@ function App() {
     return data.url;
   }
 
-  async function addVehicle(event) {
-    event.preventDefault();
+  async function addVehicle(event, { priceConfirmed = false } = {}) {
+    event?.preventDefault();
     if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
       notify('Choose a valid vehicle condition.');
+      return false;
+    }
+    const dailyRate = Number(vehicleForm.daily_rate);
+    if (!Number.isFinite(dailyRate) || dailyRate < 0 || dailyRate > MONEY_MAX) {
+      notify(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
       return false;
     }
     const originalMileage = parseMileageInput(vehicleForm.original_mileage);
@@ -2299,9 +2406,19 @@ function App() {
       notify('Last service mileage cannot be above the current odometer.');
       return false;
     }
+    if (dailyRate < 10 && !priceConfirmed) {
+      setVehiclePriceConfirmation({
+        action: 'add',
+        vehicleName: vehicleForm.name || 'this new vehicle',
+        previousDailyRate: null,
+        nextDailyRate: dailyRate,
+        singleDigit: true,
+      });
+      return false;
+    }
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
-      daily_rate: Number(vehicleForm.daily_rate || 0),
+      daily_rate: dailyRate,
       security_deposit: Number(vehicleForm.security_deposit || 0),
       original_mileage: originalMileage,
       current_mileage: originalMileage,
@@ -2319,6 +2436,17 @@ function App() {
     await loadAllData();
     notify(wasPublished ? 'Vehicle added and published.' : 'Vehicle added as an unpublished draft.', 'success');
     return true;
+  }
+
+  async function confirmVehiclePriceChange() {
+    const pending = vehiclePriceConfirmation;
+    if (!pending) return;
+    setVehiclePriceConfirmation(null);
+    if (pending.action === 'edit') {
+      await saveVehicleEdit(pending.vehicleId, { priceConfirmed: true });
+      return;
+    }
+    await addVehicle(null, { priceConfirmed: true });
   }
 
   async function sendManualReminder(rental, channel) {
@@ -2360,6 +2488,7 @@ function App() {
     { key: 'dashboard', label: 'Dashboard', icon: Gauge },
     { key: 'queue', label: 'Queue', icon: ClipboardList },
     { key: 'payments', label: 'Payments', icon: DollarSign },
+    { key: 'tolls', label: 'Tolls', icon: ReceiptText },
     { key: 'calendar', label: 'Calendar', icon: CalendarDays },
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
@@ -2386,39 +2515,68 @@ function App() {
 
   return (
     <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
-      {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-nav-backdrop" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
-      <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
-        <div className="brand-block">
-          <picture>
-            <source media="(max-width: 760px)" srcSet={logoMobileUrl} />
-            <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
-          </picture>
-        </div>
-        <div className="mobile-nav-heading">
-          <div><span>Admin Menu</span><strong>{tabTitle(activeTab)}</strong></div>
-          <small>Choose where you need to work.</small>
-        </div>
-        <button className="nav-toggle" type="button" onClick={toggleMobileNav} aria-expanded={!navCollapsed} aria-controls="admin-primary-navigation" aria-label={navCollapsed ? 'Open admin navigation' : 'Close admin navigation'}>
-          {navCollapsed ? <Menu size={18} /> : <X size={18} />}<span>{navCollapsed ? 'Menu' : 'Close'}</span>
-        </button>
-        <button type="button" className="mobile-nav-new-booking" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={19}/><span>New Booking</span></button>
-        <nav className="side-nav" id="admin-primary-navigation">
-          {adminTabs.map(({ key, label, icon: Icon }) => (
-            <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
-              <Icon size={18}/><span>{label}</span>
+      {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-drawer-scrim" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
+      {isMobileAdminNav && (
+        <aside className={`mobile-drawer admin-mobile-drawer ${navCollapsed ? '' : 'open'}`} aria-label="Admin navigation">
+          <div className="mobile-drawer-brand">
+            <img src={logoUrl} alt="Rent Me CT" />
+          </div>
+          <button className="mobile-drawer-close" type="button" onClick={() => setNavCollapsed(true)} aria-label="Close admin navigation">
+            <X size={22} />
+          </button>
+          <nav className="mobile-drawer-nav" id="admin-mobile-drawer-navigation">
+            <button type="button" className={activeTab === 'new-booking' ? 'active' : ''} onClick={() => selectAdminTab('new-booking')} aria-current={activeTab === 'new-booking' ? 'page' : undefined}>
+              <CalendarClock size={20}/><span>New Booking</span>
             </button>
-          ))}
-        </nav>
-        <button className="logout-btn" onClick={signOut} title="Log Out"><LogOut size={18}/><span>Log Out</span></button>
-      </aside>
+            {adminTabs.map(({ key, label, icon: Icon }) => (
+              <button key={key} type="button" className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
+                <Icon size={20}/><span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="mobile-drawer-footer">
+            <button type="button" onClick={signOut}><LogOut size={19}/><span>Log Out</span></button>
+          </div>
+        </aside>
+      )}
+      {!isMobileAdminNav && (
+        <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Admin navigation">
+          <div className="brand-block">
+            <img className="brand-logo" src={logoUrl} alt="Rent Me CT" />
+          </div>
+          <button className="nav-toggle" type="button" onClick={toggleMobileNav} aria-expanded={!navCollapsed} aria-controls="admin-primary-navigation" aria-label={navCollapsed ? 'Expand admin navigation' : 'Collapse admin navigation'}>
+            {navCollapsed ? <Menu size={18} /> : <X size={18} />}<span>{navCollapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
+          <nav className="side-nav" id="admin-primary-navigation">
+            {adminTabs.map(({ key, label, icon: Icon }) => (
+              <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
+                <Icon size={18}/><span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <button className="logout-btn" onClick={signOut} title="Log Out"><LogOut size={18}/><span>Log Out</span></button>
+        </aside>
+      )}
 
       <main className="admin-main">
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
         <header className="admin-header">
-          <div><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
+          {isMobileAdminNav && navCollapsed && (
+            <button
+              type="button"
+              className="mobile-drawer-trigger"
+              aria-label="Open admin navigation"
+              aria-controls="admin-mobile-drawer-navigation"
+              aria-expanded="false"
+              onClick={() => setNavCollapsed(false)}
+            >
+              <Menu size={22} />
+            </button>
+          )}
+          <div className="admin-header-copy"><p className="eyebrow">Operations Center</p><h1>{tabTitle(activeTab)}</h1><span>{session.user.email}</span></div>
           <div className="header-actions">
             <button type="button" className="primary-btn" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={17}/> New Booking</button>
-            <AdminQuickLinks/>
+            {isMobileAdminNav ? <MobileAdminQuickLinks/> : <AdminQuickLinks/>}
             <button type="button" onClick={() => loadAllData({ silent: true })} className="secondary-btn" disabled={dataHealth.refreshing}>{dataHealth.refreshing ? 'Refreshing…' : 'Refresh'}</button>
           </div>
         </header>
@@ -2432,6 +2590,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
+        {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
@@ -2441,8 +2600,13 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
-        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
+      {vehiclePriceConfirmation && <VehiclePriceConfirmationModal
+        confirmation={vehiclePriceConfirmation}
+        onCancel={() => setVehiclePriceConfirmation(null)}
+        onConfirm={confirmVehiclePriceChange}
+      />}
     </div>
   );
 }
@@ -2584,6 +2748,297 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
       </div>
     </Panel>
   </>;
+}
+
+function TollsTab({ rentals = [], notify }) {
+  const [transactions, setTransactions] = useState([]);
+  const [syncRuns, setSyncRuns] = useState([]);
+  const [mappings, setMappings] = useState([]);
+  const [fleet, setFleet] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [connection, setConnection] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [matchSelections, setMatchSelections] = useState({});
+  const [dateWindow, setDateWindow] = useState({
+    fromDate: adminBookingDateOffset(-30),
+    toDate: adminBookingDateOffset(0),
+  });
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [vehicleConfig, setVehicleConfig] = useState({
+    tollspot_enabled: true,
+    tollspot_vehicle_type: '',
+    plate_state: 'CT',
+    plate_country: 'US',
+    plate_assigned_at: '',
+    model_year: '',
+  });
+
+  async function loadTollspotData({ silent = false } = {}) {
+    if (!silent) setLoading(true);
+    const [transactionsRes, runsRes, mappingsRes, fleetRes] = await Promise.all([
+      supabase
+        .from('admin_tollspot_transactions')
+        .select('*')
+        .order('occurred_at', { ascending: false })
+        .limit(500),
+      supabase
+        .from('tollspot_sync_runs')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(30),
+      supabase
+        .from('tollspot_vehicle_mappings')
+        .select('*')
+        .order('updated_at', { ascending: false }),
+      supabase
+        .from('vehicles')
+        .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
+        .neq('id', '00000000-0000-4000-8000-000000000015')
+        .order('name'),
+    ]);
+    const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error].filter(Boolean);
+    setLoadError(errors.map((error) => error.message).join(' '));
+    if (transactionsRes.data) setTransactions(transactionsRes.data);
+    if (runsRes.data) setSyncRuns(runsRes.data);
+    if (mappingsRes.data) setMappings(mappingsRes.data);
+    if (fleetRes.data) {
+      setFleet(fleetRes.data);
+      if (!selectedVehicleId && fleetRes.data[0]) setSelectedVehicleId(fleetRes.data[0].id);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadTollspotData();
+  }, []);
+
+  useEffect(() => {
+    const vehicle = fleet.find((item) => item.id === selectedVehicleId);
+    if (!vehicle) return;
+    setVehicleConfig({
+      tollspot_enabled: true,
+      tollspot_vehicle_type: vehicle.tollspot_vehicle_type || '',
+      plate_state: vehicle.plate_state || 'CT',
+      plate_country: vehicle.plate_country || 'US',
+      plate_assigned_at: formatEasternDateTimeInput(vehicle.plate_assigned_at),
+      model_year: vehicle.model_year || '',
+    });
+  }, [selectedVehicleId, fleet]);
+
+  async function parseFunctionError(error, fallback) {
+    let message = error?.message || fallback;
+    try {
+      const payload = await error?.context?.clone?.().json();
+      message = payload?.error || message;
+    } catch {
+      // Keep the Supabase Functions error.
+    }
+    return message;
+  }
+
+  async function invokeTollspot(action, extra = {}) {
+    if (busy) return null;
+    setBusy(action);
+    const { data, error } = await supabase.functions.invoke('tollspot-sync', {
+      body: { action, ...extra },
+    });
+    setBusy('');
+    if (error || data?.error) {
+      const message = data?.error || await parseFunctionError(error, 'TollSpot action failed.');
+      setConnection(action === 'health' ? { connected: false, error: message } : connection);
+      notify(message);
+      await loadTollspotData({ silent: true });
+      return null;
+    }
+    if (action === 'health') setConnection(data);
+    notify(
+      action === 'health'
+        ? `Connected to TollSpot API ${data.apiVersion}.`
+        : action === 'sync_fleet'
+          ? `${data.synced || 0} TollSpot fleet records synchronized.`
+          : `${data.received || data.tolls?.received || 0} TollSpot charges checked.`,
+      'success'
+    );
+    await loadTollspotData({ silent: true });
+    return data;
+  }
+
+  async function saveVehicleConfig(event) {
+    event.preventDefault();
+    const vehicle = fleet.find((item) => item.id === selectedVehicleId);
+    if (!vehicle) return;
+    if (!vehicleConfig.tollspot_vehicle_type) return notify('Choose a TollSpot vehicle type.');
+    if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_state)) return notify('Enter a 2–3 letter plate state.');
+    if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_country)) return notify('Enter a 2–3 letter plate country.');
+    if (!vehicleConfig.plate_assigned_at) return notify('Enter when this plate became active on the vehicle.');
+    setBusy('save_vehicle');
+    const { error } = await supabase.from('vehicles').update({
+      tollspot_enabled: true,
+      tollspot_vehicle_type: vehicleConfig.tollspot_vehicle_type || null,
+      plate_state: vehicleConfig.plate_state || null,
+      plate_country: vehicleConfig.plate_country || 'US',
+      plate_assigned_at: vehicleConfig.plate_assigned_at
+        ? easternDateTimeInputToIso(vehicleConfig.plate_assigned_at)
+        : null,
+      model_year: vehicleConfig.model_year ? Number(vehicleConfig.model_year) : null,
+    }).eq('id', vehicle.id);
+    setBusy('');
+    if (error) return notify(error.message);
+    notify(`${vehicle.name} TollSpot settings saved.`, 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  async function matchTransaction(transaction) {
+    const rentalId = matchSelections[transaction.id];
+    if (!rentalId) return notify('Choose the rental that was using this vehicle.');
+    setBusy(`match:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_match_tollspot_transaction', {
+      p_transaction_id: transaction.id,
+      p_rental_id: rentalId,
+    });
+    setBusy('');
+    if (error) return notify(error.message);
+    notify('TollSpot charge matched to the rental.', 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  async function createTollCharge(transaction) {
+    const confirmed = window.confirm(
+      `Create a pending ${money(transaction.total_amount)} customer charge for TollSpot transaction ${transaction.tollspot_transaction_id}? This does not charge the saved card.`
+    );
+    if (!confirmed) return;
+    setBusy(`charge:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_create_tollspot_charge', {
+      p_transaction_id: transaction.id,
+      p_taxable: false,
+    });
+    setBusy('');
+    if (error) return notify(error.message);
+    notify('Pending toll charge created. The customer can pay through the secure portal.', 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  async function ignoreTransaction(transaction) {
+    const reason = window.prompt('Why should this TollSpot transaction be ignored? Enter at least 8 characters.');
+    if (!reason) return;
+    setBusy(`ignore:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_ignore_tollspot_transaction', {
+      p_transaction_id: transaction.id,
+      p_reason: reason,
+    });
+    setBusy('');
+    if (error) return notify(error.message);
+    notify('TollSpot transaction ignored with an audit reason.', 'success');
+    await loadTollspotData({ silent: true });
+  }
+
+  const selectedVehicle = fleet.find((item) => item.id === selectedVehicleId);
+  const openStatuses = new Set(['received', 'needs_review', 'matched']);
+  const visibleTransactions = transactions.filter((item) =>
+    statusFilter === 'all'
+      ? true
+      : statusFilter === 'open'
+        ? openStatuses.has(item.status)
+        : item.status === statusFilter
+  );
+  const mappingByVehicle = new Map(mappings.map((mapping) => [mapping.vehicle_id, mapping]));
+  const latestRun = syncRuns[0];
+
+  if (loading) return <Loading message="Loading TollSpot operations…" />;
+
+  return <section className="tollspot-command-center">
+    {loadError && <div className="data-health-banner error"><AlertTriangle size={18}/><div><strong>TollSpot data could not load</strong><span>{loadError}</span></div></div>}
+
+    <div className="tollspot-summary-grid">
+      <Panel title="API Connection" eyebrow="TollSpot Customer API">
+        <div className="tollspot-connection-state">
+          <span className={`fleet-status-badge ${connection?.connected ? 'available' : connection?.error ? 'unavailable' : 'reserved'}`}>
+            {connection?.connected ? 'Connected' : connection?.error ? 'Needs configuration' : 'Not tested'}
+          </span>
+          <p>{connection?.connected
+            ? `${connection.visibleVehicles} provider vehicles visible • API ${connection.apiVersion}`
+            : connection?.error || 'Test the server-only connection. The API key is never sent to this browser.'}</p>
+          <button className="primary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('health')}>
+            {busy === 'health' ? 'Testing…' : 'Test Connection'}
+          </button>
+        </div>
+      </Panel>
+      <Panel title="Synchronization" eyebrow="Automatic With Manual Retry">
+        <div className="tollspot-sync-controls">
+          <div className="tollspot-date-window">
+            <label>From<input type="date" value={dateWindow.fromDate} onChange={(event) => setDateWindow({ ...dateWindow, fromDate: event.target.value })}/></label>
+            <label>To<input type="date" value={dateWindow.toDate} onChange={(event) => setDateWindow({ ...dateWindow, toDate: event.target.value })}/></label>
+          </div>
+          <div className="row-actions">
+            <button className="secondary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_fleet')}>{busy === 'sync_fleet' ? 'Syncing…' : 'Retry Fleet Sync'}</button>
+            <button className="primary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_tolls', dateWindow)}>{busy === 'sync_tolls' ? 'Fetching…' : 'Fetch Now'}</button>
+          </div>
+          <small>{latestRun ? `Last run: ${prettyStatus(latestRun.status)} • ${new Date(latestRun.started_at).toLocaleString()}` : 'No TollSpot sync has run yet.'}</small>
+        </div>
+      </Panel>
+    </div>
+
+    <Panel title="Fleet Enrollment" eyebrow="Vehicles & Plate Assignments">
+      <div className="tollspot-fleet-layout">
+        <div className="tollspot-fleet-list">
+          {fleet.map((vehicle) => {
+            const mapping = mappingByVehicle.get(vehicle.id);
+            return <button type="button" key={vehicle.id} className={selectedVehicleId === vehicle.id ? 'selected' : ''} onClick={() => setSelectedVehicleId(vehicle.id)}>
+              <span><strong>{vehicle.name}</strong><small>{vehicle.plate_number || 'No plate'} • {vehicle.vin ? `VIN …${vehicle.vin.slice(-5)}` : 'No VIN'}</small></span>
+              <em>{mapping?.sync_status ? prettyStatus(mapping.sync_status) : vehicle.tollspot_enabled ? 'Pending' : 'Disabled'}</em>
+            </button>;
+          })}
+        </div>
+        {selectedVehicle && <form className="portal-form tollspot-vehicle-config" onSubmit={saveVehicleConfig}>
+          <div className="vehicle-form-card-heading"><strong>{selectedVehicle.name}</strong><span>Provider-only enrollment settings</span></div>
+          <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>TollSpot enabled</strong><small>Every real fleet vehicle is enrolled automatically.</small></span></div>
+          <label>Provider vehicle type<select value={vehicleConfig.tollspot_vehicle_type} onChange={(event) => setVehicleConfig({ ...vehicleConfig, tollspot_vehicle_type: event.target.value })}><option value="">Choose type</option>{['SEDAN','SUV','TRUCK','MOTORCYCLE','RV','TRAILER'].map((value) => <option key={value} value={value}>{prettyStatus(value)}</option>)}</select></label>
+          <label>Model year<input type="number" min="1900" max="2200" value={vehicleConfig.model_year} onChange={(event) => setVehicleConfig({ ...vehicleConfig, model_year: event.target.value })}/></label>
+          <div className="tollspot-code-fields">
+            <label>Plate state<input maxLength="3" value={vehicleConfig.plate_state} onChange={(event) => setVehicleConfig({ ...vehicleConfig, plate_state: event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) })}/></label>
+            <label>Plate country<input maxLength="3" value={vehicleConfig.plate_country} onChange={(event) => setVehicleConfig({ ...vehicleConfig, plate_country: event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) })}/></label>
+          </div>
+          <label>Plate active since<input type="datetime-local" value={vehicleConfig.plate_assigned_at} onChange={(event) => setVehicleConfig({ ...vehicleConfig, plate_assigned_at: event.target.value })}/></label>
+          <button className="primary-btn" disabled={busy === 'save_vehicle'}>{busy === 'save_vehicle' ? 'Saving…' : 'Save Enrollment'}</button>
+        </form>}
+      </div>
+    </Panel>
+
+    <Panel title="Toll Exceptions" eyebrow="Automatic Matches Need No Admin Work">
+      <div className="filter-row tollspot-filter-row">
+        {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{prettyStatus(status)}</button>)}
+      </div>
+      {!visibleTransactions.length && <p className="muted">No TollSpot transactions in this view.</p>}
+      <div className="tollspot-transaction-list">
+        {visibleTransactions.map((transaction) => {
+          const candidateRentals = rentals.filter((rental) => !transaction.vehicle_id || rental.vehicle_id === transaction.vehicle_id);
+          return <article key={transaction.id}>
+            <div className="tollspot-transaction-heading">
+              <div><strong>{money(transaction.total_amount)} • {transaction.agency || 'Toll agency'}</strong><span>{transaction.exit_location || transaction.entry_location || 'Location unavailable'} • {new Date(transaction.occurred_at).toLocaleString()}</span></div>
+              <span className={`fleet-status-badge ${transaction.status === 'matched' ? 'available' : transaction.status === 'needs_review' ? 'maintenance' : 'reserved'}`}>{prettyStatus(transaction.status)}</span>
+            </div>
+            <div className="tollspot-transaction-details">
+              <span>{transaction.license_plate || 'No plate'} {transaction.license_plate_state || ''}</span>
+              <span>{prettyStatus(transaction.transaction_type || 'tolls')}</span>
+              <span>Provider #{transaction.tollspot_transaction_id}</span>
+              {transaction.review_reason && <span className="tollspot-review-reason">{transaction.review_reason}</span>}
+            </div>
+            {openStatuses.has(transaction.status) && <div className="tollspot-review-actions">
+              <select aria-label="Rental match" value={matchSelections[transaction.id] || transaction.rental_id || ''} onChange={(event) => setMatchSelections({ ...matchSelections, [transaction.id]: event.target.value })}>
+                <option value="">Choose rental</option>
+                {candidateRentals.map((rental) => <option key={rental.id} value={rental.id}>{rental.profiles?.full_name || rental.user_email || 'Customer'} • {rental.vehicles?.name || 'Vehicle'} • {formatDateOnly(rental.pickup_date)}–{formatDateOnly(rental.return_date)}</option>)}
+              </select>
+              <button className="secondary-btn" disabled={busy === `match:${transaction.id}`} onClick={() => matchTransaction(transaction)}>Match Rental</button>
+              {transaction.status === 'matched' && <button className="primary-btn" disabled={busy === `charge:${transaction.id}`} onClick={() => createTollCharge(transaction)}>Create Pending Charge</button>}
+              <button className="reject" disabled={busy === `ignore:${transaction.id}`} onClick={() => ignoreTransaction(transaction)}>Ignore</button>
+            </div>}
+          </article>;
+        })}
+      </div>
+    </Panel>
+  </section>;
 }
 
 function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBlockForm, setAvailabilityBlockForm, editingAvailabilityBlockId, availabilitySaving, availabilityTypes, createAvailabilityBlock, createAvailabilityPaintBlock, updateAvailabilityBlock, editAvailabilityBlock, deleteAvailabilityBlock }) {
@@ -3363,12 +3818,19 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
 
 function AuditLog({ auditLogs = [] }) {
   const [query, setQuery] = useState('');
+  const [actorFilter, setActorFilter] = useState('all');
   const [entityFilter, setEntityFilter] = useState('all');
   const [actionFilter, setActionFilter] = useState('all');
+  const actors = [...new Map(auditLogs.map((log) => {
+    const key = log.actor_user_id || log.actor_email || 'system';
+    return [key, { key, label: log.actor_email || 'System process' }];
+  })).values()].sort((left, right) => left.label.localeCompare(right.label));
   const entities = [...new Set(auditLogs.map((log) => log.entity_type).filter(Boolean))].sort();
   const actions = [...new Set(auditLogs.map((log) => log.action).filter(Boolean))].sort();
   const normalizedQuery = query.trim().toLowerCase();
   const visibleLogs = auditLogs.filter((log) => {
+    const actorKey = log.actor_user_id || log.actor_email || 'system';
+    if (actorFilter !== 'all' && actorKey !== actorFilter) return false;
     if (entityFilter !== 'all' && log.entity_type !== entityFilter) return false;
     if (actionFilter !== 'all' && log.action !== actionFilter) return false;
     if (!normalizedQuery) return true;
@@ -3381,6 +3843,10 @@ function AuditLog({ auditLogs = [] }) {
     <p className="muted">Immutable history of staff and admin actions. Sensitive document and payment fields are redacted before storage.</p>
     <div className="audit-filters">
       <div className="search-row"><Search size={18}/><input value={query} onChange={(event) => setQuery(limitText(event.target.value, 160))} placeholder="Search staff, action, record ID..." /></div>
+      <select aria-label="Filter audit log by staff member" value={actorFilter} onChange={(event) => setActorFilter(event.target.value)}>
+        <option value="all">All staff members</option>
+        {actors.map((actor) => <option key={actor.key} value={actor.key}>{actor.label}</option>)}
+      </select>
       <select aria-label="Filter audit log by record type" value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)}>
         <option value="all">All record types</option>
         {entities.map((entity) => <option key={entity} value={entity}>{prettyStatus(entity)}</option>)}
@@ -3536,6 +4002,8 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
   async function saveTextTemplate(event) {
     event.preventDefault();
     if (!editingTextTemplate?.name?.trim() || !editingTextTemplate?.body?.trim()) return notify('Text template name and message are required.');
+    const complianceError = smsTemplateComplianceError(editingTextTemplate.body);
+    if (complianceError) return notify(complianceError);
     setBusy(true);
     const values = {
       name: editingTextTemplate.name.trim(),
@@ -3697,7 +4165,8 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
         <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTextTemplate(null)}><X size={19}/></button></div>
         <div className="portal-form contact-text-template-editor">
           <label><span>Template name</span><input required maxLength="120" value={editingTextTemplate.name || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, name: limitText(event.target.value, 120) })}/></label>
-          <label className="full-field"><span>Text message</span><textarea required maxLength="1600" value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, 1600) })}/><small>{String(editingTextTemplate.body || '').length}/1600 characters. Longer messages may be delivered as multiple SMS segments.</small></label>
+          <label className="full-field"><span>Text message</span><textarea required maxLength={SMS_TEMPLATE_MAX_LENGTH} value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, SMS_TEMPLATE_MAX_LENGTH) })}/><small>{String(editingTextTemplate.body || '').length}/{SMS_TEMPLATE_MAX_LENGTH} characters before variables are rendered.</small></label>
+          <div className="contact-variable-help full-field"><strong>Required in every template</strong><span>Identify Rent Me CT and include: {SMS_COMPLIANCE_FOOTER}</span></div>
           <label className="checkbox-pill full-field"><input type="checkbox" checked={editingTextTemplate.enabled !== false} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, enabled: event.target.checked })}/> Enabled for admin use</label>
           <div className="contact-variable-help full-field"><strong>Available variables</strong><span>{'{{customer_first_name}}'} · {'{{vehicle_name}}'} · {'{{pickup_date}}'} · {'{{pickup_time}}'} · {'{{return_date}}'} · {'{{return_time}}'} · {'{{manage_booking_url}}'} · {'{{business_phone}}'} · {'{{charge_name}}'} · {'{{charge_total}}'}</span></div>
         </div>
@@ -4565,6 +5034,87 @@ function AdminQuickLinks() {
   </details>;
 }
 
+function MobileAdminQuickLinks() {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const closeRef = useRef(null);
+  const sheetRef = useRef(null);
+
+  function closeSheet() {
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function handleSheetKeyDown(event) {
+    if (event.key !== 'Tab') return;
+    const focusable = [...(sheetRef.current?.querySelectorAll('button:not([disabled]), a[href]') || [])];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') closeSheet();
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    window.requestAnimationFrame(() => closeRef.current?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  const sheet = open ? createPortal(<>
+    <button type="button" className="mobile-quick-links-scrim" aria-label="Close Quick Links" onClick={closeSheet}/>
+    <section
+      ref={sheetRef}
+      id="mobile-quick-links-sheet"
+      className="mobile-quick-links-sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mobile-quick-links-title"
+      onKeyDown={handleSheetKeyDown}
+    >
+      <header className="mobile-quick-links-heading">
+        <div><p>Shortcuts</p><h2 id="mobile-quick-links-title">Quick Links</h2></div>
+        <button ref={closeRef} type="button" aria-label="Close Quick Links" onClick={closeSheet}><X size={22}/></button>
+      </header>
+      <div className="mobile-quick-links-content">
+        {ADMIN_QUICK_LINK_GROUPS.map((group) => <section key={group.label}>
+          <h3>{group.label}</h3>
+          <div>{group.links.map((link) => <a key={`${group.label}-${link.label}`} href={link.href} target="_blank" rel="noopener noreferrer" onClick={closeSheet}><span>{link.label}</span><ExternalLink size={18}/></a>)}</div>
+        </section>)}
+      </div>
+    </section>
+  </>, document.body) : null;
+
+  return <div className="mobile-admin-quick-links">
+    <button
+      ref={triggerRef}
+      type="button"
+      className="mobile-quick-links-trigger"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls="mobile-quick-links-sheet"
+      onClick={() => setOpen(true)}
+    >
+      Quick Links
+    </button>
+    {sheet}
+  </div>;
+}
+
 function InsuranceLinksPanel() {
   return <aside className="insurance-links-card">
     <div className="insurance-links-heading"><ShieldCheck size={19}/><div><p className="eyebrow">Insurance Resources</p><h3>Coverage Links</h3></div></div>
@@ -4585,6 +5135,7 @@ function SettingsTab({
   discountForm,
   setDiscountForm,
   generateDiscountCode,
+  copyDiscountCode,
   createDiscountCode,
   toggleDiscountCode,
   deleteDiscountCode,
@@ -4608,6 +5159,10 @@ function SettingsTab({
   saveUnder25Pricing,
   removeUnder25DepositAdjustment,
   under25PricingSaving,
+  billingAutomation,
+  setBillingAutomation,
+  saveBillingAutomation,
+  billingAutomationSaving,
   availabilityTypes,
   updateAvailabilityType,
 }) {
@@ -4638,6 +5193,27 @@ function SettingsTab({
         {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration']].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
       </div>
     </div>
+
+    {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Hands-Off Operations">
+      <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle and rental, and adds the customer charge automatically. Only ambiguous provider records need admin review.</p>
+      <form className="portal-form settings-form" onSubmit={saveBillingAutomation}>
+        <label className="checkbox-pill">
+          <input type="checkbox" checked={billingAutomation.tollspot_automatic_sync_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, tollspot_automatic_sync_enabled: event.target.checked }))} />
+          Fetch TollSpot activity automatically
+        </label>
+        <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>Automatic toll charges are always on.</strong> Exact matches become rental charges; questionable matches stay in the Tolls review queue.</span></div>
+        <label className="checkbox-pill">
+          <input type="checkbox" checked={billingAutomation.automatic_deposit_release_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, automatic_deposit_release_enabled: event.target.checked }))} />
+          Automatically refund clean-return deposits
+        </label>
+        <label>
+          <span>Wait after return before automatic refund</span>
+          <input type="number" min="1" max="30" step="1" value={billingAutomation.deposit_release_delay_days ?? 7} disabled={billingAutomation.automatic_deposit_release_enabled === false} onChange={(event) => setBillingAutomation((current) => ({ ...current, deposit_release_delay_days: event.target.value }))} />
+          <small>Unpaid tolls, late fees, damage, cleaning, and other rental charges always block the refund, even after this delay.</small>
+        </label>
+        <button className="primary-btn" disabled={billingAutomationSaving}>{billingAutomationSaving ? 'Saving…' : 'Save Billing Automation'}</button>
+      </form>
+    </Panel>}
 
     {settingsSection === 'pricing' && <div className="under25-settings-panel">
       <Panel title="Under-25 Pricing" eyebrow="Age-Based Pricing">
@@ -4684,9 +5260,12 @@ function SettingsTab({
             <h4>Campaign and coupon</h4>
             <div className="form-row">
               <label><span>Campaign name (admin only)</span><input required maxLength="80" placeholder="Labor Day Special" value={promotionForm.name} onChange={(event) => updatePromotion('name', limitText(event.target.value, 80))} /></label>
-              <label><span>Coupon code</span><input required list="promotion-discount-codes" maxLength="32" placeholder="LABORDAY20" value={promotionForm.coupon_code} onChange={(event) => updatePromotion('coupon_code', normalizeCodeInput(event.target.value))} /></label>
-              <datalist id="promotion-discount-codes">{discountCodes.map((code) => <option value={code.code} key={code.id}>{discountLabel(code)}</option>)}</datalist>
+              <label><span>Saved discount code</span><select required value={promotionForm.coupon_code} onChange={(event) => {
+                const code = discountCodes.find((item) => item.code === event.target.value);
+                setPromotionForm((current) => ({ ...current, coupon_code: event.target.value, discount_code_id: code?.id || null }));
+              }}><option value="">Choose a code</option>{discountCodes.map((code) => <option value={code.code} disabled={!code.active} key={code.id}>{code.code} — {discountLabel(code)}{code.active ? '' : ' (paused)'}</option>)}</select></label>
             </div>
+            {promotionForm.coupon_code && <button type="button" className="secondary-btn promotion-copy-code" onClick={() => copyDiscountCode(promotionForm.coupon_code)}><Copy size={15}/> Copy code for banner or popup</button>}
             <div className="form-row promotion-three-column">
               <label><span>Banner badge</span><input maxLength="32" placeholder="20% OFF" value={promotionForm.badge_text} onChange={(event) => updatePromotion('badge_text', limitText(event.target.value, 32))} /></label>
               <label><span>Large offer</span><input maxLength="20" placeholder="20%" value={promotionForm.offer_value} onChange={(event) => updatePromotion('offer_value', limitText(event.target.value, 20))} /></label>
@@ -4766,7 +5345,7 @@ function SettingsTab({
       <form className="portal-form settings-form" onSubmit={createDiscountCode}>
         <div className="form-row">
           <input placeholder="Code e.g. SUMMER25" maxLength="24" pattern="[A-Z0-9-]{3,24}" title="Discount code: 3-24 characters, uppercase letters, numbers, and hyphens only." value={discountForm.code} onChange={(event) => updateDiscount('code', event.target.value)} />
-          <button type="button" className="secondary-btn" onClick={generateDiscountCode}><Tag size={16}/> Generate</button>
+          <button type="button" className="secondary-btn" onClick={generateDiscountCode}><Tag size={16}/> Generate &amp; Copy</button>
         </div>
         <div className="form-row">
           <select value={discountForm.discount_type} onChange={(event) => updateDiscount('discount_type', event.target.value)}>
@@ -4797,6 +5376,7 @@ function SettingsTab({
           <div className="row-actions">
             <em className={code.active ? 'active-status' : 'paused-status'}>{code.active ? 'Active' : 'Paused'}</em>
             <button onClick={() => toggleDiscountCode(code.id, !code.active)}>{code.active ? 'Pause' : 'Activate'}</button>
+            <button type="button" onClick={() => copyDiscountCode(code.code)}><Copy size={15}/> Copy</button>
             <button className="reject" onClick={() => deleteDiscountCode(code.id)}><XCircle size={16}/> Delete</button>
           </div>
         </div>)}
@@ -4907,10 +5487,14 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, releaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
+  const outstandingRentalCharges = rentalCharges
+    .filter((charge) => !charge.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(charge.status))
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const canReleaseDeposit = Boolean(releaseSecurityDeposit)
     && rental.status === 'completed'
     && ['held', 'adjustment_refund_due'].includes(rental.deposit_status)
-    && Number(rental.deposit_held_amount || rental.security_deposit || 0) > 0;
+    && Number(rental.deposit_held_amount || rental.security_deposit || 0) > 0
+    && outstandingRentalCharges <= 0.005;
   const hasStripeDepositAllocation = depositAllocations.some((item) =>
     item.payment_provider === 'stripe' && ['held', 'refund_due_inspection', 'failed'].includes(item.status)
   ) || (depositAllocations.length === 0 && rental.payment_provider === 'stripe');
@@ -4956,6 +5540,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} />}
       {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
+      {detailed && outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong> Use Charge customer below; the refund action unlocks automatically when the balance is clear.</span></div>}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
@@ -4995,8 +5580,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
         {canCreateEmergencyException && <button className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={15}/> Emergency Exception</button>}
         {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
-        {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Stripe Deposit'}</button>}
-        {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Record External Deposit Returned</button>}
+        {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
+        {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
       </div>
       <div className="rental-actions-secondary">
         {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
@@ -5174,13 +5759,20 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
     await chargeRentalSavedCard?.(charge);
     setChargingId('');
   }
+  const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
+  const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const paidTotal = charges.filter((charge) => charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
 
   return <div className="rental-charge-manager">
-    <div className="rental-charge-heading"><strong>Fees, tolls &amp; add-ons</strong><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add customer charge</button></div>
+    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Tolls, late fees, damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add charge</button></div>
+    <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
+      <span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
+      <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small>
+    </div>
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
     {charges.map((charge) => <div className="extension-action-row" key={charge.id}>
       <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
-      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge saved card'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
+      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
     </div>)}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
@@ -5247,6 +5839,61 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
         <button type="submit" className="reject" disabled={reason.trim().length < 3}><XCircle size={14}/> Confirm Cancel</button>
       </div>
     </form>
+  </div>;
+}
+
+function VehiclePriceConfirmationModal({ confirmation, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const isNewVehicle = confirmation.action === 'add';
+  const isSingleDigit = confirmation.singleDigit;
+  const title = isSingleDigit ? 'Single-Digit Price Warning' : 'Confirm Daily Rate Change';
+  const descriptionId = 'vehicle-price-confirmation-description';
+
+  return <div className="admin-modal-backdrop price-confirmation-backdrop" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onCancel();
+  }}>
+    <div
+      ref={dialogRef}
+      className={`admin-modal price-confirmation-modal${isSingleDigit ? ' single-digit-warning' : ''}`}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="vehicle-price-confirmation-title"
+      aria-describedby={descriptionId}
+      tabIndex="-1"
+    >
+      <div className={`admin-modal-header${isSingleDigit ? ' danger' : ''}`}>
+        {isSingleDigit ? <AlertTriangle size={22}/> : <DollarSign size={22}/>}
+        <div>
+          <strong id="vehicle-price-confirmation-title">{title}</strong>
+          <span>{confirmation.vehicleName}</span>
+        </div>
+      </div>
+      <div className={`price-confirmation-summary${isSingleDigit ? ' danger' : ''}`}>
+        {!isNewVehicle && <div>
+          <span>Current rate</span>
+          <strong>{money(confirmation.previousDailyRate)}<small>/day</small></strong>
+        </div>}
+        {!isNewVehicle && <ArrowRight size={20} aria-hidden="true"/>}
+        <div>
+          <span>{isNewVehicle ? 'Entered rate' : 'New rate'}</span>
+          <strong>{money(confirmation.nextDailyRate)}<small>/day</small></strong>
+        </div>
+      </div>
+      <div id={descriptionId} className={`price-confirmation-message${isSingleDigit ? ' danger' : ''}`}>
+        <strong>{isSingleDigit ? 'This price is below $10 per day.' : 'Please verify this price before saving.'}</strong>
+        <span>{isSingleDigit
+          ? 'Single-digit pricing is unusual and may be an accidental entry. Confirm only if this is the intended public daily rate.'
+          : `This will change ${confirmation.vehicleName} from ${money(confirmation.previousDailyRate)} to ${money(confirmation.nextDailyRate)} per day.`
+        }</span>
+      </div>
+      <div className="modal-actions price-confirmation-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel}>Keep Editing</button>
+        <button type="button" className={isSingleDigit ? 'reject' : 'primary-btn'} onClick={onConfirm}>
+          {isSingleDigit ? <AlertTriangle size={16}/> : <CheckCircle2 size={16}/>}
+          {isNewVehicle ? 'Confirm Price & Add Vehicle' : 'Confirm Price & Save'}
+        </button>
+      </div>
+    </div>
   </div>;
 }
 
@@ -6782,7 +7429,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function manualPaymentPreferenceLabel(preference) {
   return ({

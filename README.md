@@ -75,3 +75,5 @@ the Identity VerificationSession events listed in `../LAUNCH_READINESS.md`.
 - Scheduled website popup and banner promotion manager with per-page placement
 - Manual Stripe security-deposit refunds and automatic clean-return refunds after seven days
 - Hosted Stripe Identity government-ID and selfie verification required before pickup
+- Automatic TollSpot fleet enrollment and toll retrieval, rental matching,
+  and customer charges attached directly to the correct rental
