@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ClipboardList,
   Clock,
+  Copy,
   CreditCard,
   DollarSign,
   Eye,
@@ -64,6 +65,13 @@ const DEFAULT_UNDER_25_PRICING = {
   deposit_adjustment_type: 'fixed',
   deposit_adjustment_value: 200,
   rental_markup_percentage: 10,
+};
+const DEFAULT_BILLING_AUTOMATION = {
+  id: true,
+  automatic_deposit_release_enabled: true,
+  deposit_release_delay_days: 7,
+  tollspot_automatic_sync_enabled: true,
+  tollspot_auto_create_charges: true,
 };
 const DOCUMENT_BUCKET = 'rental-documents';
 const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
@@ -335,6 +343,8 @@ function App() {
   const [serviceFees, setServiceFees] = useState([]);
   const [under25Pricing, setUnder25Pricing] = useState(DEFAULT_UNDER_25_PRICING);
   const [under25PricingSaving, setUnder25PricingSaving] = useState(false);
+  const [billingAutomation, setBillingAutomation] = useState(DEFAULT_BILLING_AUTOMATION);
+  const [billingAutomationSaving, setBillingAutomationSaving] = useState(false);
   const [sitePromotions, setSitePromotions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
@@ -660,7 +670,7 @@ function App() {
   async function loadAllData({ silent = false } = {}) {
     if (!silent) setLoading(true);
     setDataHealth((current) => ({ ...current, refreshing: true }));
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, billingAutomationRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -763,6 +773,12 @@ function App() {
         .maybeSingle(),
 
       supabase
+        .from('billing_automation_settings')
+        .select('*')
+        .eq('id', true)
+        .maybeSingle(),
+
+      supabase
         .from('admin_audit_logs')
         .select('*')
         .order('created_at', { ascending: false })
@@ -820,6 +836,7 @@ function App() {
       ['Promotions', sitePromotionsRes.error],
       ['Calendar blocks', availabilityBlocksRes.error],
       ['Under-25 pricing', under25PricingRes.error],
+      ['Billing automation', billingAutomationRes.error],
       ['Audit log', auditLogsRes.error],
       ['Payments', rentalPaymentsRes.error],
       ['Additional charges', rentalChargesRes.error],
@@ -847,6 +864,7 @@ function App() {
     if (sitePromotionsRes.data) setSitePromotions(sitePromotionsRes.data);
     if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
     if (under25PricingRes.data) setUnder25Pricing(under25PricingRes.data);
+    if (billingAutomationRes.data) setBillingAutomation(billingAutomationRes.data);
     if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
     if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
     if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
@@ -1546,7 +1564,21 @@ function App() {
 
   function generateDiscountCode() {
     const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
-    setDiscountForm((current) => ({ ...current, code: `RENTME-${randomPart}` }));
+    const code = `RENTME-${randomPart}`;
+    setDiscountForm((current) => ({ ...current, code }));
+    navigator.clipboard?.writeText(code).then(
+      () => notify('Discount code generated and copied.', 'success'),
+      () => notify('Discount code generated. Use Copy after saving it.', 'success'),
+    );
+  }
+
+  async function copyDiscountCode(code) {
+    try {
+      await navigator.clipboard.writeText(code);
+      notify(`${code} copied.`, 'success');
+    } catch {
+      notify('Copy was blocked by the browser. Select the code and copy it manually.');
+    }
   }
 
   async function createDiscountCode(event) {
@@ -1574,8 +1606,13 @@ function App() {
     if (error) return notify(error.message);
 
     setDiscountCodes((current) => [data, ...current]);
+    setPromotionForm((current) => ({
+      ...current,
+      coupon_code: data.code,
+      discount_code_id: data.id,
+    }));
     setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true });
-    notify('Discount code created.', 'success');
+    notify('Discount code created and selected for the promotion manager.', 'success');
   }
 
   async function toggleDiscountCode(id, active) {
@@ -1697,6 +1734,33 @@ function App() {
     notify('Under-25 deposit adjustment removed. Vehicle deposits now apply without an age adjustment.', 'success');
   }
 
+  async function saveBillingAutomation(event) {
+    event?.preventDefault();
+    const delayDays = Number(billingAutomation.deposit_release_delay_days || 0);
+    if (!Number.isInteger(delayDays) || delayDays < 1 || delayDays > 30) {
+      return notify('Automatic deposit release delay must be a whole number from 1 to 30 days.');
+    }
+    setBillingAutomationSaving(true);
+    const payload = {
+      automatic_deposit_release_enabled: Boolean(billingAutomation.automatic_deposit_release_enabled),
+      deposit_release_delay_days: delayDays,
+      tollspot_automatic_sync_enabled: Boolean(billingAutomation.tollspot_automatic_sync_enabled),
+      tollspot_auto_create_charges: true,
+      updated_at: new Date().toISOString(),
+      updated_by: session?.user?.id || null,
+    };
+    const { data, error } = await supabase
+      .from('billing_automation_settings')
+      .update(payload)
+      .eq('id', true)
+      .select('*')
+      .single();
+    setBillingAutomationSaving(false);
+    if (error) return notify(error.message);
+    setBillingAutomation(data);
+    notify('Billing automation settings saved.', 'success');
+  }
+
   function resetPromotionForm() {
     setEditingPromotionId('');
     setPromotionForm({ ...EMPTY_PROMOTION_FORM, popup_pages: ['index.html'], banner_pages: ['cars.html'] });
@@ -1720,6 +1784,9 @@ function App() {
     const couponCode = normalizeCodeInput(promotionForm.coupon_code);
     if (!promotionForm.name.trim()) return notify('Enter an internal campaign name.');
     if (couponCode.length < 2) return notify('Enter a coupon code.');
+    const selectedDiscount = discountCodes.find((code) => code.code === couponCode);
+    if (!selectedDiscount) return notify('Choose a saved discount code so the advertised offer changes the customer total.');
+    if (!selectedDiscount.active) return notify('Activate this discount code before publishing the promotion.');
     if (!promotionForm.ends_at) return notify('Choose when the promotion ends.');
     if (!promotionForm.popup_enabled && !promotionForm.banner_enabled) return notify('Turn on the popup, the banner, or both.');
     if (promotionForm.popup_enabled && promotionForm.popup_pages.length === 0) return notify('Choose at least one page for the popup.');
@@ -1733,6 +1800,7 @@ function App() {
     const payload = {
       name: promotionForm.name.trim(),
       coupon_code: couponCode,
+      discount_code_id: selectedDiscount.id,
       badge_text: promotionForm.badge_text.trim() || 'SPECIAL OFFER',
       offer_value: promotionForm.offer_value.trim() || 'Offer',
       offer_suffix: promotionForm.offer_suffix.trim(),
@@ -2551,7 +2619,7 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
-        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
       {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
         confirmation={vehiclePriceConfirmation}
@@ -2724,7 +2792,7 @@ function TollsTab({ rentals = [], notify }) {
   });
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [vehicleConfig, setVehicleConfig] = useState({
-    tollspot_enabled: false,
+    tollspot_enabled: true,
     tollspot_vehicle_type: '',
     plate_state: 'CT',
     plate_country: 'US',
@@ -2775,7 +2843,7 @@ function TollsTab({ rentals = [], notify }) {
     const vehicle = fleet.find((item) => item.id === selectedVehicleId);
     if (!vehicle) return;
     setVehicleConfig({
-      tollspot_enabled: Boolean(vehicle.tollspot_enabled),
+      tollspot_enabled: true,
       tollspot_vehicle_type: vehicle.tollspot_vehicle_type || '',
       plate_state: vehicle.plate_state || 'CT',
       plate_country: vehicle.plate_country || 'US',
@@ -2826,15 +2894,13 @@ function TollsTab({ rentals = [], notify }) {
     event.preventDefault();
     const vehicle = fleet.find((item) => item.id === selectedVehicleId);
     if (!vehicle) return;
-    if (vehicleConfig.tollspot_enabled) {
-      if (!vehicleConfig.tollspot_vehicle_type) return notify('Choose a TollSpot vehicle type.');
-      if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_state)) return notify('Enter a 2–3 letter plate state.');
-      if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_country)) return notify('Enter a 2–3 letter plate country.');
-      if (!vehicleConfig.plate_assigned_at) return notify('Enter when this plate became active on the vehicle.');
-    }
+    if (!vehicleConfig.tollspot_vehicle_type) return notify('Choose a TollSpot vehicle type.');
+    if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_state)) return notify('Enter a 2–3 letter plate state.');
+    if (!/^[A-Z]{2,3}$/.test(vehicleConfig.plate_country)) return notify('Enter a 2–3 letter plate country.');
+    if (!vehicleConfig.plate_assigned_at) return notify('Enter when this plate became active on the vehicle.');
     setBusy('save_vehicle');
     const { error } = await supabase.from('vehicles').update({
-      tollspot_enabled: Boolean(vehicleConfig.tollspot_enabled),
+      tollspot_enabled: true,
       tollspot_vehicle_type: vehicleConfig.tollspot_vehicle_type || null,
       plate_state: vehicleConfig.plate_state || null,
       plate_country: vehicleConfig.plate_country || 'US',
@@ -2924,15 +2990,15 @@ function TollsTab({ rentals = [], notify }) {
           </button>
         </div>
       </Panel>
-      <Panel title="Synchronization" eyebrow="Manual Safe Start">
+      <Panel title="Synchronization" eyebrow="Automatic With Manual Retry">
         <div className="tollspot-sync-controls">
           <div className="tollspot-date-window">
             <label>From<input type="date" value={dateWindow.fromDate} onChange={(event) => setDateWindow({ ...dateWindow, fromDate: event.target.value })}/></label>
             <label>To<input type="date" value={dateWindow.toDate} onChange={(event) => setDateWindow({ ...dateWindow, toDate: event.target.value })}/></label>
           </div>
           <div className="row-actions">
-            <button className="secondary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_fleet')}>{busy === 'sync_fleet' ? 'Syncing…' : 'Sync Enabled Fleet'}</button>
-            <button className="primary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_tolls', dateWindow)}>{busy === 'sync_tolls' ? 'Fetching…' : 'Fetch Toll Charges'}</button>
+            <button className="secondary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_fleet')}>{busy === 'sync_fleet' ? 'Syncing…' : 'Retry Fleet Sync'}</button>
+            <button className="primary-btn" disabled={Boolean(busy)} onClick={() => invokeTollspot('sync_tolls', dateWindow)}>{busy === 'sync_tolls' ? 'Fetching…' : 'Fetch Now'}</button>
           </div>
           <small>{latestRun ? `Last run: ${prettyStatus(latestRun.status)} • ${new Date(latestRun.started_at).toLocaleString()}` : 'No TollSpot sync has run yet.'}</small>
         </div>
@@ -2952,7 +3018,7 @@ function TollsTab({ rentals = [], notify }) {
         </div>
         {selectedVehicle && <form className="portal-form tollspot-vehicle-config" onSubmit={saveVehicleConfig}>
           <div className="vehicle-form-card-heading"><strong>{selectedVehicle.name}</strong><span>Provider-only enrollment settings</span></div>
-          <label className="vehicle-publish-control"><input type="checkbox" checked={vehicleConfig.tollspot_enabled} onChange={(event) => setVehicleConfig({ ...vehicleConfig, tollspot_enabled: event.target.checked })}/><span><strong>Enable TollSpot</strong><small>Only enabled vehicles are sent to TollSpot.</small></span></label>
+          <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>TollSpot enabled</strong><small>Every real fleet vehicle is enrolled automatically.</small></span></div>
           <label>Provider vehicle type<select value={vehicleConfig.tollspot_vehicle_type} onChange={(event) => setVehicleConfig({ ...vehicleConfig, tollspot_vehicle_type: event.target.value })}><option value="">Choose type</option>{['SEDAN','SUV','TRUCK','MOTORCYCLE','RV','TRAILER'].map((value) => <option key={value} value={value}>{prettyStatus(value)}</option>)}</select></label>
           <label>Model year<input type="number" min="1900" max="2200" value={vehicleConfig.model_year} onChange={(event) => setVehicleConfig({ ...vehicleConfig, model_year: event.target.value })}/></label>
           <div className="tollspot-code-fields">
@@ -2965,7 +3031,7 @@ function TollsTab({ rentals = [], notify }) {
       </div>
     </Panel>
 
-    <Panel title="Toll Review Queue" eyebrow="No Automatic Customer Charges">
+    <Panel title="Toll Exceptions" eyebrow="Automatic Matches Need No Admin Work">
       <div className="filter-row tollspot-filter-row">
         {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{prettyStatus(status)}</button>)}
       </div>
@@ -5108,6 +5174,7 @@ function SettingsTab({
   discountForm,
   setDiscountForm,
   generateDiscountCode,
+  copyDiscountCode,
   createDiscountCode,
   toggleDiscountCode,
   deleteDiscountCode,
@@ -5131,6 +5198,10 @@ function SettingsTab({
   saveUnder25Pricing,
   removeUnder25DepositAdjustment,
   under25PricingSaving,
+  billingAutomation,
+  setBillingAutomation,
+  saveBillingAutomation,
+  billingAutomationSaving,
   availabilityTypes,
   updateAvailabilityType,
 }) {
@@ -5161,6 +5232,27 @@ function SettingsTab({
         {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration']].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
       </div>
     </div>
+
+    {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Hands-Off Operations">
+      <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle and rental, and adds the customer charge automatically. Only ambiguous provider records need admin review.</p>
+      <form className="portal-form settings-form" onSubmit={saveBillingAutomation}>
+        <label className="checkbox-pill">
+          <input type="checkbox" checked={billingAutomation.tollspot_automatic_sync_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, tollspot_automatic_sync_enabled: event.target.checked }))} />
+          Fetch TollSpot activity automatically
+        </label>
+        <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>Automatic toll charges are always on.</strong> Exact matches become rental charges; questionable matches stay in the Tolls review queue.</span></div>
+        <label className="checkbox-pill">
+          <input type="checkbox" checked={billingAutomation.automatic_deposit_release_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, automatic_deposit_release_enabled: event.target.checked }))} />
+          Automatically refund clean-return deposits
+        </label>
+        <label>
+          <span>Wait after return before automatic refund</span>
+          <input type="number" min="1" max="30" step="1" value={billingAutomation.deposit_release_delay_days ?? 7} disabled={billingAutomation.automatic_deposit_release_enabled === false} onChange={(event) => setBillingAutomation((current) => ({ ...current, deposit_release_delay_days: event.target.value }))} />
+          <small>Unpaid tolls, late fees, damage, cleaning, and other rental charges always block the refund, even after this delay.</small>
+        </label>
+        <button className="primary-btn" disabled={billingAutomationSaving}>{billingAutomationSaving ? 'Saving…' : 'Save Billing Automation'}</button>
+      </form>
+    </Panel>}
 
     {settingsSection === 'pricing' && <div className="under25-settings-panel">
       <Panel title="Under-25 Pricing" eyebrow="Age-Based Pricing">
@@ -5207,9 +5299,12 @@ function SettingsTab({
             <h4>Campaign and coupon</h4>
             <div className="form-row">
               <label><span>Campaign name (admin only)</span><input required maxLength="80" placeholder="Labor Day Special" value={promotionForm.name} onChange={(event) => updatePromotion('name', limitText(event.target.value, 80))} /></label>
-              <label><span>Coupon code</span><input required list="promotion-discount-codes" maxLength="32" placeholder="LABORDAY20" value={promotionForm.coupon_code} onChange={(event) => updatePromotion('coupon_code', normalizeCodeInput(event.target.value))} /></label>
-              <datalist id="promotion-discount-codes">{discountCodes.map((code) => <option value={code.code} key={code.id}>{discountLabel(code)}</option>)}</datalist>
+              <label><span>Saved discount code</span><select required value={promotionForm.coupon_code} onChange={(event) => {
+                const code = discountCodes.find((item) => item.code === event.target.value);
+                setPromotionForm((current) => ({ ...current, coupon_code: event.target.value, discount_code_id: code?.id || null }));
+              }}><option value="">Choose a code</option>{discountCodes.map((code) => <option value={code.code} disabled={!code.active} key={code.id}>{code.code} — {discountLabel(code)}{code.active ? '' : ' (paused)'}</option>)}</select></label>
             </div>
+            {promotionForm.coupon_code && <button type="button" className="secondary-btn promotion-copy-code" onClick={() => copyDiscountCode(promotionForm.coupon_code)}><Copy size={15}/> Copy code for banner or popup</button>}
             <div className="form-row promotion-three-column">
               <label><span>Banner badge</span><input maxLength="32" placeholder="20% OFF" value={promotionForm.badge_text} onChange={(event) => updatePromotion('badge_text', limitText(event.target.value, 32))} /></label>
               <label><span>Large offer</span><input maxLength="20" placeholder="20%" value={promotionForm.offer_value} onChange={(event) => updatePromotion('offer_value', limitText(event.target.value, 20))} /></label>
@@ -5289,7 +5384,7 @@ function SettingsTab({
       <form className="portal-form settings-form" onSubmit={createDiscountCode}>
         <div className="form-row">
           <input placeholder="Code e.g. SUMMER25" maxLength="24" pattern="[A-Z0-9-]{3,24}" title="Discount code: 3-24 characters, uppercase letters, numbers, and hyphens only." value={discountForm.code} onChange={(event) => updateDiscount('code', event.target.value)} />
-          <button type="button" className="secondary-btn" onClick={generateDiscountCode}><Tag size={16}/> Generate</button>
+          <button type="button" className="secondary-btn" onClick={generateDiscountCode}><Tag size={16}/> Generate &amp; Copy</button>
         </div>
         <div className="form-row">
           <select value={discountForm.discount_type} onChange={(event) => updateDiscount('discount_type', event.target.value)}>
@@ -5320,6 +5415,7 @@ function SettingsTab({
           <div className="row-actions">
             <em className={code.active ? 'active-status' : 'paused-status'}>{code.active ? 'Active' : 'Paused'}</em>
             <button onClick={() => toggleDiscountCode(code.id, !code.active)}>{code.active ? 'Pause' : 'Activate'}</button>
+            <button type="button" onClick={() => copyDiscountCode(code.code)}><Copy size={15}/> Copy</button>
             <button className="reject" onClick={() => deleteDiscountCode(code.id)}><XCircle size={16}/> Delete</button>
           </div>
         </div>)}
@@ -5430,10 +5526,14 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, releaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
+  const outstandingRentalCharges = rentalCharges
+    .filter((charge) => !charge.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(charge.status))
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const canReleaseDeposit = Boolean(releaseSecurityDeposit)
     && rental.status === 'completed'
     && ['held', 'adjustment_refund_due'].includes(rental.deposit_status)
-    && Number(rental.deposit_held_amount || rental.security_deposit || 0) > 0;
+    && Number(rental.deposit_held_amount || rental.security_deposit || 0) > 0
+    && outstandingRentalCharges <= 0.005;
   const hasStripeDepositAllocation = depositAllocations.some((item) =>
     item.payment_provider === 'stripe' && ['held', 'refund_due_inspection', 'failed'].includes(item.status)
   ) || (depositAllocations.length === 0 && rental.payment_provider === 'stripe');
@@ -5479,6 +5579,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} />}
       {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
+      {detailed && outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong> Use Charge customer below; the refund action unlocks automatically when the balance is clear.</span></div>}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
@@ -5518,8 +5619,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
         {canCreateEmergencyException && <button className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={15}/> Emergency Exception</button>}
         {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
-        {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Stripe Deposit'}</button>}
-        {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Record External Deposit Returned</button>}
+        {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
+        {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
       </div>
       <div className="rental-actions-secondary">
         {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
@@ -5697,13 +5798,20 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
     await chargeRentalSavedCard?.(charge);
     setChargingId('');
   }
+  const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
+  const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const paidTotal = charges.filter((charge) => charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
 
   return <div className="rental-charge-manager">
-    <div className="rental-charge-heading"><strong>Fees, tolls &amp; add-ons</strong><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add customer charge</button></div>
+    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Tolls, late fees, damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add charge</button></div>
+    <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
+      <span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
+      <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small>
+    </div>
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
     {charges.map((charge) => <div className="extension-action-row" key={charge.id}>
       <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
-      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge saved card'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
+      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
     </div>)}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>

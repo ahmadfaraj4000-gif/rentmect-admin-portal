@@ -4717,7 +4717,6 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 }
-
 /* Stable fleet cards: status changes grow downward without shifting vehicle details. */
 .vehicles-layout .vehicle-list-row {
   display: grid !important;
@@ -4955,5 +4954,64 @@ input[type="radio"] {
   .vehicle-card-manage .vehicle-status-control,
   .vehicle-card-manage .system-owned-status {
     grid-column: 1 / -1 !important;
+  }
+}
+
+.automation-lock-note,
+.deposit-charge-block,
+.rental-charge-balance {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid #cfe7d6;
+  background: #f1faf4;
+  color: #1d5030;
+}
+
+.automation-lock-note span,
+.deposit-charge-block span,
+.rental-charge-balance span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.deposit-charge-block,
+.rental-charge-balance.due {
+  border-color: #f0c7a6;
+  background: #fff7ef;
+  color: #7c3b12;
+}
+
+.rental-charge-balance {
+  justify-content: space-between;
+  margin: 0.7rem 0;
+}
+
+.rental-charge-balance > span strong {
+  font-size: 1.05rem;
+}
+
+.rental-charge-balance > small {
+  text-align: right;
+}
+
+.rental-charge-heading > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.promotion-copy-code {
+  justify-self: start;
+}
+
+@media (max-width: 680px) {
+  .rental-charge-balance {
+    display: grid;
+  }
+
+  .rental-charge-balance > small {
+    text-align: left;
   }
 }
