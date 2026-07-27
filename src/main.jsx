@@ -1277,6 +1277,50 @@ function App() {
     return true;
   }
 
+  async function previewRentalAmendment(rental, form) {
+    const { data, error } = await supabase.rpc('admin_preview_rental_amendment', {
+      p_rental_id: rental.id,
+      p_vehicle_id: form.vehicleId,
+      p_pickup_date: form.pickupDate,
+      p_pickup_time: form.pickupTime,
+      p_return_date: form.returnDate,
+      p_return_time: form.returnTime,
+      p_daily_rate: form.dailyRate === '' ? null : Number(form.dailyRate),
+      p_security_deposit: form.securityDeposit === '' ? null : Number(form.securityDeposit),
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  async function applyRentalAmendment(rental, form, idempotencyKey) {
+    const { data, error } = await supabase.rpc('admin_apply_rental_amendment', {
+      p_rental_id: rental.id,
+      p_vehicle_id: form.vehicleId,
+      p_pickup_date: form.pickupDate,
+      p_pickup_time: form.pickupTime,
+      p_return_date: form.returnDate,
+      p_return_time: form.returnTime,
+      p_daily_rate: form.dailyRate === '' ? null : Number(form.dailyRate),
+      p_security_deposit: form.securityDeposit === '' ? null : Number(form.securityDeposit),
+      p_reason: form.reason.trim(),
+      p_admin_notes: form.adminNotes,
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) throw error;
+    await loadAllData({ silent: true });
+    const amendment = data?.amendment;
+    if (amendment?.settlement_status === 'customer_charge_pending') {
+      notify(`Rental updated. ${money(amendment.total_delta)} was added to Charge customer.`, 'success');
+    } else if (amendment?.settlement_status === 'customer_credit_due') {
+      notify(`Rental updated. Customer credit due: ${money(amendment.credit_amount)}. The original payment was preserved.`, 'success');
+    } else if (amendment?.requires_customer_resign) {
+      notify('Rental updated. The customer must sign the revised agreement before pickup.', 'success');
+    } else {
+      notify('Rental updated and calendar availability refreshed.', 'success');
+    }
+    return data;
+  }
+
   async function waiveRentalCharge(id) {
     const { data, error } = await supabase.rpc('admin_waive_rental_charge', { p_charge_id: id });
     if (error) return notify(error.message);
@@ -2612,7 +2656,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -3542,7 +3586,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function Rentals({ rentals, focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const displayedRentals = focusRentalId ? rentals.filter((rental) => rental.id === focusRentalId) : rentals;
 
   return <>
@@ -3559,7 +3603,7 @@ function Rentals({ rentals, focusRentalId, clearRentalFocus, search, setSearch, 
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
     </Panel>
   </>;
 }
@@ -5495,11 +5539,12 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [contactModal, setContactModal] = useState(null);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
@@ -5610,6 +5655,13 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
           setCancelModalOpen(false);
         }}
       />}
+      {editRentalOpen && createPortal(<RentalAmendmentModal
+        rental={rental}
+        vehicles={vehicles}
+        onPreview={previewRentalAmendment}
+        onApply={applyRentalAmendment}
+        onCancel={() => setEditRentalOpen(false)}
+      />, document.body)}
       {contactModal && <CustomerContactModal profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.charge ? 'manual_additional_charge_due' : ''} charge={contactModal.charge || null} onClose={() => setContactModal(null)} />}
     </div>
     <div className="row-actions rental-actions">
@@ -5623,6 +5675,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
       </div>
       <div className="rental-actions-secondary">
+        {detailed && rental.status !== 'cancelled' && <button type="button" className="edit-rental-action" onClick={() => setEditRentalOpen(true)}><Pencil size={15}/> Edit Rental</button>}
         {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
         {canCancel && <button className="reject" onClick={()=>setCancelModalOpen(true)}><XCircle size={15}/> Cancel</button>}
         {detailed
@@ -5630,6 +5683,181 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
           : <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />}
       </div>
     </div>
+  </div>;
+}
+
+function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCancel }) {
+  const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
+  const rentalDays = Math.max(1, Math.round(
+    (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
+      / 86_400_000
+  ));
+  const inferredDailyRate = Number(rental.base_rental_total || 0) > 0
+    ? Number(rental.base_rental_total) / rentalDays
+    : Number(rental.vehicles?.daily_rate || 0);
+  const [form, setForm] = useState({
+    vehicleId: rental.vehicle_id || '',
+    pickupDate: rental.pickup_date || '',
+    pickupTime: rental.pickup_time || '9:00 AM',
+    returnDate: rental.return_date || '',
+    returnTime: rental.return_time || '9:00 AM',
+    dailyRate: inferredDailyRate.toFixed(2),
+    securityDeposit: Number(rental.security_deposit || 0).toFixed(2),
+    adminNotes: rental.admin_notes || '',
+    reason: '',
+  });
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const [reviewing, setReviewing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [closedCorrectionConfirmed, setClosedCorrectionConfirmed] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const paid = String(rental.payment_status || '').toLowerCase() === 'paid';
+  const completed = String(rental.status || '').toLowerCase() === 'completed';
+  const availableVehicles = vehicles
+    .filter((vehicle) =>
+      vehicle.id === rental.vehicle_id
+      || (
+        vehicle.id !== '00000000-0000-4000-8000-000000000015'
+        && vehicle.is_active !== false
+      )
+    )
+    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+
+  function update(key, value) {
+    setForm((current) => ({ ...current, [key]: value }));
+    setPreview(null);
+    setError('');
+    setIdempotencyKey(crypto.randomUUID());
+  }
+
+  function chooseVehicle(vehicleId) {
+    const vehicle = vehicles.find((item) => item.id === vehicleId);
+    setForm((current) => ({
+      ...current,
+      vehicleId,
+      dailyRate: Number(vehicle?.daily_rate || 0).toFixed(2),
+      securityDeposit: paid ? current.securityDeposit : '',
+    }));
+    setPreview(null);
+    setError('');
+    setIdempotencyKey(crypto.randomUUID());
+  }
+
+  async function review(event) {
+    event.preventDefault();
+    setReviewing(true);
+    setError('');
+    try {
+      const result = await onPreview?.(rental, form);
+      setPreview(result);
+    } catch (previewError) {
+      setPreview(null);
+      setError(previewError?.message || 'The rental changes could not be reviewed.');
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  async function apply() {
+    const minimumReasonLength = completed ? 20 : 10;
+    if (form.reason.trim().length < minimumReasonLength) {
+      setError(`Enter a specific reason of at least ${minimumReasonLength} characters.`);
+      return;
+    }
+    if (completed && !closedCorrectionConfirmed) {
+      setError('Confirm that this is an intentional correction to a completed rental.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onApply?.(rental, form, idempotencyKey);
+      onCancel();
+    } catch (applyError) {
+      setError(applyError?.message || 'The rental changes could not be applied.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const settlementCopy = preview?.settlement_status === 'customer_charge_pending'
+    ? `${money(preview.total_delta)} will appear under Charge customer.`
+    : preview?.settlement_status === 'customer_credit_due'
+      ? `${money(Math.abs(Number(preview.total_delta || 0)))} customer credit will be recorded without rewriting the original payment.`
+      : preview?.settlement_status === 'unpaid_repriced'
+        ? 'The unpaid booking will use the revised total; an old Stripe checkout is replaced when payment starts again.'
+        : 'No additional customer payment or credit is required.';
+
+  return <div className="admin-modal-backdrop rental-amendment-backdrop" role="presentation">
+    <form ref={dialogRef} className="admin-modal rental-amendment-modal" role="dialog" aria-modal="true" aria-label="Edit rental" onSubmit={review}>
+      <header className="admin-modal-header rental-amendment-header">
+        <CalendarClock size={22}/>
+        <div>
+          <small>Guarded rental amendment</small>
+          <strong>Edit Existing Rental</strong>
+          <span>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'} • {prettyStatus(rental.status)}</span>
+        </div>
+        <button type="button" className="customer-details-close" onClick={onCancel} disabled={saving} aria-label="Close"><XCircle size={20}/></button>
+      </header>
+
+      <div className="rental-amendment-scroll">
+        <div className="rental-amendment-guardrail">
+          <ShieldCheck size={19}/>
+          <span><strong>Availability, three-hour turnaround, payments, deposits, discounts, TollSpot history, and audit records remain protected.</strong> This does not write to Wheelbase availability.</span>
+        </div>
+
+        <section className="rental-amendment-section">
+          <div className="rental-amendment-section-heading"><span>1</span><div><strong>Schedule and vehicle</strong><small>The database rejects overlapping rentals and calendar blocks.</small></div></div>
+          <div className="rental-amendment-grid">
+            <label className="wide"><span>Vehicle</span><select value={form.vehicleId} onChange={(event) => chooseVehicle(event.target.value)} required>{availableVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}{vehicle.published === false ? ' — unpublished' : ''}</option>)}</select></label>
+            <label><span>Pickup date</span><input type="date" value={form.pickupDate} onChange={(event) => update('pickupDate', event.target.value)} required /></label>
+            <label><span>Pickup time</span><select value={form.pickupTime} onChange={(event) => update('pickupTime', event.target.value)}>{calendarTimeOptions(form.pickupTime).map((time) => <option value={time} key={time}>{time}</option>)}</select></label>
+            <label><span>Return date</span><input type="date" value={form.returnDate} onChange={(event) => update('returnDate', event.target.value)} required /></label>
+            <label><span>Return time</span><select value={form.returnTime} onChange={(event) => update('returnTime', event.target.value)}>{calendarTimeOptions(form.returnTime).map((time) => <option value={time} key={time}>{time}</option>)}</select></label>
+          </div>
+        </section>
+
+        <section className="rental-amendment-section">
+          <div className="rental-amendment-section-heading"><span>2</span><div><strong>Pricing and deposit</strong><small>Age pricing, the saved discount, fees, and Connecticut tax are recalculated server-side.</small></div></div>
+          <div className="rental-amendment-grid">
+            <label><span>Daily rental rate</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(event) => update('dailyRate', event.target.value)} required /></div></label>
+            <label><span>Security deposit</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} disabled={paid} /></div>{paid && <small>Already paid: use the protected deposit adjustment workflow instead of rewriting held funds.</small>}</label>
+            <label className="wide"><span>Admin notes</span><textarea maxLength="2000" value={form.adminNotes} onChange={(event) => update('adminNotes', event.target.value)} placeholder="Operational notes visible to staff."/></label>
+          </div>
+        </section>
+
+        <section className="rental-amendment-section">
+          <div className="rental-amendment-section-heading"><span>3</span><div><strong>Reason and review</strong><small>The reason and exact before/after values become permanent audit history.</small></div></div>
+          <label className="rental-amendment-reason"><span>Reason for change</span><textarea minLength={completed ? 20 : 10} maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Example: Customer moved pickup to Monday and needs the Audi Q5 instead." required /></label>
+          {completed && <label className="closed-rental-confirmation"><input type="checkbox" checked={closedCorrectionConfirmed} onChange={(event) => setClosedCorrectionConfirmed(event.target.checked)}/><span><strong>Correct this completed rental</strong><small>I understand the settled payment and original audit history will remain intact.</small></span></label>}
+        </section>
+
+        {preview && <section className="rental-amendment-preview" aria-live="polite">
+          <div className="rental-amendment-preview-heading"><CheckCircle2 size={20}/><div><strong>Safe to apply</strong><span>The schedule and financial preview passed all database guardrails.</span></div></div>
+          <div className="rental-amendment-comparison">
+            <article><small>Current</small><strong>{preview.old?.vehicle_name}</strong><span>{formatRentalDate(preview.old?.pickup_date, preview.old?.pickup_time)} → {formatRentalDate(preview.old?.return_date, preview.old?.return_time)}</span><em>{money(preview.old?.total)} total</em></article>
+            <ArrowRight size={20}/>
+            <article><small>Revised</small><strong>{preview.new?.vehicle_name}</strong><span>{formatRentalDate(preview.new?.pickup_date, preview.new?.pickup_time)} → {formatRentalDate(preview.new?.return_date, preview.new?.return_time)}</span><em>{money(preview.new?.total)} total</em></article>
+          </div>
+          <div className={`rental-amendment-settlement ${Number(preview.total_delta || 0) > 0 ? 'due' : Number(preview.total_delta || 0) < 0 ? 'credit' : ''}`}>
+            <ReceiptText size={18}/>
+            <span><strong>{Number(preview.total_delta || 0) === 0 ? 'No balance change' : `${Number(preview.total_delta || 0) > 0 ? 'Additional balance' : 'Customer credit'}: ${money(Math.abs(Number(preview.total_delta || 0)))}`}</strong><small>{settlementCopy}</small></span>
+          </div>
+          {preview.requires_customer_resign && <div className="rental-amendment-resign"><FileSignature size={17}/><span><strong>Revised agreement required</strong><small>The prior signed copy stays preserved; pickup controls remain guarded until the customer signs the revised terms.</small></span></div>}
+          {preview.new?.vehicle_published === false && <div className="rental-amendment-warning"><AlertTriangle size={17}/><span>The replacement vehicle is unpublished. Admin assignment is allowed, but customers cannot select it for new bookings.</span></div>}
+        </section>}
+
+        {error && <p className="form-error rental-amendment-error" role="alert">{error}</p>}
+      </div>
+
+      <footer className="rental-amendment-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Cancel</button>
+        {!preview
+          ? <button type="submit" className="primary-btn" disabled={reviewing || saving}>{reviewing ? 'Checking availability…' : 'Review Changes'}</button>
+          : <button type="button" className="primary-btn" onClick={apply} disabled={saving || (completed && !closedCorrectionConfirmed)}>{saving ? 'Applying safely…' : 'Apply Rental Changes'}</button>}
+      </footer>
+    </form>
   </div>;
 }
 

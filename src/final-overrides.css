@@ -5015,3 +5015,421 @@ input[type="radio"] {
     text-align: left;
   }
 }
+
+/* Guarded rental amendment workflow */
+.edit-rental-action {
+  border-color: #b8d5c1 !important;
+  background: #f2faf4 !important;
+  color: #176534 !important;
+}
+
+.rental-amendment-backdrop {
+  z-index: 2147483100 !important;
+  padding: 24px !important;
+}
+
+.rental-amendment-modal {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(900px, calc(100vw - 32px)) !important;
+  max-width: 900px !important;
+  max-height: min(920px, calc(100vh - 32px)) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid #d9e2dd !important;
+  border-radius: 18px !important;
+  background: #f7f9f8 !important;
+  box-shadow: 0 28px 90px rgba(17, 34, 25, .28) !important;
+}
+
+.rental-amendment-header {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 13px !important;
+  margin: 0 !important;
+  padding: 20px 22px !important;
+  border-bottom: 1px solid #dfe7e2 !important;
+  background: #fff !important;
+}
+
+.rental-amendment-header > svg {
+  color: #198247;
+}
+
+.rental-amendment-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-header small {
+  color: #198247;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.rental-amendment-header strong {
+  color: #1f2b25;
+  font-size: 20px;
+}
+
+.rental-amendment-header span {
+  color: #6b7770;
+  font-size: 12px;
+}
+
+.rental-amendment-scroll {
+  display: grid;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 18px 22px 24px;
+}
+
+.rental-amendment-guardrail,
+.rental-amendment-resign,
+.rental-amendment-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid #cce4d4;
+  border-radius: 12px;
+  background: #edf8f1;
+  color: #225b35;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rental-amendment-guardrail svg,
+.rental-amendment-resign svg,
+.rental-amendment-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.rental-amendment-section {
+  display: grid;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid #dfe6e2;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.rental-amendment-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rental-amendment-section-heading > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1f7141;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.rental-amendment-section-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-section-heading strong {
+  color: #26322c;
+  font-size: 14px;
+}
+
+.rental-amendment-section-heading small {
+  color: #758078;
+  font-size: 11px;
+}
+
+.rental-amendment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+
+.rental-amendment-grid label,
+.rental-amendment-reason {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rental-amendment-grid label > span,
+.rental-amendment-reason > span {
+  color: #435048;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.rental-amendment-grid label > small {
+  color: #916014;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.rental-amendment-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.rental-amendment-grid input,
+.rental-amendment-grid select,
+.rental-amendment-grid textarea,
+.rental-amendment-reason textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #ccd6d0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.rental-amendment-grid input,
+.rental-amendment-grid select {
+  min-height: 43px;
+}
+
+.rental-amendment-grid textarea,
+.rental-amendment-reason textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.rental-amendment-grid input:disabled {
+  background: #eef1ef;
+  color: #68736d;
+}
+
+.rental-amendment-grid .currency-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #ccd6d0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.rental-amendment-grid .currency-input > span {
+  padding-left: 12px;
+  color: #526159;
+  font-weight: 800;
+}
+
+.rental-amendment-grid .currency-input input {
+  border: 0;
+  box-shadow: none;
+}
+
+.closed-rental-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #edc5a5;
+  border-radius: 10px;
+  background: #fff7ef;
+}
+
+.closed-rental-confirmation input {
+  margin-top: 3px;
+}
+
+.closed-rental-confirmation span {
+  display: grid;
+  gap: 2px;
+}
+
+.closed-rental-confirmation strong {
+  color: #793d16;
+  font-size: 12px;
+}
+
+.closed-rental-confirmation small {
+  color: #8a674f;
+  font-size: 10px;
+}
+
+.rental-amendment-preview {
+  display: grid;
+  gap: 13px;
+  padding: 17px;
+  border: 1px solid #b9d9c3;
+  border-radius: 14px;
+  background: #f4fbf6;
+}
+
+.rental-amendment-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #17683a;
+}
+
+.rental-amendment-preview-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-preview-heading span {
+  color: #52705e;
+  font-size: 11px;
+}
+
+.rental-amendment-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.rental-amendment-comparison article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #d5e2d9;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.rental-amendment-comparison small {
+  color: #748078;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.rental-amendment-comparison strong {
+  overflow: hidden;
+  color: #26332b;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rental-amendment-comparison span {
+  color: #637069;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.rental-amendment-comparison em {
+  color: #1b6538;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.rental-amendment-settlement {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 13px;
+  border-radius: 10px;
+  background: #e8f5ec;
+  color: #215e36;
+}
+
+.rental-amendment-settlement.due {
+  background: #fff3e7;
+  color: #844510;
+}
+
+.rental-amendment-settlement.credit {
+  background: #eaf3ff;
+  color: #215887;
+}
+
+.rental-amendment-settlement span {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-settlement small {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.rental-amendment-resign {
+  border-color: #d8c58e;
+  background: #fff9e8;
+  color: #725c16;
+}
+
+.rental-amendment-warning {
+  border-color: #ecc29d;
+  background: #fff5ec;
+  color: #7f4317;
+}
+
+.rental-amendment-error {
+  margin: 0 !important;
+}
+
+.rental-amendment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 15px 22px;
+  border-top: 1px solid #dfe7e2;
+  background: #fff;
+}
+
+.rental-amendment-actions button {
+  min-width: 140px;
+}
+
+@media (max-width: 680px) {
+  .rental-amendment-backdrop {
+    align-items: stretch !important;
+    padding: 0 !important;
+  }
+
+  .rental-amendment-modal {
+    width: 100vw !important;
+    max-width: none !important;
+    max-height: 100dvh !important;
+    min-height: 100dvh !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .rental-amendment-header {
+    padding: 16px !important;
+  }
+
+  .rental-amendment-scroll {
+    padding: 14px;
+  }
+
+  .rental-amendment-grid,
+  .rental-amendment-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .rental-amendment-comparison > svg {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .rental-amendment-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 12px 14px;
+  }
+
+  .rental-amendment-actions button {
+    min-width: 0;
+  }
+}
