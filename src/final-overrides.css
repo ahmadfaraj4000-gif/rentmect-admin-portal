@@ -4717,3 +4717,243 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* Stable fleet cards: status changes grow downward without shifting vehicle details. */
+.vehicles-layout .vehicle-list-row {
+  display: grid !important;
+  grid-template-columns:
+    minmax(340px, 1.3fr)
+    minmax(118px, .34fr)
+    minmax(270px, .9fr)
+    minmax(300px, .86fr) !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  min-height: 124px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.vehicles-layout .vehicle-list-row > .vehicle-card-identity,
+.vehicles-layout .vehicle-list-row > .vehicle-card-price,
+.vehicles-layout .vehicle-list-row > .vehicle-card-status,
+.vehicles-layout .vehicle-list-row > .vehicle-card-manage {
+  min-width: 0 !important;
+  padding: 17px 18px !important;
+}
+
+.vehicles-layout .vehicle-list-row > .vehicle-card-identity {
+  display: grid !important;
+  grid-template-columns: 96px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 16px !important;
+}
+
+.vehicle-list-thumbnail-shell {
+  display: grid !important;
+  place-items: center !important;
+  width: 96px !important;
+  height: 74px !important;
+  overflow: hidden !important;
+  border: 1px solid #dce2df !important;
+  border-radius: 9px !important;
+  background: #f4f6f5 !important;
+  color: #8a9690 !important;
+}
+
+.vehicles-layout .vehicle-list-thumbnail {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  flex: none !important;
+  object-fit: cover !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.vehicle-list-thumbnail-shell.empty {
+  border-style: dashed !important;
+  background: #f7f9f8 !important;
+}
+
+.vehicles-layout .vehicle-card-details {
+  display: grid !important;
+  align-content: center !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-details > strong {
+  overflow: hidden;
+  color: #202a26 !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.25 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vehicle-card-details > span,
+.vehicle-card-details > small {
+  overflow-wrap: anywhere;
+  color: #68746e !important;
+  line-height: 1.4 !important;
+}
+
+.vehicles-layout .vehicle-list-row > .vehicle-card-price,
+.vehicles-layout .vehicle-list-row > .vehicle-card-status,
+.vehicles-layout .vehicle-list-row > .vehicle-card-manage {
+  display: grid !important;
+  align-content: center !important;
+  gap: 10px !important;
+  border-left: 1px solid #e8ecea !important;
+}
+
+.vehicle-card-price {
+  justify-items: start !important;
+  background: #fbfcfb !important;
+}
+
+.vehicle-card-status {
+  background: #f8faf9 !important;
+}
+
+.vehicle-card-manage {
+  background: #fbfcfb !important;
+}
+
+.vehicle-card-zone-label {
+  color: #77827c !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .12em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.vehicle-card-price .vehicle-row-price {
+  justify-items: start !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-price .vehicle-row-price strong {
+  font-size: 16px !important;
+}
+
+.vehicle-card-status .vehicle-row-state {
+  display: flex !important;
+  align-items: flex-start !important;
+  align-content: flex-start !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-status .vehicle-publish-badge,
+.vehicle-card-status .fleet-status-badge {
+  max-width: 100% !important;
+  min-height: 27px !important;
+  white-space: normal !important;
+}
+
+.vehicle-card-manage .vehicle-row-controls {
+  display: grid !important;
+  grid-template-columns: minmax(126px, 1fr) auto auto !important;
+  align-items: end !important;
+  justify-content: stretch !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-manage .vehicle-status-control {
+  min-width: 0 !important;
+}
+
+.vehicle-card-manage .vehicle-row-controls select {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-manage .system-owned-status {
+  align-self: center !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 0 8px 0 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  overflow-wrap: anywhere;
+}
+
+.vehicle-card-manage .vehicle-row-controls button {
+  align-self: end !important;
+}
+
+@media (max-width: 1500px) {
+  .vehicles-layout .vehicle-list-row {
+    grid-template-columns: minmax(320px, 1fr) minmax(118px, .3fr) minmax(260px, .8fr) !important;
+  }
+
+  .vehicle-card-manage {
+    grid-column: 1 / -1 !important;
+    grid-template-columns: 86px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding: 13px 18px !important;
+    border-top: 1px solid #e8ecea !important;
+    border-left: 0 !important;
+  }
+
+  .vehicle-card-manage .vehicle-row-controls {
+    grid-template-columns: minmax(160px, 1fr) auto auto !important;
+  }
+}
+
+@media (max-width: 980px) {
+  .vehicles-layout .vehicle-list-row {
+    grid-template-columns: minmax(0, 1fr) minmax(118px, .34fr) !important;
+  }
+
+  .vehicle-card-status {
+    grid-column: 1 / -1 !important;
+    grid-template-columns: 86px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding: 13px 18px !important;
+    border-top: 1px solid #e8ecea !important;
+    border-left: 0 !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .vehicles-layout .vehicle-list-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-card-identity {
+    grid-template-columns: 78px minmax(0, 1fr) !important;
+    padding: 15px !important;
+  }
+
+  .vehicle-list-thumbnail-shell {
+    width: 78px !important;
+    height: 62px !important;
+  }
+
+  .vehicle-card-price,
+  .vehicle-card-status,
+  .vehicle-card-manage {
+    grid-column: auto !important;
+    grid-template-columns: 86px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding: 13px 15px !important;
+    border-top: 1px solid #e8ecea !important;
+    border-left: 0 !important;
+  }
+
+  .vehicle-card-manage .vehicle-row-controls {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .vehicle-card-manage .vehicle-status-control,
+  .vehicle-card-manage .system-owned-status {
+    grid-column: 1 / -1 !important;
+  }
+}
