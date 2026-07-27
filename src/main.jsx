@@ -4281,28 +4281,42 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
           || getVehicleMaintenanceState(v);
         const scheduleStatus = vehicleScheduleStatus(v.status);
         const conditionStatus = v.maintenance_lock_active ? 'maintenance' : operationalVehicleStatus(v.status);
+        const vehicleImage = getAdminVehicleImage(v);
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
         }}>
-          {getAdminVehicleImage(v) && <img className="vehicle-list-thumbnail" src={getAdminVehicleImage(v)} alt="" loading="lazy" decoding="async" />}
-          <div>
-            <strong>{v.name}</strong>
-            <span>{v.brand} {v.model} • {v.vehicle_type}</span>
-            <small>Plate: {v.plate_number || 'TBD'} • VIN: {v.vin || 'TBD'} • Mileage: {formatMiles(v.current_mileage)}</small>
-            <small className={`maintenance-summary ${maintenance.due ? 'due' : maintenance.soon ? 'soon' : ''}`}>
-              <Wrench size={13}/> {maintenance.label}
-            </small>
+          <div className="vehicle-card-identity">
+            <div className={`vehicle-list-thumbnail-shell${vehicleImage ? '' : ' empty'}`}>
+              {vehicleImage
+                ? <img className="vehicle-list-thumbnail" src={vehicleImage} alt="" loading="lazy" decoding="async" />
+                : <Car size={24} aria-hidden="true"/>}
+            </div>
+            <div className="vehicle-card-details">
+              <strong>{v.name}</strong>
+              <span>{v.brand} {v.model} • {v.vehicle_type}</span>
+              <small>Plate: {v.plate_number || 'TBD'} • VIN: {v.vin || 'TBD'} • Mileage: {formatMiles(v.current_mileage)}</small>
+              <small className={`maintenance-summary ${maintenance.due ? 'due' : maintenance.soon ? 'soon' : ''}`}>
+                <Wrench size={13}/> {maintenance.label}
+              </small>
+            </div>
           </div>
-          <div className="row-actions vehicle-row-actions">
+          <div className="vehicle-card-price">
+            <span className="vehicle-card-zone-label">Daily rate</span>
             <div className="vehicle-row-price">
               <strong>{money(v.daily_rate)}<span>/day</span></strong>
               <small>{money(v.security_deposit)} deposit</small>
             </div>
+          </div>
+          <div className="vehicle-card-status">
+            <span className="vehicle-card-zone-label">Status</span>
             <div className="vehicle-row-state">
               <span className={`vehicle-publish-badge ${v.published === false ? 'unpublished' : 'published'}`}>{v.published === false ? 'Unpublished' : 'Published'}</span>
               <span className={`fleet-status-badge ${conditionStatus}`}>Condition: {v.maintenance_lock_active ? 'Maintenance' : operationalVehicleStatusLabel(v.status)}</span>
               {scheduleStatus && <span className={`fleet-status-badge ${scheduleStatus}`}>Schedule: {vehicleScheduleStatusLabel(scheduleStatus)}</span>}
             </div>
+          </div>
+          <div className="vehicle-card-manage">
+            <span className="vehicle-card-zone-label">Manage</span>
             <div className="vehicle-row-controls">
               {scheduleStatus || v.maintenance_lock_active ? (
                 <span className="system-owned-status">{v.maintenance_lock_active ? 'Condition locked by maintenance' : 'Schedule state is automatic'}</span>
