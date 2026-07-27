@@ -4544,7 +4544,7 @@ input[type="radio"] {
 
 /* Vehicle price safeguards */
 .price-confirmation-backdrop {
-  z-index: 1200 !important;
+  z-index: 2147483000 !important;
 }
 
 .price-confirmation-modal {
@@ -4645,6 +4645,26 @@ input[type="radio"] {
   color: var(--ui-ink-soft);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.price-confirmation-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 20px 20px;
+  padding: 12px 13px;
+  border: 1px solid #edc5c1;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-red-soft);
+  color: var(--ui-red);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.price-confirmation-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .price-confirmation-actions {
