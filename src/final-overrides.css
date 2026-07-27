@@ -4541,3 +4541,159 @@ input[type="radio"] {
     animation-duration: 1ms !important;
   }
 }
+
+/* Vehicle price safeguards */
+.price-confirmation-backdrop {
+  z-index: 1200 !important;
+}
+
+.price-confirmation-modal {
+  width: min(520px, 100%) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+.price-confirmation-modal .admin-modal-header svg {
+  flex: 0 0 auto;
+  color: var(--ui-green) !important;
+}
+
+.price-confirmation-modal.single-digit-warning .admin-modal-header {
+  background: #fff8f7 !important;
+}
+
+.price-confirmation-modal.single-digit-warning .admin-modal-header svg {
+  color: var(--ui-red) !important;
+}
+
+.price-confirmation-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin: 20px 20px 12px;
+  padding: 16px;
+  border: 1px solid #dce7e0;
+  border-radius: var(--ui-radius);
+  background: #f4f8f6;
+  color: var(--ui-green);
+}
+
+.price-confirmation-summary.danger {
+  grid-template-columns: minmax(0, 1fr);
+  border-color: #edc5c1;
+  background: var(--ui-red-soft);
+  color: var(--ui-red);
+}
+
+.price-confirmation-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.price-confirmation-summary span {
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.price-confirmation-summary strong {
+  color: var(--ui-ink);
+  font-size: clamp(24px, 5vw, 32px);
+  line-height: 1;
+}
+
+.price-confirmation-summary.danger strong {
+  color: var(--ui-red);
+}
+
+.price-confirmation-summary small {
+  margin-left: 4px;
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.price-confirmation-message {
+  display: grid;
+  gap: 5px;
+  margin: 0 20px 20px;
+  padding: 13px 14px;
+  border-left: 3px solid var(--ui-green);
+  border-radius: 0 var(--ui-radius-sm) var(--ui-radius-sm) 0;
+  background: var(--ui-green-soft);
+}
+
+.price-confirmation-message.danger {
+  border-left-color: var(--ui-red);
+  background: var(--ui-red-soft);
+}
+
+.price-confirmation-message strong {
+  color: var(--ui-ink);
+  font-size: 13px;
+}
+
+.price-confirmation-message.danger strong {
+  color: var(--ui-red);
+}
+
+.price-confirmation-message span {
+  color: var(--ui-ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.price-confirmation-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 9px !important;
+}
+
+.price-confirmation-actions button {
+  min-height: 42px !important;
+}
+
+.price-confirmation-actions button:last-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.audit-filters {
+  grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(160px, .36fr));
+}
+
+@media (max-width: 980px) {
+  .audit-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .price-confirmation-summary {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .price-confirmation-summary > svg {
+    transform: rotate(90deg);
+  }
+
+  .price-confirmation-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .price-confirmation-actions button {
+    width: 100% !important;
+  }
+
+  .audit-filters {
+    grid-template-columns: 1fr;
+  }
+}

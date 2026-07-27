@@ -360,6 +360,7 @@ function App() {
 
   const [editingVehicleId, setEditingVehicleId] = useState('');
   const [editVehicleForm, setEditVehicleForm] = useState(null);
+  const [vehiclePriceConfirmation, setVehiclePriceConfirmation] = useState(null);
 
   const [manualBookingForm, setManualBookingForm] = useState({
     customerMode: 'existing',
@@ -1456,8 +1457,16 @@ function App() {
     setEditVehicleForm(null);
   }
 
-  async function saveVehicleEdit(id) {
+  async function saveVehicleEdit(id, { priceConfirmed = false } = {}) {
     if (!editVehicleForm) return;
+
+    const vehicle = vehicles.find((item) => item.id === id);
+    const previousDailyRate = Number(vehicle?.daily_rate || 0);
+    const nextDailyRate = Number(editVehicleForm.daily_rate);
+    if (!Number.isFinite(nextDailyRate) || nextDailyRate < 0 || nextDailyRate > MONEY_MAX) {
+      return notify(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
+    }
+    const priceChanged = Math.abs(previousDailyRate - nextDailyRate) >= 0.005;
 
     const originalMileage = parseMileageInput(editVehicleForm.original_mileage);
     const currentMileage = parseMileageInput(editVehicleForm.current_mileage);
@@ -1470,12 +1479,23 @@ function App() {
     if (status && !OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === status)) {
       return notify('Choose a vehicle condition. Reservation states are controlled by the rental schedule.');
     }
+    if (priceChanged && !priceConfirmed) {
+      setVehiclePriceConfirmation({
+        action: 'edit',
+        vehicleId: id,
+        vehicleName: vehicle?.name || editVehicleForm.name || 'this vehicle',
+        previousDailyRate,
+        nextDailyRate,
+        singleDigit: nextDailyRate < 10,
+      });
+      return false;
+    }
     const { error } = await supabase
       .from('vehicles')
       .update({
         ...vehicleFields,
         ...(status ? { status } : {}),
-        daily_rate: Number(editVehicleForm.daily_rate || 0),
+        daily_rate: nextDailyRate,
         security_deposit: Number(editVehicleForm.security_deposit || 0),
         original_mileage: originalMileage,
         current_mileage: currentMileage,
@@ -1491,6 +1511,8 @@ function App() {
     setEditingVehicleId('');
     setEditVehicleForm(null);
     loadAllData();
+    notify(`${vehicle?.name || 'Vehicle'} updated.`, 'success');
+    return true;
   }
 
   async function deleteVehicle(id) {
@@ -2295,10 +2317,15 @@ function App() {
     return data.url;
   }
 
-  async function addVehicle(event) {
-    event.preventDefault();
+  async function addVehicle(event, { priceConfirmed = false } = {}) {
+    event?.preventDefault();
     if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
       notify('Choose a valid vehicle condition.');
+      return false;
+    }
+    const dailyRate = Number(vehicleForm.daily_rate);
+    if (!Number.isFinite(dailyRate) || dailyRate < 0 || dailyRate > MONEY_MAX) {
+      notify(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
       return false;
     }
     const originalMileage = parseMileageInput(vehicleForm.original_mileage);
@@ -2311,9 +2338,19 @@ function App() {
       notify('Last service mileage cannot be above the current odometer.');
       return false;
     }
+    if (dailyRate < 10 && !priceConfirmed) {
+      setVehiclePriceConfirmation({
+        action: 'add',
+        vehicleName: vehicleForm.name || 'this new vehicle',
+        previousDailyRate: null,
+        nextDailyRate: dailyRate,
+        singleDigit: true,
+      });
+      return false;
+    }
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
-      daily_rate: Number(vehicleForm.daily_rate || 0),
+      daily_rate: dailyRate,
       security_deposit: Number(vehicleForm.security_deposit || 0),
       original_mileage: originalMileage,
       current_mileage: originalMileage,
@@ -2331,6 +2368,17 @@ function App() {
     await loadAllData();
     notify(wasPublished ? 'Vehicle added and published.' : 'Vehicle added as an unpublished draft.', 'success');
     return true;
+  }
+
+  async function confirmVehiclePriceChange() {
+    const pending = vehiclePriceConfirmation;
+    if (!pending) return;
+    setVehiclePriceConfirmation(null);
+    if (pending.action === 'edit') {
+      await saveVehicleEdit(pending.vehicleId, { priceConfirmed: true });
+      return;
+    }
+    await addVehicle(null, { priceConfirmed: true });
   }
 
   async function sendManualReminder(rental, channel) {
@@ -2486,6 +2534,11 @@ function App() {
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
         {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
+      {vehiclePriceConfirmation && <VehiclePriceConfirmationModal
+        confirmation={vehiclePriceConfirmation}
+        onCancel={() => setVehiclePriceConfirmation(null)}
+        onConfirm={confirmVehiclePriceChange}
+      />}
     </div>
   );
 }
@@ -3699,12 +3752,19 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
 
 function AuditLog({ auditLogs = [] }) {
   const [query, setQuery] = useState('');
+  const [actorFilter, setActorFilter] = useState('all');
   const [entityFilter, setEntityFilter] = useState('all');
   const [actionFilter, setActionFilter] = useState('all');
+  const actors = [...new Map(auditLogs.map((log) => {
+    const key = log.actor_user_id || log.actor_email || 'system';
+    return [key, { key, label: log.actor_email || 'System process' }];
+  })).values()].sort((left, right) => left.label.localeCompare(right.label));
   const entities = [...new Set(auditLogs.map((log) => log.entity_type).filter(Boolean))].sort();
   const actions = [...new Set(auditLogs.map((log) => log.action).filter(Boolean))].sort();
   const normalizedQuery = query.trim().toLowerCase();
   const visibleLogs = auditLogs.filter((log) => {
+    const actorKey = log.actor_user_id || log.actor_email || 'system';
+    if (actorFilter !== 'all' && actorKey !== actorFilter) return false;
     if (entityFilter !== 'all' && log.entity_type !== entityFilter) return false;
     if (actionFilter !== 'all' && log.action !== actionFilter) return false;
     if (!normalizedQuery) return true;
@@ -3717,6 +3777,10 @@ function AuditLog({ auditLogs = [] }) {
     <p className="muted">Immutable history of staff and admin actions. Sensitive document and payment fields are redacted before storage.</p>
     <div className="audit-filters">
       <div className="search-row"><Search size={18}/><input value={query} onChange={(event) => setQuery(limitText(event.target.value, 160))} placeholder="Search staff, action, record ID..." /></div>
+      <select aria-label="Filter audit log by staff member" value={actorFilter} onChange={(event) => setActorFilter(event.target.value)}>
+        <option value="all">All staff members</option>
+        {actors.map((actor) => <option key={actor.key} value={actor.key}>{actor.label}</option>)}
+      </select>
       <select aria-label="Filter audit log by record type" value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)}>
         <option value="all">All record types</option>
         {entities.map((entity) => <option key={entity} value={entity}>{prettyStatus(entity)}</option>)}
@@ -5667,6 +5731,61 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
         <button type="submit" className="reject" disabled={reason.trim().length < 3}><XCircle size={14}/> Confirm Cancel</button>
       </div>
     </form>
+  </div>;
+}
+
+function VehiclePriceConfirmationModal({ confirmation, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const isNewVehicle = confirmation.action === 'add';
+  const isSingleDigit = confirmation.singleDigit;
+  const title = isSingleDigit ? 'Single-Digit Price Warning' : 'Confirm Daily Rate Change';
+  const descriptionId = 'vehicle-price-confirmation-description';
+
+  return <div className="admin-modal-backdrop price-confirmation-backdrop" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onCancel();
+  }}>
+    <div
+      ref={dialogRef}
+      className={`admin-modal price-confirmation-modal${isSingleDigit ? ' single-digit-warning' : ''}`}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="vehicle-price-confirmation-title"
+      aria-describedby={descriptionId}
+      tabIndex="-1"
+    >
+      <div className={`admin-modal-header${isSingleDigit ? ' danger' : ''}`}>
+        {isSingleDigit ? <AlertTriangle size={22}/> : <DollarSign size={22}/>}
+        <div>
+          <strong id="vehicle-price-confirmation-title">{title}</strong>
+          <span>{confirmation.vehicleName}</span>
+        </div>
+      </div>
+      <div className={`price-confirmation-summary${isSingleDigit ? ' danger' : ''}`}>
+        {!isNewVehicle && <div>
+          <span>Current rate</span>
+          <strong>{money(confirmation.previousDailyRate)}<small>/day</small></strong>
+        </div>}
+        {!isNewVehicle && <ArrowRight size={20} aria-hidden="true"/>}
+        <div>
+          <span>{isNewVehicle ? 'Entered rate' : 'New rate'}</span>
+          <strong>{money(confirmation.nextDailyRate)}<small>/day</small></strong>
+        </div>
+      </div>
+      <div id={descriptionId} className={`price-confirmation-message${isSingleDigit ? ' danger' : ''}`}>
+        <strong>{isSingleDigit ? 'This price is below $10 per day.' : 'Please verify this price before saving.'}</strong>
+        <span>{isSingleDigit
+          ? 'Single-digit pricing is unusual and may be an accidental entry. Confirm only if this is the intended public daily rate.'
+          : `This will change ${confirmation.vehicleName} from ${money(confirmation.previousDailyRate)} to ${money(confirmation.nextDailyRate)} per day.`
+        }</span>
+      </div>
+      <div className="modal-actions price-confirmation-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel}>Keep Editing</button>
+        <button type="button" className={isSingleDigit ? 'reject' : 'primary-btn'} onClick={onConfirm}>
+          {isSingleDigit ? <AlertTriangle size={16}/> : <CheckCircle2 size={16}/>}
+          {isNewVehicle ? 'Confirm Price & Add Vehicle' : 'Confirm Price & Save'}
+        </button>
+      </div>
+    </div>
   </div>;
 }
 
