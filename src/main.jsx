@@ -173,6 +173,7 @@ const DEFAULT_AVAILABILITY_TYPES = {
 const SITE_PAGE_OPTIONS = [
   { value: 'index.html', label: 'Home page (index.html)' },
   { value: 'cars.html', label: 'Cars page (cars.html)' },
+  { value: 'cars-2.html', label: 'Supabase testing (cars-2.html)' },
 ];
 const DEFAULT_VEHICLE_IMAGE_NAMES = new Set([
   'Audi-A4-002', 'Audi-A4-158', 'Audi-A6-385', 'Audi-A6-473', 'Audi-A8L-YPS',
