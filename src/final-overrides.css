@@ -325,6 +325,266 @@
   }
 }
 
+/* Live public booking-page routing */
+.booking-route-settings {
+  display: grid;
+  gap: 16px;
+}
+
+.booking-route-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #b8d3c2;
+  border-radius: var(--ui-radius);
+  background: #edf7f0;
+}
+
+.booking-route-status span {
+  color: #4d6456;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.booking-route-status strong {
+  color: #153d27;
+  font-size: 17px;
+}
+
+.booking-route-status small {
+  color: #4d6456;
+  font: 750 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.booking-route-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.booking-route-option {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start !important;
+  gap: 12px;
+  min-height: 120px !important;
+  padding: 16px !important;
+  border: 1px solid var(--ui-line) !important;
+  border-radius: var(--ui-radius) !important;
+  background: #fff !important;
+  color: var(--ui-ink) !important;
+  text-align: left;
+  box-shadow: none !important;
+}
+
+.booking-route-option:hover {
+  border-color: #93aa9b !important;
+  background: #f8fbf9 !important;
+}
+
+.booking-route-option.selected {
+  border-color: #244c35 !important;
+  background: #f0f6f2 !important;
+  box-shadow: 0 0 0 2px rgba(36, 76, 53, .1) !important;
+}
+
+.booking-route-option > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: #244c35;
+}
+
+.booking-route-radio {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #98a39d;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.booking-route-option > div {
+  display: grid;
+  gap: 4px;
+}
+
+.booking-route-option strong {
+  color: var(--ui-ink);
+  font-size: 15px;
+}
+
+.booking-route-option small {
+  color: #586760;
+  font: 750 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.booking-route-option p {
+  margin: 3px 0 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.booking-route-option em {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #dcefe2;
+  color: #1c5c34;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.booking-route-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.booking-route-preview-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ui-ink-soft);
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.booking-route-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ui-line);
+}
+
+.booking-route-actions > .primary-btn {
+  min-height: 43px !important;
+}
+
+.booking-route-schedule {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.booking-route-schedule label {
+  display: grid;
+  gap: 5px;
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.booking-route-schedule input {
+  min-height: 43px;
+}
+
+.booking-route-schedule button {
+  min-height: 43px !important;
+}
+
+.booking-route-pending {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8c88f;
+  border-radius: var(--ui-radius);
+  background: #fff9e8;
+  color: #5b4a16;
+}
+
+.booking-route-pending > div {
+  display: grid;
+  gap: 3px;
+}
+
+.booking-route-pending strong {
+  font-size: 13px;
+}
+
+.booking-route-pending span {
+  font-size: 11px;
+}
+
+.booking-route-confirmation-message {
+  display: grid;
+  gap: 8px;
+  margin: 0 20px;
+  padding: 16px;
+  border: 1px solid #e1d39d;
+  border-radius: var(--ui-radius);
+  background: #fff9e8;
+}
+
+.booking-route-confirmation-message strong {
+  color: #4f4218;
+  font-size: 14px;
+}
+
+.booking-route-confirmation-message span,
+.booking-route-confirmation-message small {
+  color: #625a41;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.booking-route-confirmation-actions button {
+  min-height: 42px !important;
+}
+
+@media (max-width: 760px) {
+  .booking-route-status,
+  .booking-route-options,
+  .booking-route-actions,
+  .booking-route-schedule,
+  .booking-route-pending {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-route-status {
+    gap: 4px;
+  }
+
+  .booking-route-option {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+  }
+
+  .booking-route-option em {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .booking-route-actions > button,
+  .booking-route-schedule button,
+  .booking-route-pending button {
+    width: 100%;
+  }
+
+  .booking-route-confirmation-message {
+    margin: 0 14px;
+  }
+}
+
 /* TollSpot command center */
 .tollspot-command-center {
   display: grid;
