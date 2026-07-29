@@ -310,6 +310,17 @@ const ADMIN_QUICK_LINK_GROUPS = [
   { label: 'Insurance', links: INSURANCE_RESOURCE_LINKS },
 ];
 
+function updateFetchedState(setter, nextValue, silent) {
+  if (nextValue === null || nextValue === undefined) return;
+  if (!silent) {
+    setter(nextValue);
+    return;
+  }
+  setter((currentValue) =>
+    JSON.stringify(currentValue) === JSON.stringify(nextValue) ? currentValue : nextValue
+  );
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -331,6 +342,7 @@ function App() {
   const [paymentTypeFilter, setPaymentTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [rentalFilter, setRentalFilter] = useState('needs_action');
+  const backgroundRefreshInFlightRef = useRef(false);
 
   const [profiles, setProfiles] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -540,8 +552,9 @@ function App() {
     let refreshTimer;
     let calendarPoll;
     const refreshCalendarSourceOfTruth = () => {
+      if (document.visibilityState === 'hidden' || backgroundRefreshInFlightRef.current) return;
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => loadAllData({ silent: true }), 150);
+      refreshTimer = window.setTimeout(() => loadAllData({ silent: true }), 500);
     };
     const calendarChannel = supabase
       .channel('admin-calendar-source-of-truth')
@@ -551,7 +564,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, refreshCalendarSourceOfTruth)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, refreshCalendarSourceOfTruth)
       .subscribe();
-    calendarPoll = window.setInterval(refreshCalendarSourceOfTruth, 15 * 1000);
+    calendarPoll = window.setInterval(refreshCalendarSourceOfTruth, 60 * 1000);
 
     return () => {
       window.clearTimeout(refreshTimer);
@@ -681,8 +694,12 @@ function App() {
   }
 
   async function loadAllData({ silent = false } = {}) {
-    if (!silent) setLoading(true);
-    setDataHealth((current) => ({ ...current, refreshing: true }));
+    if (silent && backgroundRefreshInFlightRef.current) return;
+    if (silent) backgroundRefreshInFlightRef.current = true;
+    if (!silent) {
+      setLoading(true);
+      setDataHealth((current) => ({ ...current, refreshing: true }));
+    }
     const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, billingAutomationRes, bookingPageRes, auditLogsRes, rentalPaymentsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
       supabase
         .from('profiles')
@@ -865,41 +882,45 @@ function App() {
       message: userFacingPortalError(error, `${label} could not refresh.`),
     }));
 
-    if (profilesRes.data) setProfiles(profilesRes.data);
-    if (vehiclesRes.data) setVehicles(vehiclesRes.data);
-    if (rentalsRes.data) setRentals(rentalsRes.data);
-    if (pendingBookingsRes.data) setPendingBookings(pendingBookingsRes.data);
-    if (documentsRes.data) setDocuments(documentsRes.data);
-    if (messagesRes.data) setMessages(messagesRes.data);
-    if (reportsRes.data) setReports(reportsRes.data);
-    if (extensionsRes.data) setExtensionRequests(extensionsRes.data);
-    if (emergencyExceptionsRes.data) setEmergencyExceptions(emergencyExceptionsRes.data);
-    if (depositAllocationsRes.data) setDepositAllocations(depositAllocationsRes.data);
-    if (discountCodesRes.data) setDiscountCodes(discountCodesRes.data);
-    if (serviceFeesRes.data) setServiceFees(serviceFeesRes.data);
-    if (sitePromotionsRes.data) setSitePromotions(sitePromotionsRes.data);
-    if (availabilityBlocksRes.data) setAvailabilityBlocks(availabilityBlocksRes.data);
-    if (under25PricingRes.data) setUnder25Pricing(under25PricingRes.data);
-    if (billingAutomationRes.data) setBillingAutomation(billingAutomationRes.data);
-    if (bookingPageRes.data?.[0]) setBookingPageSetting(bookingPageRes.data[0]);
-    if (auditLogsRes.data) setAuditLogs(auditLogsRes.data);
-    if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
-    if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
+    updateFetchedState(setProfiles, profilesRes.data, silent);
+    updateFetchedState(setVehicles, vehiclesRes.data, silent);
+    updateFetchedState(setRentals, rentalsRes.data, silent);
+    updateFetchedState(setPendingBookings, pendingBookingsRes.data, silent);
+    updateFetchedState(setDocuments, documentsRes.data, silent);
+    updateFetchedState(setMessages, messagesRes.data, silent);
+    updateFetchedState(setReports, reportsRes.data, silent);
+    updateFetchedState(setExtensionRequests, extensionsRes.data, silent);
+    updateFetchedState(setEmergencyExceptions, emergencyExceptionsRes.data, silent);
+    updateFetchedState(setDepositAllocations, depositAllocationsRes.data, silent);
+    updateFetchedState(setDiscountCodes, discountCodesRes.data, silent);
+    updateFetchedState(setServiceFees, serviceFeesRes.data, silent);
+    updateFetchedState(setSitePromotions, sitePromotionsRes.data, silent);
+    updateFetchedState(setAvailabilityBlocks, availabilityBlocksRes.data, silent);
+    updateFetchedState(setUnder25Pricing, under25PricingRes.data, silent);
+    updateFetchedState(setBillingAutomation, billingAutomationRes.data, silent);
+    updateFetchedState(setBookingPageSetting, bookingPageRes.data?.[0], silent);
+    updateFetchedState(setAuditLogs, auditLogsRes.data, silent);
+    updateFetchedState(setRentalPayments, rentalPaymentsRes.data, silent);
+    updateFetchedState(setRentalCharges, rentalChargesRes.data, silent);
     setPaymentLoadError(
       [rentalsRes.error, extensionsRes.error, depositAllocationsRes.error, rentalPaymentsRes.error, rentalChargesRes.error]
         .filter(Boolean)
         .map((error) => error.message)
         .join(' ')
     );
-    if (customerEmailTemplatesRes.data) setCustomerEmailTemplates(customerEmailTemplatesRes.data);
-    if (smsTemplatesRes.data) setSmsTemplates(smsTemplatesRes.data);
-    if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
-    if (maintenanceServiceLogsRes.data) setMaintenanceServiceLogs(maintenanceServiceLogsRes.data);
-    setDataHealth({
-      refreshing: false,
-      errors: dataErrors,
-      lastUpdated: new Date().toISOString(),
+    updateFetchedState(setCustomerEmailTemplates, customerEmailTemplatesRes.data, silent);
+    updateFetchedState(setSmsTemplates, smsTemplatesRes.data, silent);
+    updateFetchedState(setMaintenanceSchedules, maintenanceSchedulesRes.data, silent);
+    updateFetchedState(setMaintenanceServiceLogs, maintenanceServiceLogsRes.data, silent);
+    setDataHealth((current) => {
+      if (silent && JSON.stringify(current.errors || []) === JSON.stringify(dataErrors)) return current;
+      return {
+        refreshing: false,
+        errors: dataErrors,
+        lastUpdated: new Date().toISOString(),
+      };
     });
+    if (silent) backgroundRefreshInFlightRef.current = false;
     if (!silent) setLoading(false);
   }
 
@@ -3925,7 +3946,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
           </div>
           <div className="customer-status-grid">
             <span className={profile.phone_verified ? 'verified' : 'warning'}><strong>Phone</strong>{profile.phone_verified ? 'Verified' : 'Not verified'}</span>
-            <span className={profile.identity_verification_status === 'verified' ? 'verified' : 'warning'}><strong>Identity</strong>{prettyStatus(profile.identity_verification_status || 'unverified')}</span>
+            <span className={profile.identity_verification_status === 'verified' ? 'verified' : 'warning'}><strong>Identity</strong>{profile.identity_verification_error_code === 'name_mismatch' ? 'Name mismatch — retry required' : prettyStatus(profile.identity_verification_status || 'unverified')}</span>
             <span className={profile.blocked_customer || profile.customer_status === 'blocked' ? 'danger' : 'verified'}><strong>Account</strong>{profile.blocked_customer || profile.customer_status === 'blocked' ? 'Blocked' : prettyStatus(profile.customer_status || 'good')}</span>
             <span className={age !== null && age < 25 ? 'warning' : 'verified'}><strong>Age</strong>{age === null ? 'Not confirmed' : `${age} years old`}</span>
           </div>
@@ -3938,7 +3959,6 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
             <div><dt>Phone</dt><dd>{profile.phone || 'Not provided'}</dd></div>
             <div><dt>Date of birth</dt><dd>{profile.date_of_birth ? new Date(`${profile.date_of_birth}T12:00:00`).toLocaleDateString() : 'Not provided'}</dd></div>
             <div><dt>Deposit tier</dt><dd>{age === null ? 'Age not confirmed' : age < 25 ? '$500 — under 25' : '$300 — age 25+'}</dd></div>
-            <div className="wide"><dt>Home address</dt><dd>{profile.address || 'Not provided'}</dd></div>
             <div className="wide"><dt>Intended vehicle use</dt><dd>{profile.intended_vehicle_use || 'Not provided'}</dd></div>
             <div className="wide"><dt>Admin notes</dt><dd>{profile.admin_notes || 'No admin notes'}</dd></div>
           </dl>
