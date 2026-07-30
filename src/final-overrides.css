@@ -3189,6 +3189,34 @@ input[type="radio"] {
   background: #f8faf9 !important;
 }
 
+.refund-payment-modal {
+  width: min(600px, 100%) !important;
+}
+
+.refund-protection-summary {
+  display: grid;
+  gap: 4px;
+  margin: 0 20px;
+  padding: 14px;
+  border: 1px solid #b9ddc9;
+  border-radius: var(--ui-radius);
+  background: #edf8f1;
+  color: var(--ui-ink);
+}
+
+.refund-protection-summary small {
+  color: var(--ui-muted);
+  line-height: 1.45;
+}
+
+.refund-payment-modal > .field-label,
+.refund-payment-modal > .secondary-btn,
+.refund-payment-modal > .cancel-warning,
+.refund-payment-modal > small {
+  margin-right: 20px;
+  margin-left: 20px;
+}
+
 .notice-banner {
   margin-bottom: 16px !important;
   padding: 12px 14px !important;
@@ -3424,6 +3452,29 @@ input[type="radio"] {
   border-color: #e4a2a2;
   background: #fff0f0;
   color: #a12626;
+}
+
+.late-return-warning,
+.late-return-critical {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-weight: 800;
+}
+
+.late-return-warning {
+  border: 1px solid #e5c878;
+  background: #fff9e8;
+  color: #735612;
+}
+
+.late-return-critical {
+  border: 2px solid #bd2020;
+  background: #fff0f0;
+  color: #941919;
 }
 
 .return-required-checks {
