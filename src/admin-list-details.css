@@ -246,6 +246,124 @@
   font-size: 14px;
 }
 
+.customer-agreement-list {
+  display: grid;
+  gap: 9px;
+}
+
+.customer-agreement-record {
+  overflow: hidden;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #f9fbfa;
+}
+
+.customer-agreement-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+.customer-agreement-summary > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.customer-agreement-summary span,
+.customer-agreement-summary small {
+  color: var(--admin-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.customer-agreement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.customer-agreement-actions button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--italy-green-dark);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.customer-agreement-copy {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--admin-line);
+  background: #fff;
+}
+
+.customer-agreement-integrity {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.customer-agreement-integrity > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #dbe6df;
+  border-radius: 6px;
+  background: #f5faf7;
+  color: var(--admin-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.customer-agreement-integrity strong {
+  color: var(--admin-ink);
+}
+
+.customer-agreement-copy pre {
+  max-height: 420px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--admin-line);
+  border-radius: 6px;
+  background: #f8faf9;
+  color: var(--admin-ink);
+  white-space: pre-wrap;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.customer-agreement-signature {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #bad8c5;
+  border-radius: 7px;
+  background: #f0f9f3;
+  color: var(--admin-ink);
+}
+
+.customer-agreement-signature img {
+  display: block;
+  width: min(100%, 420px);
+  height: auto;
+  border: 1px solid #d5e1d9;
+  border-radius: 5px;
+  background: #fff;
+}
+
 .customer-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -368,7 +486,11 @@
     max-height: calc(100dvh - 12px) !important;
   }
   .customer-details-overview,
-  .customer-detail-grid { grid-template-columns: 1fr; }
+  .customer-detail-grid,
+  .customer-agreement-integrity { grid-template-columns: 1fr; }
+  .customer-agreement-summary { grid-template-columns: 1fr; }
+  .customer-agreement-actions { justify-content: stretch; }
+  .customer-agreement-actions button { flex: 1; }
   .customer-detail-grid > div.wide { grid-column: auto; }
   .customer-details-scroll { padding: 12px; }
   .customer-details-actions { display: flex !important; }
