@@ -300,6 +300,15 @@
 .deposit-release-status.released{color:#23734a}
 .deposit-release-status.pending,.deposit-release-status.scheduled{color:#8a6200}
 .deposit-release-status.held{color:#9f241f}
+.admin-identity-results{display:grid;gap:9px;margin-top:14px;padding:14px;border:1px solid var(--admin-line,#d7dfdc);border-radius:14px;background:#f7f8f8}
+.admin-identity-results>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.admin-identity-results>div>span{display:grid;gap:3px;padding:10px 12px;border:1px solid var(--admin-line,#d7dfdc);border-radius:10px;background:#fff}
+.admin-identity-results>div>span>strong{font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.admin-identity-results .matched{border-color:#9bd7b5;color:#23734a}
+.admin-identity-results .mismatch{border-color:#efb0ad;color:#9f241f}
+.admin-identity-results .pending{color:var(--admin-muted,#607176)}
+.admin-identity-results>small{color:#8a6200;line-height:1.45}
+@media(max-width:620px){.admin-identity-results>div{grid-template-columns:1fr}}
 
 @media(max-width:760px){
     .audit-filters{grid-template-columns:1fr}
