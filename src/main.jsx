@@ -1491,6 +1491,13 @@ function App() {
   }
 
   async function updateVehiclePublished(id, published) {
+    const vehicle = vehicles.find((item) => item.id === id);
+    if (published && linesToList(vehicle?.features).length < 3) {
+      return notify('Select at least three customer-facing features before publishing this vehicle.');
+    }
+    if (published && linesToList(vehicle?.image_urls).length < 1) {
+      return notify('Add at least one vehicle picture before publishing this vehicle.');
+    }
     const { error } = await supabase.from('vehicles').update({ published }).eq('id', id);
     if (error) return notify(error.message);
     setVehicles((current) => current.map((vehicle) =>
@@ -1655,6 +1662,14 @@ function App() {
     if (!Number.isFinite(nextDailyRate) || nextDailyRate < 0 || nextDailyRate > MONEY_MAX) {
       return fail(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
     }
+    const nextFeatures = linesToList(editVehicleForm.features);
+    const nextImages = linesToList(editVehicleForm.image_urls);
+    if (editVehicleForm.published && nextFeatures.length < 3) {
+      return fail('Select at least three customer-facing features before publishing this vehicle.');
+    }
+    if (editVehicleForm.published && nextImages.length < 1) {
+      return fail('Add at least one vehicle picture before publishing this vehicle.');
+    }
     const priceConfirmation = getVehiclePriceConfirmation({
       action: 'edit',
       vehicleId: id,
@@ -1695,8 +1710,9 @@ function App() {
         current_mileage: currentMileage,
         maintenance_interval_miles: Number(editVehicleForm.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL),
         last_maintenance_mileage: lastServiceMileage,
-        features: linesToList(editVehicleForm.features),
-        image_urls: linesToList(editVehicleForm.image_urls),
+        features: nextFeatures,
+        image_urls: nextImages,
+        image_url: nextImages[0] || null,
       })
       .eq('id', id);
 
@@ -2638,6 +2654,14 @@ function App() {
     if (!Number.isFinite(dailyRate) || dailyRate < 0 || dailyRate > MONEY_MAX) {
       return fail(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
     }
+    const nextFeatures = linesToList(vehicleForm.features);
+    const nextImages = linesToList(vehicleForm.image_urls);
+    if (vehicleForm.published && nextFeatures.length < 3) {
+      return fail('Select at least three customer-facing features before publishing this vehicle.');
+    }
+    if (vehicleForm.published && nextImages.length < 1) {
+      return fail('Add at least one vehicle picture before publishing this vehicle.');
+    }
     const priceConfirmation = getVehiclePriceConfirmation({
       action: 'add',
       vehicleName: vehicleForm.name || 'this new vehicle',
@@ -2665,8 +2689,9 @@ function App() {
       current_mileage: originalMileage,
       maintenance_interval_miles: Number(vehicleForm.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL),
       last_maintenance_mileage: lastServiceMileage ?? originalMileage,
-      features: linesToList(vehicleForm.features),
-      image_urls: linesToList(vehicleForm.image_urls),
+      features: nextFeatures,
+      image_urls: nextImages,
+      image_url: nextImages[0] || null,
     });
     if (error) {
       return fail(error.message);
@@ -4742,7 +4767,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
         <div className="vehicle-editor-scroll">
           <section className="vehicle-editor-media">
             <div className="vehicle-editor-section-heading">
-              <div><strong>Vehicle pictures</strong><span>The first picture is used as the featured image.</span></div>
+              <div><strong>Vehicle pictures</strong><span>The first picture is featured. Upload a replacement, set it featured, then delete the old picture.</span></div>
               <span>{linesToList(editVehicleForm.image_urls).length}/{MAX_VEHICLE_IMAGES}</span>
             </div>
             <VehiclePhotoManager
@@ -5008,7 +5033,7 @@ function VehiclePhotoManager({ vehicleName, value, onChange }) {
       </div>
       <div className="vehicle-photo-actions">
         {index !== 0 && <button type="button" onClick={() => makeFeatured(index)}><Star size={14}/> Set featured</button>}
-        <button type="button" className="remove-photo" onClick={() => removePicture(index)}><Trash2 size={14}/> Remove</button>
+        <button type="button" className="remove-photo" onClick={() => removePicture(index)}><Trash2 size={14}/> Delete from listing</button>
       </div>
     </article>)}
   </div>;
