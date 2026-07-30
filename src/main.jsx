@@ -4034,6 +4034,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const risk = customerRiskProfile(profile, rentals, documents, reports);
   const age = adminCustomerAge(profile.date_of_birth);
+  const identityResults = identityMatchResults(profile);
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
 
   return <div className="admin-modal-backdrop customer-details-backdrop" role="presentation" onMouseDown={(event) => {
@@ -4057,6 +4058,13 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
             <span className={profile.identity_verification_status === 'verified' ? 'verified' : 'warning'}><strong>Identity</strong>{profile.identity_verification_error_code === 'name_mismatch' ? 'Name mismatch — retry required' : prettyStatus(profile.identity_verification_status || 'unverified')}</span>
             <span className={profile.blocked_customer || profile.customer_status === 'blocked' ? 'danger' : 'verified'}><strong>Account</strong>{profile.blocked_customer || profile.customer_status === 'blocked' ? 'Blocked' : prettyStatus(profile.customer_status || 'good')}</span>
             <span className={age !== null && age < 25 ? 'warning' : 'verified'}><strong>Age</strong>{age === null ? 'Not confirmed' : `${age} years old`}</span>
+          </div>
+          <div className="admin-identity-results" aria-label="Stripe Identity comparison results">
+            <strong>Stripe Identity results</strong>
+            <div>
+              {identityResults.map((item) => <span className={item.tone} key={item.label}><strong>{item.label}</strong>{item.result}</span>)}
+            </div>
+            {profile.identity_verification_error_code === 'identity_results_access_required' && <small>Stripe received the submission, but restricted results could not be retrieved. Do not ask the customer to resubmit until results access is checked.</small>}
           </div>
         </section>
 
@@ -8423,6 +8431,38 @@ function normalizePaymentStatus(status) {
   return 'pending';
 }
 function prettyStatus(status) { return String(status || '').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+function identityMatchResults(profile = {}) {
+  const status = String(profile.identity_verification_status || 'unverified').toLowerCase();
+  const code = String(profile.identity_verification_error_code || '').toLowerCase();
+  if (status === 'verified') {
+    return [
+      { label: 'Legal name', result: 'Match confirmed', tone: 'matched' },
+      { label: 'Date of birth', result: 'Match confirmed', tone: 'matched' },
+    ];
+  }
+  if (code === 'name_mismatch') {
+    return [
+      { label: 'Legal name', result: 'Does not match', tone: 'mismatch' },
+      { label: 'Date of birth', result: 'Match confirmed', tone: 'matched' },
+    ];
+  }
+  if (code === 'date_of_birth_mismatch') {
+    return [
+      { label: 'Legal name', result: 'Match confirmed', tone: 'matched' },
+      { label: 'Date of birth', result: 'Does not match', tone: 'mismatch' },
+    ];
+  }
+  if (code === 'identity_details_mismatch') {
+    return [
+      { label: 'Legal name', result: 'Does not match', tone: 'mismatch' },
+      { label: 'Date of birth', result: 'Does not match', tone: 'mismatch' },
+    ];
+  }
+  return [
+    { label: 'Legal name', result: 'Not confirmed', tone: 'pending' },
+    { label: 'Date of birth', result: 'Not confirmed', tone: 'pending' },
+  ];
+}
 function docLabel(type) { return type === 'license' ? 'Driver License' : type === 'insurance' ? 'Insurance Policy' : prettyStatus(type); }
 function prettyVehicleStatus(status) { return prettyStatus(status || 'available'); }
 function operationalVehicleStatus(status) {
