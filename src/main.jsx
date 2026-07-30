@@ -298,7 +298,7 @@ const ADMIN_QUICK_LINK_GROUPS = [
     label: 'Messages',
     links: [
       { label: 'Twilio', href: 'https://console.twilio.com/' },
-      { label: 'Resend', href: 'https://resend.com/login' },
+      { label: 'SendGrid', href: 'https://app.sendgrid.com/' },
     ],
   },
   {
@@ -2613,7 +2613,7 @@ function App() {
   async function sendManualReminder(rental, channel) {
     const customer = rental.profiles?.full_name || rental.profiles?.phone || rental.user_id;
     if (channel !== 'SMS') {
-      notify(`${channel} reminder placeholder for ${customer}. Resend is still pending.`);
+      notify(`${channel} reminder placeholder for ${customer}. SendGrid delivery is still pending.`);
       return;
     }
 
@@ -3917,9 +3917,12 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
 
 function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onClose }) {
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
+  const [openAgreementId, setOpenAgreementId] = useState('');
   const risk = customerRiskProfile(profile, rentals, documents, reports);
   const age = adminCustomerAge(profile.date_of_birth);
+  const identityResults = identityMatchResults(profile);
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
+  const signedAgreements = sortedRentals.filter((rental) => Boolean(rental.agreement_snapshot));
 
   return <div className="admin-modal-backdrop customer-details-backdrop" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
@@ -3942,6 +3945,13 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
             <span className={profile.identity_verification_status === 'verified' ? 'verified' : 'warning'}><strong>Identity</strong>{prettyStatus(profile.identity_verification_status || 'unverified')}</span>
             <span className={profile.blocked_customer || profile.customer_status === 'blocked' ? 'danger' : 'verified'}><strong>Account</strong>{profile.blocked_customer || profile.customer_status === 'blocked' ? 'Blocked' : prettyStatus(profile.customer_status || 'good')}</span>
             <span className={age !== null && age < 25 ? 'warning' : 'verified'}><strong>Age</strong>{age === null ? 'Not confirmed' : `${age} years old`}</span>
+          </div>
+          <div className="admin-identity-results" aria-label="Stripe Identity comparison results">
+            <strong>Stripe Identity results</strong>
+            <div>
+              {identityResults.map((item) => <span className={item.tone} key={item.label}><strong>{item.label}</strong>{item.result}</span>)}
+            </div>
+            {profile.identity_verification_error_code === 'identity_results_access_required' && <small>Stripe received the submission, but the restricted results could not be retrieved. Do not ask the customer to resubmit until the Stripe results access is checked.</small>}
           </div>
         </section>
 
@@ -3966,6 +3976,47 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
               <div><strong>{rental.vehicles?.name || 'Vehicle'}</strong><span>{formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span></div>
               <span className={`workflow-badge ${['completed', 'paid', 'active'].includes(String(rental.status || '').toLowerCase()) ? 'success' : ''}`}>{prettyStatus(rental.status || 'pending')}</span>
             </article>)}
+          </div>
+        </section>
+
+        <section className="customer-details-section customer-agreements-section">
+          <div className="customer-section-heading"><h3>Signed rental agreements</h3><span>{signedAgreements.length} stored</span></div>
+          {signedAgreements.length === 0 && <p className="muted">No signed rental agreements are stored for this customer yet.</p>}
+          <div className="customer-agreement-list">
+            {signedAgreements.map((rental) => {
+              const isOpen = openAgreementId === rental.id;
+              const signatureImage = extractSignatureImage(rental.agreement_snapshot);
+              const printableAgreement = String(rental.agreement_snapshot).replace(
+                /Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,
+                'Drawn Signature Image: embedded below',
+              );
+              return <article className="customer-agreement-record" key={rental.id}>
+                <div className="customer-agreement-summary">
+                  <div>
+                    <strong>{rental.vehicles?.name || 'Rental agreement'}</strong>
+                    <span>{formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
+                    <small>
+                      Signed by {rental.agreement_signature_name || 'customer'}
+                      {rental.agreement_signed_at ? ` • ${new Date(rental.agreement_signed_at).toLocaleString()}` : ''}
+                      {rental.agreement_version ? ` • ${rental.agreement_version}` : ''}
+                    </small>
+                  </div>
+                  <div className="customer-agreement-actions">
+                    <button type="button" onClick={() => setOpenAgreementId(isOpen ? '' : rental.id)}><Eye size={15}/>{isOpen ? 'Hide copy' : 'Review copy'}</button>
+                    <button type="button" onClick={() => downloadAgreement(rental)}><FileSignature size={15}/>Download</button>
+                  </div>
+                </div>
+                {isOpen && <div className="customer-agreement-copy">
+                  <div className="customer-agreement-integrity">
+                    <span><strong>Agreement version</strong>{rental.agreement_version || 'Not recorded'}</span>
+                    <span><strong>Agreement hash</strong>{rental.agreement_hash || 'Not recorded'}</span>
+                    <span><strong>Electronic signature</strong>{signatureImage ? 'Typed and drawn signature stored' : 'Typed signature stored'}</span>
+                  </div>
+                  <pre>{printableAgreement}</pre>
+                  {signatureImage && <div className="customer-agreement-signature"><strong>Stored electronic signature</strong><img src={signatureImage} alt={`Electronic signature for ${rental.agreement_signature_name || 'customer'}`}/></div>}
+                </div>}
+              </article>;
+            })}
           </div>
         </section>
 
@@ -8107,6 +8158,38 @@ function normalizePaymentStatus(status) {
   return 'pending';
 }
 function prettyStatus(status) { return String(status || '').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+function identityMatchResults(profile = {}) {
+  const status = String(profile.identity_verification_status || 'unverified').toLowerCase();
+  const code = String(profile.identity_verification_error_code || '').toLowerCase();
+  if (status === 'verified') {
+    return [
+      { label: 'Legal name', result: 'Match confirmed', tone: 'matched' },
+      { label: 'Date of birth', result: 'Match confirmed', tone: 'matched' },
+    ];
+  }
+  if (code === 'name_mismatch') {
+    return [
+      { label: 'Legal name', result: 'Does not match', tone: 'mismatch' },
+      { label: 'Date of birth', result: 'Match confirmed', tone: 'matched' },
+    ];
+  }
+  if (code === 'date_of_birth_mismatch') {
+    return [
+      { label: 'Legal name', result: 'Match confirmed', tone: 'matched' },
+      { label: 'Date of birth', result: 'Does not match', tone: 'mismatch' },
+    ];
+  }
+  if (code === 'identity_details_mismatch') {
+    return [
+      { label: 'Legal name', result: 'Does not match', tone: 'mismatch' },
+      { label: 'Date of birth', result: 'Does not match', tone: 'mismatch' },
+    ];
+  }
+  return [
+    { label: 'Legal name', result: 'Not confirmed', tone: 'pending' },
+    { label: 'Date of birth', result: 'Not confirmed', tone: 'pending' },
+  ];
+}
 function docLabel(type) { return type === 'license' ? 'Driver License' : type === 'insurance' ? 'Insurance Policy' : prettyStatus(type); }
 function prettyVehicleStatus(status) { return prettyStatus(status || 'available'); }
 function operationalVehicleStatus(status) {
