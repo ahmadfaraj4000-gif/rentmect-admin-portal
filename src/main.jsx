@@ -1354,7 +1354,7 @@ function App() {
     setExtensionRequests((current) => current.map((request) =>
       request.id === id ? { ...request, ...(data || {}), status: approve ? 'approved_pending_payment' : 'rejected' } : request
     ));
-    notify(approve ? 'Extension approved. The customer payment email was queued and the calendar hold is active.' : 'Extension rejected.', 'success');
+    notify(approve ? 'Extension approved. The customer was notified in the client portal, payment is ready in Billing, and the calendar hold is active.' : 'Extension rejected.', 'success');
   }
 
   async function recordExtensionPayment(id) {
@@ -2987,7 +2987,7 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
           {item.rental && item.nextStatus && <button className="approve" onClick={() => updateRentalStatus(item.rental.id, item.nextStatus)}><CheckCircle2 size={16}/> {prettyStatus(item.nextStatus)}</button>}
           {item.extensionInsurance && <button onClick={() => openDocument(item.extensionInsurance)}><FileText size={16}/> Open Insurance</button>}
           {item.extensionInsurance && item.extensionInsurance.status !== 'approved' && <button className="approve" onClick={() => markDocument(item.extensionInsurance.id, 'approved')}><CheckCircle2 size={16}/> Approve Insurance</button>}
-          {item.extension && item.extension.status === 'pending' && <button className="approve" disabled={item.extensionInsurance?.status !== 'approved'} title={item.extensionInsurance?.status !== 'approved' ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(item.extension.id, true)}><CheckCircle2 size={16}/> Approve &amp; Send Payment</button>}
+          {item.extension && item.extension.status === 'pending' && <button className="approve" disabled={item.extensionInsurance?.status !== 'approved'} title={item.extensionInsurance?.status !== 'approved' ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(item.extension.id, true)}><CheckCircle2 size={16}/> Approve &amp; Notify Customer</button>}
           {item.extension && item.extension.status === 'pending' && <button className="reject" onClick={() => decideExtension(item.extension.id, false)}><XCircle size={16}/> Decline</button>}
           {item.extension && item.extension.status === 'approved_pending_payment' && <button className="approve" onClick={() => recordExtensionPayment(item.extension.id)}><CreditCard size={16}/> Record Payment</button>}
           {item.document && <button onClick={() => openDocument(item.document)}><FileText size={16}/> Open</button>}
@@ -6841,7 +6841,7 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
         <div className="mini-actions">
           {extensionInsurance && openDocument && <button type="button" onClick={() => openDocument(extensionInsurance)}><FileText size={14}/> Open Insurance</button>}
           {extensionInsurance && extensionInsurance.status !== 'approved' && markDocument && <button type="button" className="approve" onClick={() => markDocument(extensionInsurance.id, 'approved')}><CheckCircle2 size={14}/> Approve Insurance</button>}
-          {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Send Payment</button>}
+          {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Notify Customer</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="reject" onClick={() => decideExtension(request.id, false)}><XCircle size={14}/> Reject</button>}
           {request.status === 'approved_pending_payment' && recordExtensionPayment && <button type="button" className="approve" onClick={() => recordExtensionPayment(request.id)}><CreditCard size={14}/> Record Payment</button>}
           {request.status === 'approved_pending_payment' && cancelApprovedExtension && <button type="button" className="reject" onClick={() => cancelApprovedExtension(request.id)}><XCircle size={14}/> Cancel Hold</button>}
