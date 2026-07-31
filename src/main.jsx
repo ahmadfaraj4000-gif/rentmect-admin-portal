@@ -45,6 +45,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInput';
 import { optimizeVehicleImage } from './lib/imageOptimizer';
 import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
 import logoUrl from './assets/logo-sidebar.png';
@@ -2521,6 +2522,14 @@ function App() {
     if (manualBookingForm.customerMode === 'new' && (!manualBookingForm.fullName.trim() || !manualBookingForm.email.trim() || !manualBookingForm.phone.trim() || !manualBookingForm.dateOfBirth)) {
       return notify('Enter the new customer’s name, email, phone, and date of birth.');
     }
+    if (manualBookingForm.customerMode === 'new' && !isEligibleAdminBirthday(manualBookingForm.dateOfBirth)) {
+      return notify('Enter a real birthday for a renter who is at least 21 years old.');
+    }
+    if (manualBookingForm.customerMode === 'existing' && !isEligibleAdminBirthday(
+      profiles.find((profile) => profile.id === manualBookingForm.customerId)?.date_of_birth || manualBookingForm.existingDateOfBirth
+    )) {
+      return notify('Enter a real birthday for a renter who is at least 21 years old.');
+    }
     const deliveryNeedsText = ['text', 'both'].includes(manualBookingForm.onboardingDelivery);
     const deliveryPhone = manualBookingForm.customerMode === 'new' ? manualBookingForm.phone : manualBookingForm.existingPhone;
     if (deliveryNeedsText && !isValidUSPhone(deliveryPhone)) {
@@ -2585,6 +2594,10 @@ function App() {
     const deliveredBy = (data?.deliveryChannels || []).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
     notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ` — secure completion link sent by ${deliveredBy}.` : ' — finish it in the focused procedure console.'}`, 'success');
     if (data?.onboardingWarning) notify(`Booking was saved, but one delivery method needs attention: ${data.onboardingWarning}`);
+    const textDelivery = (data?.deliveryDetails || []).find((item) => item.channel === 'text');
+    if (textDelivery && textDelivery.status !== 'delivered') {
+      notify(`Booking saved. Twilio status: ${prettySmsDeliveryStatus(textDelivery)}. Carrier delivery is not confirmed; use Email Only or Copy secure checklist link if the customer needs it now.`);
+    }
   }
 
   async function sendBookingCompletionLink(rental, delivery = 'email') {
@@ -2604,7 +2617,14 @@ function App() {
       }
     } else {
       const channels = (data.deliveryChannels || [delivery]).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
-      notify(`Secure customer completion link sent by ${channels}.`, 'success');
+      const textDelivery = (data?.deliveryDetails || []).find((item) => item.channel === 'text');
+      if (textDelivery?.status === 'delivered') {
+        notify(`Secure customer completion link delivered by text${channels.includes('email') ? ' and accepted by email' : ''}.`, 'success');
+      } else if (textDelivery) {
+        notify(`Twilio accepted the text, but carrier delivery is not confirmed. Current status: ${prettySmsDeliveryStatus(textDelivery)}. Use Email Only or Copy secure checklist link if the customer needs it now.`);
+      } else {
+        notify(`Secure customer completion link sent by ${channels}.`, 'success');
+      }
       if (data.onboardingWarning) notify(`One delivery method needs attention: ${data.onboardingWarning}`);
     }
     return data.onboardingUrl;
@@ -5332,11 +5352,11 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
           <label><span>Full name</span><input value={manualBookingForm.fullName} onChange={(event) => update('fullName', limitText(event.target.value, 120))} autoComplete="name" placeholder="Customer name" required /></label>
           <label><span>Email</span><input type="email" value={manualBookingForm.email} onChange={(event) => update('email', limitText(event.target.value, 200))} autoComplete="email" placeholder="customer@email.com" required /></label>
           <label><span>Phone</span><input type="tel" value={manualBookingForm.phone} onChange={(event) => update('phone', limitText(event.target.value, 32))} autoComplete="tel" placeholder="(860) 555-0123" required /></label>
-          <label><span>Date of birth</span><input type="date" max={new Date().toISOString().slice(0, 10)} value={manualBookingForm.dateOfBirth} onChange={(event) => update('dateOfBirth', event.target.value)} required /></label>
+          <AdminBirthdayInput idPrefix="new-customer-birthday" value={manualBookingForm.dateOfBirth} onChange={(value) => update('dateOfBirth', value)} />
           <label className="full-field"><span>Address (optional)</span><input value={manualBookingForm.address} onChange={(event) => update('address', limitText(event.target.value, 240))} autoComplete="street-address" placeholder="Street, city, state, ZIP" /></label>
           <p className="customer-save-note full-field"><ShieldCheck size={16}/> The customer will receive the selected vehicle and dates, then enter this email to begin the full guided verification checklist.</p>
         </div>}
-        {manualBookingForm.customerMode === 'existing' && selectedCustomer && !selectedCustomer.date_of_birth && <label className="full-field missing-dob-field"><span>Date of birth required for deposit</span><input type="date" max={new Date().toISOString().slice(0, 10)} value={manualBookingForm.existingDateOfBirth} onChange={(event) => update('existingDateOfBirth', event.target.value)} required /></label>}
+        {manualBookingForm.customerMode === 'existing' && selectedCustomer && !selectedCustomer.date_of_birth && <div className="full-field missing-dob-field"><AdminBirthdayInput idPrefix="existing-customer-birthday" value={manualBookingForm.existingDateOfBirth} onChange={(value) => update('existingDateOfBirth', value)} /></div>}
 
         <details className="optional-record-details full-field">
           <summary>2. Optional saved license &amp; insurance details</summary>
@@ -8633,6 +8653,12 @@ function adminCustomerAge(dateOfBirth, today = new Date()) {
   let age = today.getFullYear() - year;
   if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age -= 1;
   return age;
+}
+function prettySmsDeliveryStatus(delivery) {
+  const status = String(delivery?.status || 'unknown').replaceAll('_', ' ');
+  const errorCode = delivery?.errorCode || delivery?.error_code;
+  if (Number(errorCode) === 30034) return 'blocked — Twilio 30034, sending number is not registered for US A2P 10DLC';
+  return errorCode ? `${status} — Twilio ${errorCode}` : status;
 }
 function getLateReturnState(returnDate, returnTime, status) {
   const normalizedStatus = String(status || '').toLowerCase();
