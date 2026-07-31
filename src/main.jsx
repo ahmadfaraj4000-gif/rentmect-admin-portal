@@ -523,11 +523,7 @@ function App() {
       }
 
       setAdminRoleChecking(true);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single();
+      const { data, error } = await supabase.rpc('is_admin');
 
       if (error) {
         setIsAdminUser(false);
@@ -535,7 +531,7 @@ function App() {
         return;
       }
 
-      setIsAdminUser(data?.role === 'admin');
+      setIsAdminUser(data === true);
       setAdminRoleChecking(false);
     }
 
