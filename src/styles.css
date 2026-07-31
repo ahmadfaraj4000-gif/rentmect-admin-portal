@@ -1400,26 +1400,55 @@ button{
 .loading-screen{
     text-align:center
 }
-.road{
-    width:300px;
-    height:7px;
-    background:rgba(255,255,255,.18);
-    border-radius:99px;
-    overflow:hidden;
-    margin-bottom:22px
+.loading-status-card{
+    width:min(420px,calc(100vw - 40px));
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+    padding:34px 28px;
+    border:1px solid rgba(18,122,68,.18);
+    border-radius:22px;
+    background:#fff;
+    box-shadow:0 20px 55px rgba(14,82,49,.12)
 }
-.loading-car{
-    width:44px;
-    height:24px;
-    color:var(--red2);
-    animation:drive 1.3s infinite linear
+.loading-status-card h1{
+    margin:2px 0 0;
+    color:#123f2b;
+    font-size:clamp(22px,5vw,30px);
+    line-height:1.15
 }
-@keyframes drive{
-    0%{
-        transform:translateX(-60px)
+.loading-status-card p{
+    margin:0;
+    color:#607068;
+    font-size:14px;
+    font-weight:700
+}
+.admin-access-spinner{
+    position:relative;
+    width:72px;
+    height:72px;
+    border:8px solid #dcefe3;
+    border-top-color:#16834a;
+    border-right-color:#16834a;
+    border-radius:50%;
+    animation:admin-access-spin .8s linear infinite;
+    box-shadow:0 8px 24px rgba(22,131,74,.16)
+}
+.admin-access-spinner span{
+    position:absolute;
+    inset:14px;
+    border-radius:50%;
+    background:#eaf7ef
+}
+@keyframes admin-access-spin{
+    to{
+        transform:rotate(360deg)
     }
-    100%{
-        transform:translateX(330px)
+}
+@media (prefers-reduced-motion:reduce){
+    .admin-access-spinner{
+        animation-duration:1.8s
     }
 }
 .auth-screen{

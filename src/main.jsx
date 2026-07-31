@@ -7251,7 +7251,17 @@ function DocumentMiniList({ documents = [], openDocument, markDocument, deleteDo
 function Panel({ title, eyebrow, children }) { return <section className="panel"><p className="eyebrow">{eyebrow}</p><h3>{title}</h3>{children}</section>; }
 function Metric({ icon: Icon, label, value, danger }) { return <div className={danger ? 'metric-card danger' : 'metric-card'}><Icon size={22}/><span>{label}</span><strong>{value}</strong></div>; }
 function QueueItem({ icon: Icon, label, value }) { return <div className="queue-item"><Icon size={18}/><span>{label}</span><strong>{value}</strong></div>; }
-function Loading({ message = 'Loading admin portal…' }) { return <div className="loading-screen" role="status" aria-live="polite"><div className="road" aria-hidden="true"><div className="loading-car">▰</div></div><h1>{message}</h1></div>; }
+function Loading({ message = 'Loading admin portal…' }) {
+  return <div className="loading-screen" role="status" aria-live="polite" aria-busy="true">
+    <div className="loading-status-card">
+      <div className="admin-access-spinner" aria-hidden="true">
+        <span />
+      </div>
+      <h1>{message}</h1>
+      <p>Please keep this page open.</p>
+    </div>
+  </div>;
+}
 function Login({ authForm, setAuthForm, handleLogin, authMessage, showPassword, setShowPassword, handleForgotPassword }) {
   return <div className="auth-screen admin-auth-light">
     <form className="auth-card" onSubmit={handleLogin}>
