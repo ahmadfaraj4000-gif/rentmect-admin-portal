@@ -441,7 +441,7 @@
 }
 .external-payment-confirmation{
     display:flex!important;
-    align-items:flex-start!important;
+    align-items:center!important;
     gap:10px!important;
     padding:13px 14px;
     border:1px solid #cbd9d0;
@@ -450,14 +450,20 @@
     color:var(--admin-ink)!important;
     font-weight:850!important
 }
+.external-payment-confirmation span{
+    display:block;
+    margin:0!important;
+    line-height:1.35!important
+}
 .external-payment-confirmation input{
     flex:0 0 19px;
     width:19px!important;
     min-width:19px!important;
     height:19px!important;
     min-height:19px!important;
-    margin:1px 0 0!important;
+    margin:0!important;
     padding:0!important;
+    align-self:center!important;
     accent-color:var(--brand-olive)
 }
 .external-payment-modal .override-warning{

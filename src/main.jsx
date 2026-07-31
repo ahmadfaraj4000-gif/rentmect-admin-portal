@@ -7061,7 +7061,10 @@ function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
         <strong>Record only money that actually cleared</strong>
         <span>This action marks the rental payment and security deposit as received outside Stripe and creates an admin audit record.</span>
       </div>
-      <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} onChange={(event) => setForm((current) => ({ ...current, confirmed: event.target.checked }))} /> I confirm this payment was received and cleared.</label>
+      <label className="external-payment-confirmation">
+        <input type="checkbox" checked={form.confirmed} onChange={(event) => setForm((current) => ({ ...current, confirmed: event.target.checked }))} />
+        <span>I confirm this payment was received and cleared.</span>
+      </label>
       {error && <small className="form-error" role="alert">{error}</small>}
       <div className="modal-actions">
         <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
