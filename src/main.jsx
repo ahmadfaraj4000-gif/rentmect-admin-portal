@@ -338,7 +338,10 @@ function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [activeTab, setActiveTab] = useState(() => ADMIN_TAB_KEYS.has(requestedAdminTab) ? requestedAdminTab : 'dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    if (readActiveReturnRentalId()) return 'rentals';
+    return ADMIN_TAB_KEYS.has(requestedAdminTab) ? requestedAdminTab : 'dashboard';
+  });
   const [isMobileAdminNav, setIsMobileAdminNav] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [navCollapsed, setNavCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [paymentFilter, setPaymentFilter] = useState('all');
@@ -1157,9 +1160,10 @@ function App() {
 
     const depositDecision = inspection.damageFound ? 'hold' : inspection.depositDecision || 'release';
     const vehicleDisposition = inspection.damageFound ? 'maintenance' : inspection.vehicleDisposition || 'available';
+    const endingMileage = inspection.mileageOverride ? null : parseMileageInput(inspection.endingMileage);
     const { data: completedRental, error: inspectionError } = await supabase.rpc('admin_inspect_and_complete_rental_return', {
       p_rental_id: rental.id,
-      p_ending_mileage: parseMileageInput(inspection.endingMileage),
+      p_ending_mileage: endingMileage,
       p_mileage_checked: Boolean(inspection.mileageChecked),
       p_fuel_checked: Boolean(inspection.fuelChecked),
       p_damage_checked: Boolean(inspection.damageChecked),
@@ -1167,6 +1171,7 @@ function App() {
       p_deposit_decision: depositDecision,
       p_notes: inspection.damageNote || null,
       p_vehicle_disposition: vehicleDisposition,
+      p_mileage_override: Boolean(inspection.mileageOverride),
     });
     if (inspectionError) return notify(inspectionError.message);
 
@@ -1176,18 +1181,20 @@ function App() {
       vehicles: item.vehicles ? {
         ...item.vehicles,
         status: vehicleDisposition,
-        current_mileage: parseMileageInput(inspection.endingMileage),
+        current_mileage: endingMileage ?? item.vehicles.current_mileage,
       } : item.vehicles,
     } : item));
     setVehicles((current) => current.map((vehicle) => vehicle.id === rental.vehicle_id ? {
       ...vehicle,
       status: vehicleDisposition,
-      current_mileage: parseMileageInput(inspection.endingMileage),
+      current_mileage: endingMileage ?? vehicle.current_mileage,
     } : vehicle));
     notify(
-      vehicleDisposition === 'available'
-        ? 'Return inspected and rental closed. The vehicle is available again.'
-        : 'Return inspected and rental closed. The vehicle is held out of service.',
+      inspection.mileageOverride
+        ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
+        : vehicleDisposition === 'available'
+          ? 'Return inspected and rental closed. The vehicle is available again.'
+          : 'Return inspected and rental closed. The vehicle is held out of service.',
       'success',
     );
     return true;
@@ -1284,16 +1291,20 @@ function App() {
     notify('External deposit return recorded.', 'success');
   }
 
-  async function recordTestPayment(rental) {
+  async function recordTestPayment(rental, payment = {}) {
     const id = rental?.id;
-    if (!id) return;
-    const total = Number(rental.rental_total || 0) + Number(rental.service_fee_total || 0) + Number(rental.tax_amount || 0) + Number(rental.security_deposit || 0);
-    const confirmed = window.confirm(`Record ${money(total)} as received outside Stripe? This marks the rental and deposit paid. Use only after confirming the customer actually paid.`);
-    if (!confirmed) return;
+    if (!id) return false;
+    const amount = Number(payment.amount);
+    const paymentMethod = String(payment.paymentMethod || '').trim();
     const { data, error } = await supabase.rpc('record_admin_local_rental_payment', {
       p_rental_id: id,
+      p_amount: amount,
+      p_payment_method: paymentMethod,
     });
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message);
+      return false;
+    }
 
     const paidRental = data || rentals.find((rental) => rental.id === id);
     if (paidRental?.vehicle_id) {
@@ -1314,10 +1325,11 @@ function App() {
     });
 
     if (alertError || alertData?.error) {
-      notify(`Local payment recorded. Admin SMS alert did not send: ${alertError?.message || alertData.error}`);
+      notify(`External ${externalPaymentMethodLabel(paymentMethod).toLowerCase()} payment of ${money(amount)} was recorded. Admin SMS alert did not send: ${alertError?.message || alertData.error}`);
     } else {
-      notify('Local payment recorded. Admin approval SMS sent.', 'success');
+      notify(`${externalPaymentMethodLabel(paymentMethod)} payment of ${money(amount)} recorded. Admin approval SMS sent.`, 'success');
     }
+    return true;
   }
 
   async function decideExtension(id, approve) {
@@ -5906,7 +5918,8 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
 }
 
 function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
-  const [returnPanelOpen, setReturnPanelOpen] = useState(false);
+  const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
+  const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -5985,6 +5998,16 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
     setPickupModal(null);
   }
 
+  function openReturnPanel() {
+    setActiveReturnRentalId(rental.id);
+    setReturnPanelOpen(true);
+  }
+
+  function closeReturnPanel() {
+    clearReturnDraft(rental.id);
+    setReturnPanelOpen(false);
+  }
+
   return <div className="data-row rental-row">
     <div className="rental-row-main">
       <strong>{rental.vehicles?.name || 'Vehicle'}</strong>
@@ -6014,14 +6037,23 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         sendBookingCompletionLink={sendBookingCompletionLink}
         uploadAdminBookingDocument={uploadAdminBookingDocument}
         createAdminPaymentLink={createAdminPaymentLink}
-        recordExternalPayment={recordTestPayment}
+        recordExternalPayment={() => setExternalPaymentModalOpen(true)}
       />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} openDocument={openDocument} markDocument={markDocument} />}
       {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
       {detailed && outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong> Use Charge customer below; the refund action unlocks automatically when the balance is clear.</span></div>}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
       {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
-      {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={() => setReturnPanelOpen(false)} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
+      {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={closeReturnPanel} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
+      {externalPaymentModalOpen && <ExternalPaymentModal
+        rental={rental}
+        onCancel={() => setExternalPaymentModalOpen(false)}
+        onConfirm={async (payment) => {
+          const recorded = await recordTestPayment?.(rental, payment);
+          if (recorded) setExternalPaymentModalOpen(false);
+          return recorded;
+        }}
+      />}
       {pickupModal && <PickupOverrideModal
         rental={rental}
         defaultMileage={defaultPickupMileage}
@@ -6072,10 +6104,10 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
     <div className="row-actions rental-actions">
       <div className="rental-actions-primary">
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
-        {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button className="approve" onClick={()=>recordTestPayment(rental)}><CreditCard size={15}/> Record External Payment</button>}
+        {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button className="approve" onClick={() => setExternalPaymentModalOpen(true)}><CreditCard size={15}/> Record External Payment</button>}
         {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
         {canCreateEmergencyException && <button className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={15}/> Emergency Exception</button>}
-        {canCompleteReturn && <button className="approve primary-action" onClick={()=>setReturnPanelOpen(true)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
+        {canCompleteReturn && <button className="approve primary-action" onClick={openReturnPanel}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
         {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund Payment</button>}
         {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
         {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
@@ -6881,10 +6913,152 @@ function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
   </div>;
 }
 
+const ACTIVE_RETURN_RENTAL_KEY = 'rentmect_admin_active_return_rental';
+const RETURN_DRAFT_PREFIX = 'rentmect_admin_return_draft:';
+
+function returnDraftKey(rentalId) {
+  return `${RETURN_DRAFT_PREFIX}${rentalId}`;
+}
+
+function readActiveReturnRentalId() {
+  try {
+    return window.localStorage.getItem(ACTIVE_RETURN_RENTAL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function setActiveReturnRentalId(rentalId) {
+  try {
+    window.localStorage.setItem(ACTIVE_RETURN_RENTAL_KEY, rentalId);
+  } catch {
+    // The open React state still works when private storage is unavailable.
+  }
+}
+
+function readReturnDraft(rentalId) {
+  try {
+    return JSON.parse(window.localStorage.getItem(returnDraftKey(rentalId)) || 'null') || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveReturnDraft(rentalId, inspection) {
+  try {
+    const { files: _files, ...serializableInspection } = inspection;
+    window.localStorage.setItem(returnDraftKey(rentalId), JSON.stringify(serializableInspection));
+    window.localStorage.setItem(ACTIVE_RETURN_RENTAL_KEY, rentalId);
+  } catch {
+    // Do not block a return when browser storage is unavailable.
+  }
+}
+
+function clearReturnDraft(rentalId) {
+  try {
+    window.localStorage.removeItem(returnDraftKey(rentalId));
+    if (window.localStorage.getItem(ACTIVE_RETURN_RENTAL_KEY) === rentalId) {
+      window.localStorage.removeItem(ACTIVE_RETURN_RENTAL_KEY);
+    }
+  } catch {
+    // Nothing else is required when storage is unavailable.
+  }
+}
+
+function externalPaymentMethodLabel(method) {
+  return {
+    card: 'Card',
+    cash_app: 'Cash App',
+    cash: 'Cash',
+  }[method] || 'External';
+}
+
+function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const amountDue = Number(rental.rental_total || 0)
+    + Number(rental.service_fee_total || 0)
+    + Number(rental.tax_amount || 0)
+    + Number(rental.security_deposit || 0);
+  const [form, setForm] = useState({
+    amount: amountDue.toFixed(2),
+    paymentMethod: '',
+    confirmed: false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('Enter the actual external payment amount received.');
+      return;
+    }
+    if (Math.abs(amount - amountDue) > 0.005) {
+      setError(`The recorded payment must equal the full amount due: ${money(amountDue)}.`);
+      return;
+    }
+    if (!['card', 'cash_app', 'cash'].includes(form.paymentMethod)) {
+      setError('Choose Card, Cash App, or Cash.');
+      return;
+    }
+    if (!form.confirmed) {
+      setError('Confirm that the external payment cleared before recording it.');
+      return;
+    }
+    setSaving(true);
+    const recorded = await onConfirm?.({ amount, paymentMethod: form.paymentMethod });
+    setSaving(false);
+    if (!recorded) setError('The payment was not recorded. Review the message above and try again.');
+  }
+
+  return createPortal(<div className="admin-modal-backdrop external-payment-backdrop">
+    <form ref={dialogRef} className="admin-modal external-payment-modal" role="dialog" aria-modal="true" aria-labelledby={`external-payment-title-${rental.id}`} onSubmit={submit}>
+      <header className="admin-modal-header">
+        <DollarSign size={28}/>
+        <div>
+          <strong id={`external-payment-title-${rental.id}`}>Record External Payment</strong>
+          <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}</span>
+        </div>
+      </header>
+      <div className="external-payment-total">
+        <span>Full amount due</span>
+        <strong>{money(amountDue)}</strong>
+      </div>
+      <label className="modal-field">
+        <span>Actual amount received</span>
+        <div className="money-input-shell"><span>$</span><input type="number" min="0.01" max={MONEY_MAX} step="0.01" inputMode="decimal" value={form.amount} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} required /></div>
+      </label>
+      <label className="modal-field">
+        <span>Payment type</span>
+        <select value={form.paymentMethod} onChange={(event) => setForm((current) => ({ ...current, paymentMethod: event.target.value }))} required>
+          <option value="">Choose payment type</option>
+          <option value="card">Card</option>
+          <option value="cash_app">Cash App</option>
+          <option value="cash">Cash</option>
+        </select>
+      </label>
+      <div className="override-warning">
+        <strong>Record only money that actually cleared</strong>
+        <span>This action marks the rental payment and security deposit as received outside Stripe and creates an admin audit record.</span>
+      </div>
+      <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} onChange={(event) => setForm((current) => ({ ...current, confirmed: event.target.checked }))} /> I confirm this payment was received and cleared.</label>
+      {error && <small className="form-error" role="alert">{error}</small>}
+      <div className="modal-actions">
+        <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
+        <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={16}/>{saving ? ' Recording…' : ' Record Payment'}</button>
+      </div>
+    </form>
+  </div>, document.body);
+}
+
 function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
-  const [inspection, setInspection] = useState({
+  const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
+  const [inspection, setInspection] = useState(() => ({
     mileageChecked: false,
     endingMileage: rental.ending_mileage || rental.vehicles?.current_mileage || rental.starting_mileage || '',
+    mileageOverride: false,
     fuelChecked: false,
     damageChecked: false,
     damageFound: false,
@@ -6894,25 +7068,31 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     customerAction: 'review',
     vehicleDisposition: 'available',
     files: [],
-  });
+    ...readReturnDraft(rental.id),
+    files: [],
+  }));
   const [saving, setSaving] = useState(false);
   const [mileageError, setMileageError] = useState('');
-  const milesDriven = calculateMilesDriven(rental.starting_mileage, inspection.endingMileage);
+  const milesDriven = inspection.mileageOverride ? null : calculateMilesDriven(rental.starting_mileage, inspection.endingMileage);
+
+  useEffect(() => {
+    saveReturnDraft(rental.id, inspection);
+  }, [inspection, rental.id]);
 
   async function submit(event) {
     event.preventDefault();
     setMileageError('');
     const endingMileage = parseMileageInput(inspection.endingMileage);
-    if (endingMileage === null) {
+    if (!inspection.mileageOverride && endingMileage === null) {
       setMileageError('Enter the ending mileage as a whole number.');
       return;
     }
-    if (rental.starting_mileage !== null && rental.starting_mileage !== undefined && endingMileage < Number(rental.starting_mileage)) {
+    if (!inspection.mileageOverride && rental.starting_mileage !== null && rental.starting_mileage !== undefined && endingMileage < Number(rental.starting_mileage)) {
       setMileageError(`Ending mileage cannot be below pickup mileage (${formatMiles(rental.starting_mileage)}).`);
       return;
     }
-    if (!inspection.mileageChecked || !inspection.fuelChecked || !inspection.damageChecked) {
-      setMileageError('Complete the mileage, fuel, and condition checks before closing the rental.');
+    if ((!inspection.mileageOverride && !inspection.mileageChecked) || !inspection.fuelChecked || !inspection.damageChecked) {
+      setMileageError('Complete the required mileage, fuel, and condition checks before closing the rental.');
       return;
     }
     if ((inspection.damageFound || inspection.depositDecision === 'hold') && inspection.damageNote.trim().length < 5) {
@@ -6927,19 +7107,29 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
 
   const update = (key, value) => setInspection((current) => ({ ...current, [key]: value }));
 
-  return <form className="return-completion-panel" onSubmit={submit}>
-    <div>
-      <strong>Return Completion</strong>
-      <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
-    </div>
-    <label className="field-label">Ending mileage
-      <input type="number" min={rental.starting_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" title={`Whole-number mileage, max ${MILEAGE_MAX.toLocaleString('en-US')}.`} value={inspection.endingMileage} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: true }))} required />
-    </label>
+  return createPortal(<div className="admin-modal-backdrop return-completion-backdrop">
+  <form ref={dialogRef} className="admin-modal return-completion-panel return-completion-modal" role="dialog" aria-modal="true" aria-labelledby={`return-completion-title-${rental.id}`} onSubmit={submit}>
+    <header className="admin-modal-header">
+      <Car size={28}/>
+      <div>
+        <strong id={`return-completion-title-${rental.id}`}>Return Completion</strong>
+        <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
+      </div>
+    </header>
+    <section className={`return-mileage-card${inspection.mileageOverride ? ' override-active' : ''}`}>
+      <label className="field-label return-mileage-field"><span>Ending mileage</span>
+        <input type="number" min={rental.starting_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" placeholder="Enter the return odometer mileage" title={`Whole-number mileage, max ${MILEAGE_MAX.toLocaleString('en-US')}.`} value={inspection.endingMileage} disabled={inspection.mileageOverride} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: Boolean(event.target.value), mileageOverride: false }))} required={!inspection.mileageOverride} />
+      </label>
+      <button type="button" className={`return-mileage-override-button${inspection.mileageOverride ? ' active' : ''}`} aria-pressed={inspection.mileageOverride} onClick={() => setInspection((current) => ({ ...current, mileageOverride: !current.mileageOverride, mileageChecked: current.mileageOverride ? Boolean(current.endingMileage) : false }))}>
+        <AlertTriangle size={16}/>{inspection.mileageOverride ? 'Use mileage input instead' : 'Admin override — skip mileage'}
+      </button>
+      {inspection.mileageOverride && <div className="return-mileage-override-warning" role="alert"><AlertTriangle size={20}/><span><strong>Mileage is being skipped.</strong> Tracking maintenance will be difficult. Make sure to input the returning mileage as soon as possible.</span></div>}
+    </section>
     {mileageError && <small className="form-error">{mileageError}</small>}
-    {rental.starting_mileage !== null && rental.starting_mileage !== undefined && <small>Pickup mileage: {formatMiles(rental.starting_mileage)} • Miles driven: {formatMiles(milesDriven)}</small>}
+    {rental.starting_mileage !== null && rental.starting_mileage !== undefined && <small className="return-mileage-summary">Pickup mileage: {formatMiles(rental.starting_mileage)} • Miles driven: {inspection.mileageOverride ? 'Not recorded' : formatMiles(milesDriven)}</small>}
     <div className="return-required-checks">
       <strong>Required release checks</strong>
-      <label><input type="checkbox" checked={inspection.mileageChecked} onChange={(event) => update('mileageChecked', event.target.checked)} /> Mileage recorded and verified</label>
+      <label className={inspection.mileageOverride ? 'override-check' : ''}><input type="checkbox" checked={inspection.mileageChecked} disabled={inspection.mileageOverride} onChange={(event) => update('mileageChecked', event.target.checked)} /> {inspection.mileageOverride ? 'Mileage skipped by admin override' : 'Mileage recorded and verified'}</label>
       <label><input type="checkbox" checked={inspection.fuelChecked} onChange={(event) => update('fuelChecked', event.target.checked)} /> Fuel level inspected</label>
       <label><input type="checkbox" checked={inspection.damageChecked} onChange={(event) => update('damageChecked', event.target.checked)} /> Exterior/interior condition inspected</label>
     </div>
@@ -6981,14 +7171,18 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
         </label>
       </>}
       {(inspection.damageFound || inspection.depositDecision === 'hold') && <>
-        <textarea value={inspection.damageNote} maxLength="1000" onChange={(event) => update('damageNote', limitText(event.target.value, 1000))} placeholder="Describe damage, incident, mileage/fuel issue, cleaning issue, or deposit reason..." />
-        <input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} />
+        <label className="field-label return-damage-notes"><span>Damage / incident notes <strong>Required</strong></span>
+          <textarea value={inspection.damageNote} maxLength="1000" onChange={(event) => update('damageNote', limitText(event.target.value, 1000))} placeholder="Clearly describe the damage, where it is located, when it was found, and any customer explanation..." />
+          <small>These notes are saved to the damage case and used during the deposit review.</small>
+        </label>
+        <label className="field-label return-evidence-upload"><span>Damage photos or documents</span><input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} /></label>
       </>}
-    <div className="mini-actions">
+    <div className="modal-actions">
       <button type="button" onClick={onCancel}>Cancel</button>
       <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={14}/> {saving ? 'Closing...' : 'Close Rental'}</button>
     </div>
-  </form>;
+  </form>
+  </div>, document.body);
 }
 
 function RentalProgressTracker({ steps }) {

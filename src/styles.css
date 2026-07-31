@@ -329,6 +329,325 @@
     }
 }
 
+/* Branded external-payment and return-completion dialogs. */
+.external-payment-modal,
+.return-completion-modal{
+    width:min(680px,calc(100vw - 32px))!important;
+    max-height:calc(100dvh - 32px)!important;
+    overflow:auto!important;
+    padding:24px!important;
+    border:1px solid var(--admin-line)!important;
+    border-radius:18px!important;
+    background:#fff!important;
+    color:var(--admin-ink)!important;
+    box-shadow:0 28px 90px rgba(20,32,25,.28)!important
+}
+.return-completion-modal{
+    width:min(760px,calc(100vw - 32px))!important
+}
+.external-payment-modal .admin-modal-header,
+.return-completion-modal .admin-modal-header{
+    padding-bottom:16px;
+    border-bottom:1px solid var(--admin-line)
+}
+.external-payment-modal .admin-modal-header svg,
+.return-completion-modal .admin-modal-header svg{
+    color:var(--brand-olive)!important
+}
+.external-payment-modal .admin-modal-header strong,
+.return-completion-modal .admin-modal-header strong{
+    color:var(--admin-ink)!important;
+    font-size:24px!important;
+    line-height:1.15
+}
+.external-payment-modal .admin-modal-header span,
+.return-completion-modal .admin-modal-header span{
+    color:var(--admin-muted)!important
+}
+.external-payment-total{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:16px 18px;
+    border:1px solid #cbd9d0;
+    border-radius:13px;
+    background:#f2f7f4
+}
+.external-payment-total span{
+    color:var(--admin-muted);
+    font-weight:850
+}
+.external-payment-total strong{
+    color:var(--brand-olive);
+    font-size:24px
+}
+.external-payment-modal .modal-field,
+.return-completion-modal .field-label{
+    display:grid!important;
+    gap:8px!important;
+    color:var(--admin-ink)!important;
+    font-size:13px!important;
+    font-weight:900!important
+}
+.external-payment-modal input,
+.external-payment-modal select,
+.return-completion-modal input[type="number"],
+.return-completion-modal input[type="file"],
+.return-completion-modal select,
+.return-completion-modal textarea{
+    width:100%!important;
+    min-height:50px!important;
+    padding:13px 14px!important;
+    border:2px solid #aebfb4!important;
+    border-radius:11px!important;
+    background:#fff!important;
+    color:#111815!important;
+    font-size:16px!important;
+    line-height:1.35!important;
+    box-shadow:none!important;
+    box-sizing:border-box!important
+}
+.external-payment-modal input:focus,
+.external-payment-modal select:focus,
+.return-completion-modal input:focus,
+.return-completion-modal select:focus,
+.return-completion-modal textarea:focus{
+    border-color:var(--brand-olive)!important;
+    outline:0!important;
+    box-shadow:0 0 0 4px rgba(35,138,58,.14)!important
+}
+.money-input-shell{
+    display:grid;
+    grid-template-columns:44px minmax(0,1fr);
+    align-items:center;
+    border:2px solid #aebfb4;
+    border-radius:11px;
+    overflow:hidden;
+    background:#eef4f0
+}
+.money-input-shell>span{
+    display:grid;
+    place-items:center;
+    height:100%;
+    color:var(--brand-olive);
+    font-size:19px;
+    font-weight:950
+}
+.money-input-shell input{
+    border:0!important;
+    border-left:1px solid #cbd9d0!important;
+    border-radius:0!important
+}
+.external-payment-confirmation{
+    display:flex!important;
+    align-items:flex-start!important;
+    gap:10px!important;
+    padding:13px 14px;
+    border:1px solid #cbd9d0;
+    border-radius:11px;
+    background:#f7faf8;
+    color:var(--admin-ink)!important;
+    font-weight:850!important
+}
+.external-payment-confirmation input{
+    flex:0 0 19px;
+    width:19px!important;
+    min-width:19px!important;
+    height:19px!important;
+    min-height:19px!important;
+    margin:1px 0 0!important;
+    padding:0!important;
+    accent-color:var(--brand-olive)
+}
+.external-payment-modal .override-warning{
+    border-color:#e3c374!important;
+    background:#fff9e9!important
+}
+.external-payment-modal .override-warning strong{
+    color:#72530b!important
+}
+.external-payment-modal .override-warning span{
+    color:#5e5132!important
+}
+.external-payment-modal .form-error,
+.return-completion-modal .form-error{
+    display:block;
+    padding:11px 13px;
+    border-left:4px solid #a51e25;
+    border-radius:0 9px 9px 0;
+    background:#fff0f1;
+    color:#8b1720!important;
+    font-weight:900
+}
+.return-mileage-card{
+    display:grid;
+    gap:10px;
+    padding:18px;
+    border:2px solid #94ab9d;
+    border-radius:14px;
+    background:#f8fbf9
+}
+.return-mileage-card.override-active{
+    border-color:#d0a849;
+    background:#fffaf0
+}
+.return-mileage-field>span{
+    color:#102219!important;
+    font-size:15px!important;
+    font-weight:950!important
+}
+.return-mileage-field input{
+    min-height:62px!important;
+    font-size:22px!important;
+    font-weight:900!important
+}
+.return-mileage-field input::placeholder{
+    color:#78857e!important;
+    font-size:15px!important;
+    font-weight:700!important
+}
+.return-mileage-field input:disabled{
+    border-color:#d4d9d6!important;
+    background:#eef0ef!important;
+    color:#737a76!important
+}
+.return-mileage-override-button{
+    justify-self:start;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    min-height:42px;
+    padding:10px 13px;
+    border:1px solid #bd8d21;
+    border-radius:9px;
+    background:#fff;
+    color:#704e00;
+    font-weight:900;
+    cursor:pointer
+}
+.return-mileage-override-button.active{
+    background:#785600;
+    color:#fff
+}
+.return-mileage-override-warning{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    padding:13px 14px;
+    border:1px solid #d3a63e;
+    border-radius:10px;
+    background:#fff3cf;
+    color:#4d3908
+}
+.return-mileage-override-warning svg{
+    flex:0 0 auto;
+    color:#9a6800
+}
+.return-mileage-override-warning span{
+    display:grid;
+    gap:3px
+}
+.return-mileage-summary{
+    color:#52625a!important;
+    font-weight:750
+}
+.return-required-checks{
+    display:grid;
+    gap:10px;
+    padding:16px;
+    border:1px solid #cbd9d0;
+    border-radius:12px;
+    background:#f7faf8
+}
+.return-required-checks>strong{
+    color:var(--admin-ink)!important;
+    font-size:14px!important
+}
+.return-completion-modal .return-required-checks label{
+    display:flex!important;
+    align-items:center!important;
+    gap:10px!important;
+    color:#27352e!important;
+    font-weight:800!important
+}
+.return-required-checks label.override-check{
+    color:#7b5a08!important
+}
+.return-required-checks input[type="checkbox"]{
+    width:19px!important;
+    min-width:19px!important;
+    height:19px!important;
+    min-height:19px!important;
+    accent-color:var(--brand-olive)
+}
+.return-damage-notes{
+    padding:16px;
+    border:2px solid #b94b50;
+    border-radius:13px;
+    background:#fff4f4
+}
+.return-damage-notes>span{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    color:#71191e!important;
+    font-size:15px!important
+}
+.return-damage-notes>span strong{
+    padding:4px 8px;
+    border-radius:999px;
+    background:#a51e25;
+    color:#fff!important;
+    font-size:11px!important;
+    text-transform:uppercase
+}
+.return-damage-notes textarea{
+    min-height:145px!important;
+    border-color:#bd777a!important;
+    resize:vertical
+}
+.return-damage-notes small{
+    color:#67484a!important;
+    font-weight:750!important
+}
+.return-evidence-upload{
+    padding:14px;
+    border:1px dashed #94ab9d;
+    border-radius:11px;
+    background:#f7faf8
+}
+.external-payment-modal .modal-actions,
+.return-completion-modal .modal-actions{
+    position:sticky;
+    bottom:-24px;
+    z-index:2;
+    margin:4px -24px -24px;
+    padding:16px 24px;
+    border-top:1px solid var(--admin-line);
+    background:#fff
+}
+
+@media(max-width:620px){
+    .external-payment-modal,
+    .return-completion-modal{
+        width:calc(100vw - 16px)!important;
+        max-height:calc(100dvh - 16px)!important;
+        padding:16px!important;
+        border-radius:12px!important
+    }
+    .external-payment-modal .modal-actions,
+    .return-completion-modal .modal-actions{
+        bottom:-16px;
+        margin:4px -16px -16px;
+        padding:12px 16px
+    }
+    .return-mileage-card{
+        padding:14px
+    }
+}
+
 /* Final fleet/modal and black navigation overrides. */
 .vehicles-layout{grid-template-columns:minmax(0,1fr)!important}
 .list-search-toolbar .add-vehicle-trigger{flex:0 0 auto!important;min-height:42px!important;white-space:nowrap!important}
