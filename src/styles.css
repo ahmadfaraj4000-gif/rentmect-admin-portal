@@ -6154,3 +6154,23 @@ body{
         padding:0!important;
     }
 }
+.portal-form label.deposit-waiver-option{
+    width:100%!important;
+    align-items:flex-start!important;
+    padding:13px 14px!important;
+    border-color:#b8d6c5!important;
+    background:#f3faf6!important;
+}
+
+.deposit-waiver-option>span{
+    display:grid;
+    gap:3px;
+    color:#173d2a;
+}
+
+.deposit-waiver-option small{
+    color:#54655c;
+    font-size:12px;
+    font-weight:650;
+    line-height:1.4;
+}
