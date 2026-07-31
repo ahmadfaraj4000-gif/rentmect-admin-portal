@@ -433,6 +433,7 @@ function App() {
     starts_at: '',
     expires_at: '',
     active: true,
+    waive_security_deposit: false,
   });
   const [serviceFeeForm, setServiceFeeForm] = useState({
     name: '',
@@ -1678,6 +1679,7 @@ function App() {
       starts_at: discountForm.starts_at || null,
       expires_at: discountForm.expires_at || null,
       active: Boolean(discountForm.active),
+      waive_security_deposit: Boolean(discountForm.waive_security_deposit),
     };
 
     const { data, error } = await supabase
@@ -1693,7 +1695,7 @@ function App() {
       coupon_code: data.code,
       discount_code_id: data.id,
     }));
-    setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true });
+    setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true, waive_security_deposit: false });
     notify('Discount code created and selected for the promotion manager.', 'success');
   }
 
@@ -2527,6 +2529,11 @@ function App() {
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: { action: 'admin_create_checkout', rentalId: rental.id, successUrl, cancelUrl },
     });
+    if (!error && data?.noPaymentRequired) {
+      notify('The 100% discount completed this booking with the security deposit waived. No Stripe payment link was needed.', 'success');
+      loadAllData({ silent: true });
+      return 'completed-with-discount';
+    }
     if (error || data?.error || !data?.url) {
       notify(data?.error || error?.message || 'Payment cannot start until verification, documents, and the agreement are complete.');
       return null;
@@ -5557,6 +5564,10 @@ function SettingsTab({
           <input type="number" min="1" max="10000" step="1" inputMode="numeric" placeholder="Max uses optional" title="Whole-number redemption limit, max 10,000." value={discountForm.max_redemptions} onChange={(event) => updateDiscount('max_redemptions', event.target.value)} />
           <label className="checkbox-pill"><input type="checkbox" checked={discountForm.active} onChange={(event) => updateDiscount('active', event.target.checked)} /> Active</label>
         </div>
+        <label className="checkbox-pill deposit-waiver-option">
+          <input type="checkbox" checked={discountForm.waive_security_deposit} onChange={(event) => updateDiscount('waive_security_deposit', event.target.checked)} />
+          <span><strong>Waive security deposit</strong><small>Admin-only. A 100% code with this enabled covers the entire checkout total, including fees, tax, and deposit.</small></span>
+        </label>
         <div className="form-row">
           <label className="date-field"><span>Starts</span><input type="date" value={discountForm.starts_at} onChange={(event) => updateDiscount('starts_at', event.target.value)} /></label>
           <label className="date-field"><span>Expires</span><input type="date" value={discountForm.expires_at} onChange={(event) => updateDiscount('expires_at', event.target.value)} /></label>
@@ -5569,7 +5580,7 @@ function SettingsTab({
         {discountCodes.map((code) => <div className="data-row settings-row" key={code.id}>
           <div>
             <strong>{code.code}</strong>
-            <span>{discountLabel(code)} • {code.max_redemptions ? `${code.redemption_count || 0}/${code.max_redemptions} used` : `${code.redemption_count || 0} used`}</span>
+            <span>{discountLabel(code)}{code.waive_security_deposit ? ' • Security deposit waived' : ''} • {code.max_redemptions ? `${code.redemption_count || 0}/${code.max_redemptions} used` : `${code.redemption_count || 0} used`}</span>
             <small>{code.starts_at ? `Starts ${formatDateOnly(code.starts_at)}` : 'Starts now'} • {code.expires_at ? `Expires ${formatDateOnly(code.expires_at)}` : 'No expiration'}</small>
           </div>
           <div className="row-actions">
