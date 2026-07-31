@@ -3513,6 +3513,47 @@ input[type="radio"] {
   text-transform: uppercase;
 }
 
+.payments-type-filter select {
+  width: 100% !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  padding: 0 40px 0 14px !important;
+  border: 1px solid var(--ui-line-strong) !important;
+  border-radius: 9px !important;
+  background-color: #fff !important;
+  color: var(--ui-ink) !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+}
+
+/* Give every edit-gallery picture enough room for clear, tappable actions. */
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-card.featured {
+  grid-column: 1 / -1 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-actions {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 7px !important;
+  padding: 9px !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-actions button {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 42px !important;
+  padding: 9px 10px !important;
+  white-space: normal !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+}
+
 .settings-workspace-nav {
   grid-column: 1 / -1;
   display: flex;
@@ -3546,6 +3587,16 @@ input[type="radio"] {
   .settings-workspace-nav {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 620px) {
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-card.featured {
+    grid-column: auto !important;
   }
 }
 
