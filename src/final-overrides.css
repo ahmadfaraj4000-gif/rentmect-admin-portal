@@ -5814,3 +5814,131 @@ input[type="radio"] {
     min-width: 0;
   }
 }
+
+/* Keep the emergency-release form isolated from broad admin-modal input rules. */
+.emergency-exception-modal {
+  grid-template-columns: minmax(0, 1fr) !important;
+  width: min(680px, calc(100vw - 28px)) !important;
+  max-width: min(680px, calc(100vw - 28px)) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 22px !important;
+}
+
+.emergency-exception-modal > * {
+  min-width: 0;
+}
+
+.emergency-exception-modal .admin-modal-header {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 0 16px !important;
+  background: transparent !important;
+}
+
+.emergency-exception-modal .admin-modal-header > div {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.emergency-exception-modal .admin-modal-header > button {
+  display: grid !important;
+  flex: 0 0 38px !important;
+  place-items: center !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  border: 1px solid #e0e5e3 !important;
+  border-radius: 8px !important;
+  background: #f7f9f8 !important;
+  color: #9f1f17 !important;
+}
+
+.emergency-exception-modal .admin-modal-header > button svg {
+  flex: 0 0 20px !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+}
+
+.emergency-exception-modal .emergency-scope-list {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.emergency-exception-modal .emergency-scope-list label {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  cursor: pointer;
+}
+
+.emergency-exception-modal .emergency-scope-list input[type="checkbox"] {
+  display: block !important;
+  flex: 0 0 18px !important;
+  box-sizing: border-box !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 2px 0 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+.emergency-exception-modal .emergency-scope-list label > span {
+  display: grid !important;
+  flex: 1 1 auto !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.emergency-exception-modal > label {
+  display: grid !important;
+  gap: 6px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.emergency-exception-modal textarea {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+@media (max-width: 680px) {
+  .admin-modal-backdrop:has(.emergency-exception-modal) {
+    align-items: stretch !important;
+    padding: 8px !important;
+  }
+
+  .emergency-exception-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 16px) !important;
+    padding: 16px !important;
+  }
+
+  .emergency-exception-modal .admin-modal-header {
+    padding-bottom: 13px !important;
+  }
+}
