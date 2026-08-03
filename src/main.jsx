@@ -83,6 +83,14 @@ const DEFAULT_BOOKING_PAGE_SETTING = {
   updated_at: null,
   server_now: null,
 };
+const DEFAULT_BOOKING_POLICY = {
+  minimum_rental_days: 1,
+  minimum_rental_hours: 24,
+  advance_notice_minutes: 0,
+  updated_by: null,
+  updated_at: null,
+  server_now: null,
+};
 const DOCUMENT_BUCKET = 'rental-documents';
 const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'checkout_hold'];
@@ -241,6 +249,74 @@ function adminBookingDateOffset(days = 0) {
   return `${year}-${month}-${day}`;
 }
 
+function parseBookingDateTime(dateValue, timeValue) {
+  const dateMatch = String(dateValue || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeMatch = String(timeValue || '').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!dateMatch || !timeMatch) return null;
+  let hour = Number(timeMatch[1]) % 12;
+  if (timeMatch[3].toUpperCase() === 'PM') hour += 12;
+  const targetWallClock = Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]), hour, Number(timeMatch[2]), 0);
+  let instant = targetWallClock;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const eastern = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(instant)).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+    const observedWallClock = Date.UTC(Number(eastern.year), Number(eastern.month) - 1, Number(eastern.day), Number(eastern.hour), Number(eastern.minute), Number(eastern.second));
+    instant += targetWallClock - observedWallClock;
+  }
+  const parsed = new Date(instant);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function localDateInput(date) {
+  const eastern = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${eastern.year}-${eastern.month}-${eastern.day}`;
+}
+
+function formatAdminTime(date) {
+  return date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function formatAdminDuration(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (value % 1440 === 0) return `${value / 1440} day${value === 1440 ? '' : 's'}`;
+  if (value % 60 === 0) return `${value / 60} hour${value === 60 ? '' : 's'}`;
+  return `${Math.floor(value / 60)}h ${value % 60}m`;
+}
+
+function getBookingWindow(form, policy = DEFAULT_BOOKING_POLICY) {
+  const pickupAt = parseBookingDateTime(form.pickupDate, form.pickupTime);
+  const returnAt = parseBookingDateTime(form.returnDate, form.returnTime);
+  const minimumMinutes = Math.max(1, Number(policy.minimum_rental_days || 1)) * 1440;
+  const advanceMinutes = Math.max(0, Number(policy.advance_notice_minutes || 0));
+  if (!pickupAt || !returnAt) {
+    return { valid: false, actualMinutes: 0, billableDays: 0, error: 'Choose valid pickup and return dates and times.' };
+  }
+  const actualMinutes = Math.floor((returnAt.getTime() - pickupAt.getTime()) / 60000);
+  const earliestReturn = new Date(pickupAt.getTime() + minimumMinutes * 60000);
+  if (actualMinutes < minimumMinutes) {
+    return {
+      valid: false,
+      actualMinutes: Math.max(0, actualMinutes),
+      billableDays: 0,
+      error: `Rentals require at least ${minimumMinutes / 60} hours. The earliest return is ${earliestReturn.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
+    };
+  }
+  const earliestPickup = new Date(Date.now() + advanceMinutes * 60000);
+  if (pickupAt < earliestPickup) {
+    return {
+      valid: false,
+      actualMinutes,
+      billableDays: Math.ceil(actualMinutes / 1440),
+      error: `The earliest allowed pickup is ${earliestPickup.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
+    };
+  }
+  return { valid: true, actualMinutes, billableDays: Math.ceil(actualMinutes / 1440), error: '' };
+}
+
 async function uploadOptimizedVehicleImages(files) {
   const selectedFiles = Array.from(files || []);
   if (!selectedFiles.length) return [];
@@ -386,6 +462,8 @@ function App() {
   const [billingAutomationSaving, setBillingAutomationSaving] = useState(false);
   const [bookingPageSetting, setBookingPageSetting] = useState(DEFAULT_BOOKING_PAGE_SETTING);
   const [bookingPageSaving, setBookingPageSaving] = useState(false);
+  const [bookingPolicy, setBookingPolicy] = useState(DEFAULT_BOOKING_POLICY);
+  const [bookingPolicySaving, setBookingPolicySaving] = useState(false);
   const [bookingPageConfirmation, setBookingPageConfirmation] = useState(null);
   const [sitePromotions, setSitePromotions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -440,6 +518,17 @@ function App() {
     paymentCollectionPreference: 'customer_link',
   });
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
+
+  useEffect(() => {
+    setManualBookingForm((current) => {
+      const pickupAt = parseBookingDateTime(current.pickupDate, current.pickupTime);
+      const returnAt = parseBookingDateTime(current.returnDate, current.returnTime);
+      const minimumMilliseconds = Math.max(1, Number(bookingPolicy.minimum_rental_days || 1)) * 86400000;
+      if (!pickupAt || (returnAt && returnAt.getTime() - pickupAt.getTime() >= minimumMilliseconds)) return current;
+      const earliestReturn = new Date(pickupAt.getTime() + minimumMilliseconds);
+      return { ...current, returnDate: localDateInput(earliestReturn), returnTime: formatAdminTime(earliestReturn), vehicleId: '' };
+    });
+  }, [bookingPolicy.minimum_rental_days]);
 
   const [vehicleForm, setVehicleForm] = useState(createEmptyVehicleForm);
   const [discountForm, setDiscountForm] = useState({
@@ -715,7 +804,7 @@ function App() {
       setLoading(true);
       setDataHealth((current) => ({ ...current, refreshing: true }));
     }
-    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, billingAutomationRes, bookingPageRes, auditLogsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
+    const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, documentsRes, messagesRes, reportsRes, extensionsRes, emergencyExceptionsRes, depositAllocationsRes, discountCodesRes, serviceFeesRes, sitePromotionsRes, availabilityBlocksRes, under25PricingRes, billingAutomationRes, bookingPageRes, bookingPolicyRes, auditLogsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, customerEmailTemplatesRes, smsTemplatesRes, maintenanceSchedulesRes, maintenanceServiceLogsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*')
@@ -825,6 +914,8 @@ function App() {
 
       supabase.rpc('get_admin_booking_page_setting'),
 
+      supabase.rpc('get_admin_booking_policy'),
+
       supabase
         .from('admin_audit_logs')
         .select('*')
@@ -890,6 +981,7 @@ function App() {
       ['Under-25 pricing', under25PricingRes.error],
       ['Billing automation', billingAutomationRes.error],
       ['Booking page', bookingPageRes.error],
+      ['Booking rules', bookingPolicyRes.error],
       ['Audit log', auditLogsRes.error],
       ['Payments', rentalPaymentsRes.error],
       ['Refunds', rentalRefundsRes.error],
@@ -920,6 +1012,7 @@ function App() {
     updateFetchedState(setUnder25Pricing, under25PricingRes.data, silent);
     updateFetchedState(setBillingAutomation, billingAutomationRes.data, silent);
     updateFetchedState(setBookingPageSetting, bookingPageRes.data?.[0], silent);
+    updateFetchedState(setBookingPolicy, bookingPolicyRes.data?.[0], silent);
     updateFetchedState(setAuditLogs, auditLogsRes.data, silent);
     updateFetchedState(setRentalPayments, rentalPaymentsRes.data, silent);
     updateFetchedState(setRentalRefunds, rentalRefundsRes.data, silent);
@@ -1966,6 +2059,32 @@ function App() {
     notify('Billing automation settings saved.', 'success');
   }
 
+  async function saveBookingPolicy(event) {
+    event?.preventDefault();
+    const minimumDays = Number(bookingPolicy.minimum_rental_days);
+    const advanceMinutes = Number(bookingPolicy.advance_notice_minutes);
+    if (!Number.isInteger(minimumDays) || minimumDays < 1 || minimumDays > 30) {
+      return notify('Minimum rental duration must be a whole number from 1 to 30 days.');
+    }
+    if (!Number.isInteger(advanceMinutes) || advanceMinutes < 0 || advanceMinutes > 525600) {
+      return notify('Advance notice must be between immediate and 365 days.');
+    }
+
+    setBookingPolicySaving(true);
+    const { data, error } = await supabase.rpc('set_admin_booking_policy', {
+      p_minimum_rental_days: minimumDays,
+      p_advance_notice_minutes: advanceMinutes,
+    });
+    setBookingPolicySaving(false);
+    if (error) return notify(error.message);
+    setBookingPolicy({
+      ...bookingPolicy,
+      ...data,
+      minimum_rental_hours: Number(data?.minimum_rental_days || minimumDays) * 24,
+    });
+    notify('Booking rules saved. New quotes and bookings now use these limits.', 'success');
+  }
+
   function requestBookingPageChange(change) {
     const effectiveProvider = bookingPageSetting.effective_provider || bookingPageSetting.active_provider || 'wheelbase';
     if (change.mode !== 'cancel' && !['wheelbase', 'supabase'].includes(change.provider)) {
@@ -2555,8 +2674,18 @@ function App() {
     }
     if (!vehicle) return notify('Choose a vehicle.');
 
-    const days = getRentalDays(manualBookingForm.pickupDate, manualBookingForm.returnDate);
-    if (days < 1) return notify('Return date must be after pickup date.');
+    const bookingWindow = getBookingWindow(manualBookingForm, bookingPolicy);
+    if (!bookingWindow.valid) return notify(bookingWindow.error);
+
+    const { data: policyQuote, error: policyQuoteError } = await supabase.rpc('get_booking_quote', {
+      p_vehicle_id: vehicle.id,
+      p_pickup_date: manualBookingForm.pickupDate,
+      p_pickup_time: manualBookingForm.pickupTime,
+      p_return_date: manualBookingForm.returnDate,
+      p_return_time: manualBookingForm.returnTime,
+    });
+    if (policyQuoteError) return notify(policyQuoteError.message);
+    if (!policyQuote?.valid) return notify(policyQuote?.error || 'These pickup and return times are not allowed.');
 
     const available = await isVehicleAvailable(vehicle.id, manualBookingForm.pickupDate, manualBookingForm.pickupTime, manualBookingForm.returnDate, manualBookingForm.returnTime);
     if (!available) return notify('Vehicle is not available for that pickup and return time.');
@@ -2603,7 +2732,7 @@ function App() {
       return notify(detail);
     }
 
-    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', existingPhone: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(1), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', existingPhone: '', fullName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
     await loadAllData({ silent: true });
     setManualBookingFocusId(data?.rental?.id || '');
     setSelectedRentalId(data?.rental?.id || '');
@@ -2933,7 +3062,7 @@ function App() {
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
-        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
@@ -2941,7 +3070,7 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
-        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPageSetting={bookingPageSetting} bookingPageSaving={bookingPageSaving} requestBookingPageChange={requestBookingPageChange} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} bookingPageSetting={bookingPageSetting} bookingPageSaving={bookingPageSaving} requestBookingPageChange={requestBookingPageChange} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
       {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
         confirmation={vehiclePriceConfirmation}
@@ -5274,11 +5403,24 @@ function CommunicationsInbox({ rentals, messages, selectedRental, onSelectThread
   </section>;
 }
 
-function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, serviceFees = [], createManualBooking, submitting }) {
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, serviceFees = [], bookingPolicy = DEFAULT_BOOKING_POLICY, createManualBooking, submitting }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
-  const updateSchedule = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value, vehicleId: '' }));
+  const updateSchedule = (key, value) => setManualBookingForm((current) => {
+    const next = { ...current, [key]: value, vehicleId: '' };
+    if (key === 'pickupDate' || key === 'pickupTime') {
+      const pickupAt = parseBookingDateTime(next.pickupDate, next.pickupTime);
+      const returnAt = parseBookingDateTime(next.returnDate, next.returnTime);
+      const minimumMilliseconds = Number(bookingPolicy.minimum_rental_days || 1) * 86400000;
+      if (pickupAt && (!returnAt || returnAt.getTime() - pickupAt.getTime() < minimumMilliseconds)) {
+        const earliestReturn = new Date(pickupAt.getTime() + minimumMilliseconds);
+        next.returnDate = localDateInput(earliestReturn);
+        next.returnTime = formatAdminTime(earliestReturn);
+      }
+    }
+    return next;
+  });
   const chooseCustomerMode = (customerMode) => {
     setCustomerSearch('');
     setCustomerDropdownOpen(false);
@@ -5308,8 +5450,9 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
   }).slice(0, 12);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === manualBookingForm.vehicleId);
   const selectedCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
-  const days = Math.max(0, getRentalDays(manualBookingForm.pickupDate, manualBookingForm.returnDate));
-  const reservationWindowReady = days >= 1;
+  const bookingWindow = getBookingWindow(manualBookingForm, bookingPolicy);
+  const days = bookingWindow.billableDays;
+  const reservationWindowReady = bookingWindow.valid;
   const reservationWindow = {
     pickupDate: manualBookingForm.pickupDate,
     pickupTime: manualBookingForm.pickupTime,
@@ -5401,10 +5544,11 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         </details>
 
         <div className="booking-divider"><span>3. Reservation</span></div>
-        <label><span>Pickup date</span><input type="date" value={manualBookingForm.pickupDate} onChange={(event) => updateSchedule('pickupDate', event.target.value)} required /></label>
+        <label><span>Pickup date</span><input type="date" min={adminBookingDateOffset(0)} value={manualBookingForm.pickupDate} onChange={(event) => updateSchedule('pickupDate', event.target.value)} required /></label>
         <label><span>Pickup time</span><select value={manualBookingForm.pickupTime} onChange={(event) => updateSchedule('pickupTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.pickupTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
         <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => updateSchedule('returnDate', event.target.value)} required /></label>
         <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => updateSchedule('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+        <p className={`booking-policy-message full-field ${bookingWindow.valid ? 'valid' : 'invalid'}`}><Clock size={17}/><span>{bookingWindow.valid ? `${formatAdminDuration(bookingWindow.actualMinutes)} rental · ${days} daily rate${days === 1 ? '' : 's'}.` : bookingWindow.error}</span></p>
         <label className="full-field vehicle-availability-field"><span>Vehicle availability</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={!reservationWindowReady} required><option value="">{reservationWindowReady ? 'Choose an available vehicle' : 'Choose pickup and return dates first'}</option>{vehicleChoices.map(({ vehicle, availability }) => <option key={vehicle.id} value={vehicle.id} disabled={!availability.available}>{availability.available ? '✓ Available' : '✕ Unavailable'} — {vehicle.name} — {money(vehicle.daily_rate)}/day{!availability.available ? ` — ${availability.reason}` : ''}</option>)}</select></label>
         <div className="booking-divider"><span>4. Next steps &amp; payment plan</span></div>
         <label className="full-field"><span>Send the customer’s guided completion link</span><select value={manualBookingForm.onboardingDelivery} onChange={(event) => update('onboardingDelivery', event.target.value)}><option value="both">Email + text guided link (recommended)</option><option value="text">Text guided link only</option><option value="email">Email guided link only</option><option value="none">Do not send yet — I will send it later</option></select></label>
@@ -5416,7 +5560,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
           : 'New-customer path: the link asks for the booking email, then guides the customer through phone, Stripe Identity, driver license, insurance, agreement, and payment.'}</span></p>
         {reservationWindowReady && <div className="vehicle-availability-legend full-field"><span className="available"><CheckCircle2 size={16}/> Available for these exact times</span><span className="unavailable"><XCircle size={16}/> Unavailable vehicles are blocked</span></div>}
         {selectedVehicleAvailability && !selectedVehicleAvailability.available && <div className="vehicle-selection-warning full-field"><AlertTriangle size={17}/>{selectedVehicleAvailability.reason}</div>}
-        <button className="primary-btn full-field" disabled={submitting || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : manualBookingForm.onboardingDelivery === 'none' ? 'Create Booking' : 'Create Booking & Send Next Steps'}</button>
+        <button className="primary-btn full-field" disabled={submitting || !bookingWindow.valid || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : manualBookingForm.onboardingDelivery === 'none' ? 'Create Booking' : 'Create Booking & Send Next Steps'}</button>
       </form>
     </Panel>
 
@@ -5426,7 +5570,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         <h3>{customerName}</h3>
         <dl>
           <div><dt>Vehicle</dt><dd>{selectedVehicle?.name || 'Not selected'}</dd></div>
-          <div><dt>Dates</dt><dd>{days > 0 ? `${days} day${days === 1 ? '' : 's'}` : 'Choose dates'}</dd></div>
+          <div><dt>Duration</dt><dd>{bookingWindow.valid ? `${formatAdminDuration(bookingWindow.actualMinutes)} · ${days} billed day${days === 1 ? '' : 's'}` : 'Choose valid times'}</dd></div>
           <div><dt>Base rental</dt><dd>{money(baseRentalTotal)}</dd></div>
           {under25 && markupAmount > 0 && <div><dt>Under-25 markup ({markupPercentage}%)</dt><dd>{money(markupAmount)}</dd></div>}
           <div><dt>Rental total</dt><dd>{money(rentalTotal)}</dd></div>
@@ -5584,6 +5728,10 @@ function SettingsTab({
   setBillingAutomation,
   saveBillingAutomation,
   billingAutomationSaving,
+  bookingPolicy,
+  setBookingPolicy,
+  saveBookingPolicy,
+  bookingPolicySaving,
   bookingPageSetting,
   bookingPageSaving,
   requestBookingPageChange,
@@ -5594,6 +5742,17 @@ function SettingsTab({
   const [bookingPageTarget, setBookingPageTarget] = useState('supabase');
   const [bookingPageScheduleAt, setBookingPageScheduleAt] = useState(() => formatEasternDateTimeInput(new Date(Date.now() + 30 * 60 * 1000)));
   const effectiveBookingProvider = bookingPageSetting.effective_provider || bookingPageSetting.active_provider || 'wheelbase';
+  const advanceNoticeMinutes = Number(bookingPolicy.advance_notice_minutes || 0);
+  const advanceNoticeUnit = advanceNoticeMinutes === 0 ? 'immediate' : advanceNoticeMinutes % 1440 === 0 ? 'days' : 'hours';
+  const advanceNoticeValue = advanceNoticeUnit === 'days' ? advanceNoticeMinutes / 1440 : advanceNoticeUnit === 'hours' ? advanceNoticeMinutes / 60 : 0;
+  const setAdvanceNoticeUnit = (unit) => setBookingPolicy((current) => ({
+    ...current,
+    advance_notice_minutes: unit === 'immediate' ? 0 : unit === 'days' ? 1440 : 60,
+  }));
+  const setAdvanceNoticeValue = (value) => setBookingPolicy((current) => ({
+    ...current,
+    advance_notice_minutes: Math.max(0, Number(value) || 0) * (advanceNoticeUnit === 'days' ? 1440 : 60),
+  }));
   useEffect(() => {
     setBookingPageTarget(effectiveBookingProvider === 'wheelbase' ? 'supabase' : 'wheelbase');
   }, [effectiveBookingProvider]);
@@ -5623,6 +5782,39 @@ function SettingsTab({
         {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration']].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
       </div>
     </div>
+
+    {settingsSection === 'pricing' && <Panel title="Booking Rules" eyebrow="Reservation Timing">
+      <p className="muted">Same-day pickup is allowed. These rules control the minimum trip length and how far ahead every new booking must be created.</p>
+      <form className="portal-form settings-form booking-policy-form" onSubmit={saveBookingPolicy}>
+        <label>
+          <span>Minimum rental duration</span>
+          <div className="booking-policy-inline-control">
+            <input type="number" min="1" max="30" step="1" value={bookingPolicy.minimum_rental_days ?? 1} onChange={(event) => setBookingPolicy((current) => ({ ...current, minimum_rental_days: event.target.value }))} />
+            <strong>day(s)</strong>
+          </div>
+          <small>One day means 24 actual hours. A 9:00 AM pickup cannot return before 9:00 AM the following day.</small>
+        </label>
+        <div className="form-row">
+          <label>
+            <span>Minimum advance notice</span>
+            <select value={advanceNoticeUnit} onChange={(event) => setAdvanceNoticeUnit(event.target.value)}>
+              <option value="immediate">Immediately</option>
+              <option value="hours">Hours ahead</option>
+              <option value="days">Days ahead</option>
+            </select>
+          </label>
+          {advanceNoticeUnit !== 'immediate' && <label>
+            <span>Advance notice ({advanceNoticeUnit})</span>
+            <input type="number" min="1" max={advanceNoticeUnit === 'days' ? 365 : 8760} step="1" value={advanceNoticeValue} onChange={(event) => setAdvanceNoticeValue(event.target.value)} />
+          </label>}
+        </div>
+        <div className="booking-policy-preview">
+          <CheckCircle2 size={18}/>
+          <span><strong>{Number(bookingPolicy.minimum_rental_days || 1) * 24}-hour minimum.</strong> {advanceNoticeMinutes === 0 ? 'Customers can choose the next available same-day pickup time.' : `Pickup must be booked ${formatAdminDuration(advanceNoticeMinutes)} ahead.`}</span>
+        </div>
+        <button className="primary-btn" disabled={bookingPolicySaving}>{bookingPolicySaving ? 'Saving…' : 'Save Booking Rules'}</button>
+      </form>
+    </Panel>}
 
     {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Hands-Off Operations">
       <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle and rental, and adds the customer charge automatically. Only ambiguous provider records need admin review.</p>

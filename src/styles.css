@@ -96,6 +96,14 @@
 }
 .under25-pricing-preview strong{color:var(--admin-ink)}
 @media(max-width:700px){.under25-pricing-preview{grid-template-columns:1fr}}
+
+.booking-policy-inline-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}
+.booking-policy-inline-control strong{color:var(--admin-muted);font-size:.9rem;white-space:nowrap}
+.booking-policy-preview,.booking-policy-message{display:flex;align-items:flex-start;gap:10px;border:1px solid #bedccb;background:#eff9f3;color:#175c38;border-radius:10px;padding:12px 14px;line-height:1.45}
+.booking-policy-preview svg,.booking-policy-message svg{flex:0 0 auto;margin-top:2px}
+.booking-policy-message{margin:0}
+.booking-policy-message.invalid{border-color:#efc2be;background:#fff4f2;color:#a02f28}
+.booking-policy-message.valid{border-color:#bedccb;background:#eff9f3;color:#175c38}
 .promotion-manager-intro{
     max-width:820px;
     margin-bottom:18px;
