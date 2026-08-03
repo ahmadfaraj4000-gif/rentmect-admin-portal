@@ -2099,6 +2099,21 @@ summary:focus-visible {
   background: #f4f8f6 !important;
 }
 
+.vehicle-form-grid .vehicle-publish-control input[type="checkbox"] {
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  accent-color: var(--italy-green) !important;
+}
+
 .add-vehicle-modal .new-vehicle-feature-section {
   border: 1px solid #dfe5e2 !important;
   border-radius: 10px !important;
