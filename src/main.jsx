@@ -107,6 +107,15 @@ const OPERATIONAL_VEHICLE_STATUS_OPTIONS = [
   ['unavailable', 'Out of Service'],
   ['inactive', 'Inactive'],
 ];
+const VEHICLE_TYPE_OPTIONS = [
+  ['car', 'Car'],
+  ['sedan', 'Sedan'],
+  ['suv', 'SUV'],
+  ['truck', 'Truck'],
+  ['van', 'Van'],
+  ['minivan', 'Minivan'],
+  ['convertible', 'Convertible'],
+];
 const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented', 'on_road'];
 const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', 'maintenance'];
 const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
@@ -217,7 +226,7 @@ function createEmptyVehicleForm() {
     name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '',
     daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT),
     status: 'available', published: false, description: '', features: '', image_urls: '',
-    original_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL),
+    original_mileage: '', current_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL),
     last_maintenance_mileage: '',
   };
 }
@@ -1632,7 +1641,7 @@ function App() {
       name: vehicle.name || '',
       brand: vehicle.brand || '',
       model: vehicle.model || '',
-      vehicle_type: vehicle.vehicle_type || '',
+      vehicle_type: String(vehicle.vehicle_type || '').trim().toLowerCase(),
       plate_number: vehicle.plate_number || '',
       vin: vehicle.vin || '',
       daily_rate: vehicle.daily_rate || '',
@@ -1667,6 +1676,10 @@ function App() {
     };
 
     const vehicle = vehicles.find((item) => item.id === id);
+    const vehicleName = String(editVehicleForm.name || '').trim();
+    const vehicleType = String(editVehicleForm.vehicle_type || '').trim().toLowerCase();
+    if (!vehicleName) return notify('Enter a vehicle name.');
+    if (!vehicleType) return notify('Choose a vehicle type.');
     const previousDailyRate = Number(vehicle?.daily_rate || 0);
     const nextDailyRate = Number(editVehicleForm.daily_rate);
     if (!Number.isFinite(nextDailyRate) || nextDailyRate < 0 || nextDailyRate > MONEY_MAX) {
@@ -1714,6 +1727,8 @@ function App() {
       .update({
         ...vehicleFields,
         ...(status ? { status } : {}),
+        name: vehicleName,
+        vehicle_type: vehicleType,
         daily_rate: nextDailyRate,
         security_deposit: Number(editVehicleForm.security_deposit || 0),
         original_mileage: originalMileage,
@@ -2689,6 +2704,14 @@ function App() {
       else notify(message);
       return false;
     };
+    const vehicleName = String(vehicleForm.name || '').trim();
+    const vehicleType = String(vehicleForm.vehicle_type || '').trim().toLowerCase();
+    if (!vehicleName) {
+      return fail('Enter a vehicle name.');
+    }
+    if (!VEHICLE_TYPE_OPTIONS.some(([value]) => value === vehicleType)) {
+      return fail('Choose a valid vehicle type.');
+    }
     if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
       return fail('Choose a valid vehicle condition.');
     }
@@ -2716,21 +2739,27 @@ function App() {
       return false;
     }
     const originalMileage = parseMileageInput(vehicleForm.original_mileage);
-    if (originalMileage === null) {
-      return fail('Enter the vehicle’s original odometer mileage.');
+    const currentMileage = parseMileageInput(vehicleForm.current_mileage);
+    if (originalMileage === null || currentMileage === null) {
+      return fail('Original and current mileage are required.');
+    }
+    if (currentMileage < originalMileage) {
+      return fail('Current mileage cannot be below the original mileage.');
     }
     const lastServiceMileage = parseMileageInput(vehicleForm.last_maintenance_mileage);
-    if (lastServiceMileage !== null && lastServiceMileage > originalMileage) {
+    if (lastServiceMileage !== null && lastServiceMileage > currentMileage) {
       return fail('Last service mileage cannot be above the current odometer.');
     }
     const { error } = await supabase.from('vehicles').insert({
       ...vehicleForm,
+      name: vehicleName,
+      vehicle_type: vehicleType,
       daily_rate: dailyRate,
       security_deposit: Number(vehicleForm.security_deposit || 0),
       original_mileage: originalMileage,
-      current_mileage: originalMileage,
+      current_mileage: currentMileage,
       maintenance_interval_miles: Number(vehicleForm.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL),
-      last_maintenance_mileage: lastServiceMileage ?? originalMileage,
+      last_maintenance_mileage: lastServiceMileage ?? currentMileage,
       features: nextFeatures,
       image_urls: nextImages,
       image_url: nextImages[0] || null,
@@ -4563,6 +4592,54 @@ function emailAdminPreview(htmlBody, preheader = '') {
   return `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif"><div style="display:none">${preheader || ''}</div><table width="100%" cellpadding="0" cellspacing="0" style="padding:18px"><tr><td align="center"><table width="100%" style="max-width:620px;background:#fff;border:1px solid #ddd"><tr><td style="padding:20px 26px;background:#050505;color:#fff;font-size:22px;font-weight:800">RENT ME CT</td></tr><tr><td style="padding:28px;line-height:1.6">${rendered}<hr style="border:0;border-top:1px solid #ddd;margin-top:26px"><small>Rent Me CT · 12 Holmes Circle, Farmington, CT</small></td></tr></table></td></tr></table></body></html>`;
 }
 
+function VehicleIdentityFields({ form, onChange }) {
+  const currentType = String(form.vehicle_type || '').trim().toLowerCase();
+  const includesCurrentType = VEHICLE_TYPE_OPTIONS.some(([value]) => value === currentType);
+
+  return <div className="vehicle-form-grid">
+    <label className="field-label">Vehicle name<input placeholder="Audi Q5 #474" maxLength="80" value={form.name} onChange={(event)=>onChange('name', event.target.value)} required /></label>
+    <label className="field-label">Brand<input placeholder="Audi" maxLength="40" value={form.brand} onChange={(event)=>onChange('brand', event.target.value)} /></label>
+    <label className="field-label">Model<input placeholder="Q5" maxLength="40" value={form.model} onChange={(event)=>onChange('model', event.target.value)} /></label>
+    <label className="field-label">Vehicle type<select value={currentType} onChange={(event)=>onChange('vehicle_type', event.target.value)} required>
+      <option value="">Choose vehicle type</option>
+      {VEHICLE_TYPE_OPTIONS.map(([value, label])=><option key={value} value={value}>{label}</option>)}
+      {currentType && !includesCurrentType && <option value={currentType}>{prettyStatus(form.vehicle_type)}</option>}
+    </select></label>
+    <label className="field-label">Plate number<input placeholder="Plate number" maxLength={PLATE_MAX_LENGTH} value={form.plate_number} onChange={(event)=>onChange('plate_number', event.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} /></label>
+    <label className="field-label">VIN<input placeholder="17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={form.vin} onChange={(event)=>onChange('vin', event.target.value)} /></label>
+  </div>;
+}
+
+function VehicleOperationsFields({ form, onChange, statusOptions, vehicle = null }) {
+  const scheduleStatus = vehicle ? vehicleScheduleStatus(vehicle.status) : '';
+
+  return <div className="vehicle-form-grid">
+    <label className="field-label">Daily rate<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Daily rate in USD" value={form.daily_rate} onChange={(event)=>onChange('daily_rate', event.target.value)} required /></label>
+    <label className="field-label">Refundable deposit<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$300.00" title="Base refundable deposit for this vehicle" value={form.security_deposit} onChange={(event)=>onChange('security_deposit', event.target.value)} required /></label>
+    <label className="field-label">Original odometer mileage<input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={form.original_mileage} onChange={(event)=>onChange('original_mileage', event.target.value)} required /></label>
+    <label className="field-label">Current odometer mileage<input type="number" min={form.original_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" value={form.current_mileage} onChange={(event)=>onChange('current_mileage', event.target.value)} required /></label>
+    <label className="field-label">Maintenance interval<select value={form.maintenance_interval_miles} onChange={(event)=>onChange('maintenance_interval_miles', event.target.value)}>
+      <option value="3000">Every 3,000 miles</option>
+      <option value="5000">Every 5,000 miles</option>
+      <option value="7500">Every 7,500 miles</option>
+      <option value="10000">Every 10,000 miles</option>
+    </select></label>
+    <label className="field-label">Last service mileage <span className="field-optional">Optional</span><input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={form.last_maintenance_mileage} onChange={(event)=>onChange('last_maintenance_mileage', event.target.value)} placeholder="Defaults to current mileage" /></label>
+    {scheduleStatus ? (
+      <div className="vehicle-system-state-note">
+        <strong>Schedule: {vehicleScheduleStatusLabel(vehicle.status)}</strong>
+        <span>This state comes from the active rental and cannot be overridden here.</span>
+      </div>
+    ) : (
+      <label className="field-label">{vehicle ? 'Vehicle condition' : 'Initial condition'}<select value={form.status} onChange={(event)=>onChange('status', event.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+    )}
+    <label className="vehicle-publish-control">
+      <input type="checkbox" checked={form.published} onChange={(event)=>onChange('published', event.target.checked)} />
+      <span><strong>{vehicle ? 'Published' : 'Publish immediately'}</strong><small>{vehicle ? 'Turn this off to remove the vehicle from customer-facing fleet views.' : 'Published vehicles appear in customer-facing fleet views. Leave this off to save a draft.'}</small></span>
+    </label>
+  </div>;
+}
+
 function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs = [], vehicleForm, setVehicleForm, addVehicle, updateVehicleStatus, updateVehiclePublished, completeMaintenanceSchedule, saveMaintenanceSchedule, overrideVehicleMaintenance, editingVehicleId, editVehicleForm, setEditVehicleForm, startEditVehicle, cancelEditVehicle, saveVehicleEdit, deleteVehicle, notify }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || '');
   const [vehicleSearch, setVehicleSearch] = useState('');
@@ -4784,40 +4861,11 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
         }}>
         <section className="vehicle-form-card">
           <div className="vehicle-form-card-heading"><strong>Vehicle details</strong><span>Customer-facing identity and registration information.</span></div>
-          <div className="vehicle-form-grid">
-            <label className="field-label">Vehicle name<input placeholder="Audi Q5 #474" maxLength="80" value={vehicleForm.name} onChange={(e)=>update('name', e.target.value)} required /></label>
-            <label className="field-label">Brand<input placeholder="Audi" maxLength="40" value={vehicleForm.brand} onChange={(e)=>update('brand', e.target.value)} /></label>
-            <label className="field-label">Model<input placeholder="Q5" maxLength="40" value={vehicleForm.model} onChange={(e)=>update('model', e.target.value)} /></label>
-            <label className="field-label">Vehicle type<input placeholder="SUV, luxury sedan, truck…" maxLength="40" value={vehicleForm.vehicle_type} onChange={(e)=>update('vehicle_type', e.target.value)} /></label>
-            <label className="field-label">Plate number<input placeholder="Plate number" maxLength={PLATE_MAX_LENGTH} value={vehicleForm.plate_number} onChange={(e)=>update('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} /></label>
-            <label className="field-label">VIN<input placeholder="17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={vehicleForm.vin} onChange={(e)=>update('vin', e.target.value)} /></label>
-          </div>
+          <VehicleIdentityFields form={vehicleForm} onChange={update} />
         </section>
         <section className="vehicle-form-card">
           <div className="vehicle-form-card-heading"><strong>Pricing & operations</strong><span>Rental pricing, availability, mileage, and maintenance.</span></div>
-          <div className="vehicle-form-grid">
-            <label className="field-label">Daily rate<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Daily rate in USD" value={vehicleForm.daily_rate} onChange={(e)=>update('daily_rate', e.target.value)} /></label>
-            <label className="field-label">Refundable deposit<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$300.00" title="Base refundable deposit for this vehicle" value={vehicleForm.security_deposit} onChange={(e)=>update('security_deposit', e.target.value)} required /></label>
-            <label className="field-label">Original odometer mileage
-          <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.original_mileage} onChange={(e)=>update('original_mileage', e.target.value)} required />
-            </label>
-            <label className="field-label">Maintenance interval
-          <select value={vehicleForm.maintenance_interval_miles} onChange={(e)=>update('maintenance_interval_miles', e.target.value)}>
-            <option value="3000">Every 3,000 miles</option>
-            <option value="5000">Every 5,000 miles</option>
-            <option value="7500">Every 7,500 miles</option>
-            <option value="10000">Every 10,000 miles</option>
-          </select>
-            </label>
-            <label className="field-label">Last service mileage <span className="field-optional">Optional</span>
-          <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={vehicleForm.last_maintenance_mileage} onChange={(e)=>update('last_maintenance_mileage', e.target.value)} placeholder="Defaults to original mileage" />
-            </label>
-            <label className="field-label">Initial condition<select value={vehicleForm.status} onChange={(e)=>update('status', e.target.value)}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
-            <label className="vehicle-publish-control">
-          <input type="checkbox" checked={vehicleForm.published} onChange={(event)=>update('published', event.target.checked)} />
-          <span><strong>Publish immediately</strong><small>Published vehicles appear in customer-facing fleet views. Leave this off to save a draft.</small></span>
-            </label>
-          </div>
+          <VehicleOperationsFields form={vehicleForm} onChange={update} statusOptions={statusOptions} />
         </section>
         <section className="vehicle-form-card vehicle-description-card">
           <div className="vehicle-form-card-heading"><strong>Description</strong><span>Add useful customer-facing context or internal inventory notes.</span></div>
@@ -4887,48 +4935,18 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             </details>
           </section>
           <div className="portal-form vehicle-detail-form">
-            <input placeholder="Vehicle name" maxLength="80" value={editVehicleForm.name} onChange={(e)=>updateEdit('name', e.target.value)} required />
-            <input placeholder="Brand" maxLength="40" value={editVehicleForm.brand} onChange={(e)=>updateEdit('brand', e.target.value)} />
-            <input placeholder="Model" maxLength="40" value={editVehicleForm.model} onChange={(e)=>updateEdit('model', e.target.value)} />
-            <input placeholder="Type e.g. SUV, Luxury Sedan" maxLength="40" value={editVehicleForm.vehicle_type} onChange={(e)=>updateEdit('vehicle_type', e.target.value)} />
-            <input placeholder="Plate Number" maxLength={PLATE_MAX_LENGTH} value={editVehicleForm.plate_number} onChange={(e)=>updateEdit('plate_number', e.target.value)} title={`Plate number, ${PLATE_MAX_LENGTH} characters max`} />
-            <input placeholder="VIN - 17 characters" minLength={VIN_MAX_LENGTH} maxLength={VIN_MAX_LENGTH} pattern="[A-HJ-NPR-Z0-9]{17}" title="VIN must be 17 characters. Letters I, O, and Q are not used in VINs." value={editVehicleForm.vin} onChange={(e)=>updateEdit('vin', e.target.value)} />
-            <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00 / day" title="Daily rate in USD" value={editVehicleForm.daily_rate} onChange={(e)=>updateEdit('daily_rate', e.target.value)} />
-            <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="Refundable deposit" title="Base refundable deposit for this vehicle" value={editVehicleForm.security_deposit} onChange={(e)=>updateEdit('security_deposit', e.target.value)} required />
-            <label className="field-label">Original odometer mileage
-              <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.original_mileage} onChange={(e)=>updateEdit('original_mileage', e.target.value)} required />
-            </label>
-            <label className="field-label">Current odometer mileage
-              <input type="number" min={editVehicleForm.original_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.current_mileage} onChange={(e)=>updateEdit('current_mileage', e.target.value)} required />
-            </label>
-            <label className="field-label">Maintenance interval
-              <select value={editVehicleForm.maintenance_interval_miles} onChange={(e)=>updateEdit('maintenance_interval_miles', e.target.value)}>
-                <option value="3000">Every 3,000 miles</option>
-                <option value="5000">Every 5,000 miles</option>
-                <option value="7500">Every 7,500 miles</option>
-                <option value="10000">Every 10,000 miles</option>
-              </select>
-            </label>
-            <label className="field-label">Last service mileage
-              <input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={editVehicleForm.last_maintenance_mileage} onChange={(e)=>updateEdit('last_maintenance_mileage', e.target.value)} />
-            </label>
-            {vehicleScheduleStatus(editingVehicle.status) ? (
-              <div className="vehicle-system-state-note">
-                <strong>Schedule: {vehicleScheduleStatusLabel(editingVehicle.status)}</strong>
-                <span>This state comes from the active rental and cannot be overridden here.</span>
-              </div>
-            ) : (
-              <label className="field-label">Vehicle condition
-                <select value={editVehicleForm.status} onChange={(e)=>updateEdit('status', e.target.value)}>
-                  {statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}
-                </select>
-              </label>
-            )}
-            <label className="vehicle-publish-control">
-              <input type="checkbox" checked={editVehicleForm.published} onChange={(event)=>updateEdit('published', event.target.checked)} />
-              <span><strong>Published</strong><small>Turn this off to remove the vehicle from customer-facing fleet views.</small></span>
-            </label>
-            <textarea placeholder="Description for inventory notes or customer-facing details" maxLength="600" value={editVehicleForm.description} onChange={(e)=>updateEdit('description', e.target.value)} />
+            <section className="vehicle-form-card">
+              <div className="vehicle-form-card-heading"><strong>Vehicle details</strong><span>Customer-facing identity and registration information.</span></div>
+              <VehicleIdentityFields form={editVehicleForm} onChange={updateEdit} />
+            </section>
+            <section className="vehicle-form-card">
+              <div className="vehicle-form-card-heading"><strong>Pricing & operations</strong><span>Rental pricing, availability, mileage, and maintenance.</span></div>
+              <VehicleOperationsFields form={editVehicleForm} onChange={updateEdit} statusOptions={statusOptions} vehicle={editingVehicle} />
+            </section>
+            <section className="vehicle-form-card vehicle-description-card">
+              <div className="vehicle-form-card-heading"><strong>Description</strong><span>Add useful customer-facing context or internal inventory notes.</span></div>
+              <textarea placeholder="Describe the vehicle, condition, or important rental notes…" maxLength="600" value={editVehicleForm.description} onChange={(event)=>updateEdit('description', event.target.value)} />
+            </section>
             <VehicleFeatureChecklist value={editVehicleForm.features} onChange={(value)=>updateEdit('features', value)} />
           </div>
         </div>
