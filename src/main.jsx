@@ -1352,7 +1352,7 @@ function App() {
     }
     const customer = request?.rentals?.profiles?.full_name || 'this customer';
     const action = approve
-      ? `Approve the extension for ${customer} through ${formatRentalDate(request?.requested_return_date, request?.requested_return_time)} and send the payment notice to the customer's portal? The dates will be held while payment is pending. No payment email will be sent.`
+      ? `Approve the extension for ${customer} through ${formatRentalDate(request?.requested_return_date, request?.requested_return_time)} and send the payment notice to the customer's portal and email? The dates will be held while payment is pending; opted-in SMS delivery will follow.`
       : `Reject this extension request for ${customer}?`;
     if (!window.confirm(action)) return;
     const { data, error } = await supabase.rpc('decide_admin_rental_extension', {
@@ -1363,7 +1363,7 @@ function App() {
     setExtensionRequests((current) => current.map((request) =>
       request.id === id ? { ...request, ...(data || {}), status: approve ? 'approved_pending_payment' : 'rejected' } : request
     ));
-    notify(approve ? 'Extension approved. The customer was notified in the client portal, payment is ready in Billing, and the calendar hold is active.' : 'Extension rejected.', 'success');
+    notify(approve ? 'Extension approved. The portal payment notice and transactional email were queued; opted-in SMS delivery will follow. The calendar hold is active.' : 'Extension rejected.', 'success');
   }
 
   async function recordExtensionPayment(id) {
@@ -3997,7 +3997,7 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
   </>;
 }
 
-function renderMessagePreview(value, profile, rental, charge) {
+function renderMessagePreview(value, profile, rental, charge, extension) {
   const firstName = String(profile?.full_name || 'Customer').trim().split(/\s+/)[0];
   const variables = {
     customer_name: profile?.full_name || 'Customer', customer_first_name: firstName,
@@ -4006,18 +4006,24 @@ function renderMessagePreview(value, profile, rental, charge) {
     pickup_time: rental?.pickup_time || 'your scheduled time',
     return_date: rental?.return_date ? formatRentalDate(rental.return_date, rental.return_time).split(' at ')[0] : 'your scheduled date',
     return_time: rental?.return_time || 'your scheduled time',
-    manage_booking_url: charge ? `${import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com'}?billing=1` : import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com',
+    manage_booking_url: charge || extension ? `${import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com'}?billing=1` : import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com',
     business_phone: import.meta.env.VITE_RENTMECT_PHONE || '860-558-6031',
     charge_name: charge?.name || 'additional rental charge',
     charge_description: charge?.description || 'Please contact Rent Me CT with any questions.',
     charge_total: money(charge?.total_amount || 0),
+    continuation_type: extension?.request_kind === 'switch_car_continuation' ? 'vehicle switch' : 'rental extension',
+    requested_return_date: extension?.requested_return_date ? formatRentalDate(extension.requested_return_date, extension.requested_return_time).split(' at ')[0] : 'the approved return date',
+    requested_return_time: extension?.requested_return_time || 'the approved return time',
+    extension_total: money(extension?.extension_total_amount || 0),
+    payment_due_at: extension?.payment_due_at ? new Date(extension.payment_due_at).toLocaleString() : 'the payment deadline shown in your portal',
   };
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => variables[key] || '');
 }
 
-function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', charge = null, onClose }) {
+function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', charge = null, extension = null, onClose }) {
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
-  const initialChannel = profile.phone && profile.phone_verified ? 'sms' : profile.email ? 'email' : 'sms';
+  const smsReady = Boolean(profile.phone && profile.phone_verified && profile.sms_transactional_opt_in);
+  const initialChannel = smsReady ? 'sms' : profile.email ? 'email' : 'sms';
   const [channel, setChannel] = useState(initialChannel);
   const initialTemplates = initialChannel === 'email' ? emailTemplates : smsTemplates;
   const [templateId, setTemplateId] = useState(initialTemplates.find((template) => template.template_key === initialTemplateKey)?.id || initialTemplates[0]?.id || '');
@@ -4029,7 +4035,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
   const selectedTemplate = templates.find((template) => template.id === templateId) || templates[0];
   const selectedRental = sortedRentals.find((rental) => rental.id === rentalId);
   const destination = channel === 'email' ? profile.email : profile.phone;
-  const canSendToDestination = channel === 'email' ? Boolean(profile.email) : Boolean(profile.phone && profile.phone_verified);
+  const canSendToDestination = channel === 'email' ? Boolean(profile.email) : smsReady;
 
   useEffect(() => {
     const closeOnEscape = (event) => event.key === 'Escape' && !sending && onClose();
@@ -4046,7 +4052,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
 
   async function sendMessage(event) {
     event.preventDefault();
-    if (!canSendToDestination) return setError(channel === 'email' ? 'Add an email address before sending.' : 'Add and verify a phone number before sending a text.');
+    if (!canSendToDestination) return setError(channel === 'email' ? 'Add an email address before sending.' : 'A verified phone and active transactional SMS consent are required before sending a text.');
     if (!selectedTemplate) return setError(`No enabled ${channel === 'email' ? 'email' : 'text'} templates are available.`);
     setSending(true);
     setError('');
@@ -4056,13 +4062,13 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-emails/customer`, {
           method: 'POST',
           headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${sessionData.session?.access_token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null }),
+          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null, extensionRequestId: extension?.id || null }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload.error) throw new Error(payload.error || `Email request failed (${response.status}).`);
       } else {
         const { data, error: invokeError } = await supabase.functions.invoke('send-rental-due-reminders', {
-          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null },
+          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null, extensionRequestId: extension?.id || null },
         });
         if (invokeError || data?.error) throw new Error(data?.error || invokeError?.message || 'Text message failed.');
       }
@@ -4076,8 +4082,8 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
   }
 
   const preview = channel === 'email'
-    ? renderMessagePreview(selectedTemplate?.text_body || selectedTemplate?.subject, profile, selectedRental, charge)
-    : renderMessagePreview(selectedTemplate?.body, profile, selectedRental, charge);
+    ? renderMessagePreview(selectedTemplate?.text_body || selectedTemplate?.subject, profile, selectedRental, charge, extension)
+    : renderMessagePreview(selectedTemplate?.body, profile, selectedRental, charge, extension);
 
   return <div className="admin-modal-backdrop customer-contact-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form ref={dialogRef} className="admin-modal customer-contact-modal" role="dialog" aria-modal="true" aria-label={`Message ${profile.full_name || 'customer'}`} onSubmit={sendMessage}>
@@ -4091,12 +4097,12 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
           <button type="button" className={channel === 'sms' ? 'active' : ''} onClick={() => chooseChannel('sms')}><MessageCircle size={16}/> Text</button>
           <button type="button" className={channel === 'email' ? 'active' : ''} onClick={() => chooseChannel('email')}><Mail size={16}/> Email</button>
         </div>
-        <div className={`contact-destination ${canSendToDestination ? 'ready' : 'missing'}`}><span className="contact-status-dot"/><div><strong>{destination || `No ${channel === 'email' ? 'email address' : 'phone number'} saved`}</strong><span>{canSendToDestination ? `Ready to send by ${channel === 'email' ? 'SendGrid' : 'Twilio'}` : channel === 'sms' && profile.phone ? 'This number must be verified before texting.' : `Add a ${channel === 'email' ? 'customer email address' : 'verified customer phone number'} first.`}</span></div></div>
+        <div className={`contact-destination ${canSendToDestination ? 'ready' : 'missing'}`}><span className="contact-status-dot"/><div><strong>{destination || `No ${channel === 'email' ? 'email address' : 'phone number'} saved`}</strong><span>{canSendToDestination ? `Ready to send by ${channel === 'email' ? 'SendGrid' : 'Twilio'}` : channel === 'sms' && profile.phone ? 'This number must be verified and have active transactional SMS consent.' : `Add a ${channel === 'email' ? 'customer email address' : 'verified customer phone number with SMS consent'} first.`}</span></div></div>
         <div className={`contact-field-grid ${sortedRentals.length ? '' : 'single'}`}>
           <label><span>Message template</span><select value={selectedTemplate?.id || ''} onChange={(event) => setTemplateId(event.target.value)} disabled={!templates.length}>{templates.length ? templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>) : <option value="">No templates available</option>}</select></label>
           {sortedRentals.length > 0 && <label><span>Related rental</span><select value={rentalId} onChange={(event) => setRentalId(event.target.value)}><option value="">No specific rental</option>{sortedRentals.map((rental) => <option value={rental.id} key={rental.id}>{rental.vehicles?.name || 'Vehicle'} • {formatRentalDate(rental.pickup_date, rental.pickup_time)}</option>)}</select></label>}
         </div>
-        {channel === 'email' && selectedTemplate?.subject && <div className="contact-subject"><span>Subject</span><strong>{renderMessagePreview(selectedTemplate.subject, profile, selectedRental, charge)}</strong></div>}
+        {channel === 'email' && selectedTemplate?.subject && <div className="contact-subject"><span>Subject</span><strong>{renderMessagePreview(selectedTemplate.subject, profile, selectedRental, charge, extension)}</strong></div>}
         <div className="contact-preview"><div><span>{channel === 'email' ? 'Email' : 'Text'} preview</span><small>{preview.length} characters</small></div><p>{preview || 'Choose a template to preview the message.'}</p></div>
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
@@ -6086,7 +6092,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         createAdminPaymentLink={createAdminPaymentLink}
         recordExternalPayment={() => setExternalPaymentModalOpen(true)}
       />}
-      {detailed && <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} openDocument={openDocument} markDocument={markDocument} />}
+      {detailed && <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} />}
       {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
       {detailed && outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong> Use Charge customer below; the refund action unlocks automatically when the balance is clear.</span></div>}
       {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
@@ -6146,7 +6152,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
           return submitted;
         }}
       />}
-      {contactModal && <CustomerContactModal profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.charge ? 'manual_additional_charge_due' : ''} charge={contactModal.charge || null} onClose={() => setContactModal(null)} />}
+      {contactModal && <CustomerContactModal profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.extension ? 'manual_extension_payment_due' : contactModal.charge ? 'manual_additional_charge_due' : ''} charge={contactModal.charge || null} extension={contactModal.extension || null} onClose={() => setContactModal(null)} />}
     </div>
     <div className="row-actions rental-actions">
       <div className="rental-actions-primary">
@@ -6834,7 +6840,7 @@ function RequirementList({ requirements = [] }) {
   </div>;
 }
 
-function RentalExtensionActions({ requests = [], documents = [], vehicles = [], decideExtension, recordExtensionPayment, cancelApprovedExtension, openDocument, markDocument }) {
+function RentalExtensionActions({ requests = [], documents = [], vehicles = [], decideExtension, recordExtensionPayment, cancelApprovedExtension, sendExtensionPaymentLink, openDocument, markDocument }) {
   const activeRequests = requests
     .filter((request) => ['pending', 'approved_pending_payment', 'activated', 'rejected'].includes(request.status))
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
@@ -6862,6 +6868,7 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
             {request.extension_total_amount ? ` • ${money(request.extension_total_amount)} due` : ''}
           </small>
           {isSwitch && request.status !== 'pending' && <small>{money(request.deposit_carried_amount || 0)} deposit carried{Number(request.deposit_increase_amount || 0) > 0 ? ` • ${money(request.deposit_increase_amount)} increase collected` : ''}{Number(request.deposit_decrease_amount || 0) > 0 ? ` • ${money(request.deposit_decrease_amount)} decrease refunded after original-car inspection` : ''}</small>}
+          {request.status === 'approved_pending_payment' && <small>Customer notice: email {request.approval_email_queued_at ? 'queued' : 'not queued'} • SMS {prettyStatus(request.approval_sms_status || 'not due')}</small>}
           <small className={insuranceApproved ? 'extension-insurance-approved' : 'form-error'}>
             Extension insurance: {prettyStatus(extensionInsurance?.status || 'missing')}
           </small>
@@ -6873,6 +6880,7 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
           {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Notify Customer</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="reject" onClick={() => decideExtension(request.id, false)}><XCircle size={14}/> Reject</button>}
           {request.status === 'approved_pending_payment' && recordExtensionPayment && <button type="button" className="approve" onClick={() => recordExtensionPayment(request.id)}><CreditCard size={14}/> Record Payment</button>}
+          {request.status === 'approved_pending_payment' && sendExtensionPaymentLink && <button type="button" onClick={() => sendExtensionPaymentLink(request)}><Send size={14}/> Send Payment Link</button>}
           {request.status === 'approved_pending_payment' && cancelApprovedExtension && <button type="button" className="reject" onClick={() => cancelApprovedExtension(request.id)}><XCircle size={14}/> Cancel Hold</button>}
         </div>
       </div>;
