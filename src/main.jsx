@@ -2473,17 +2473,21 @@ function App() {
     const block = availabilityBlocks.find((item) => item.id === id);
     if (!block || !MANUAL_CALENDAR_BLOCK_TYPES.has(String(block.block_type || '').toLowerCase())) {
       notify('System-created calendar holds cannot be removed here. Manage the related rental or extension request.', 'error');
-      return;
+      return false;
     }
     const confirmed = window.confirm('Remove this calendar block?');
-    if (!confirmed) return;
+    if (!confirmed) return false;
     const { error } = await supabase
       .from('vehicle_availability_blocks')
       .update({ active: false })
       .eq('id', id);
-    if (error) return notify(availabilityTableError(error), 'error');
+    if (error) {
+      notify(availabilityTableError(error), 'error');
+      return false;
+    }
     setAvailabilityBlocks((current) => current.filter((block) => block.id !== id));
-    notify('Availability block removed.', 'success');
+    notify('Availability block removed. Those dates are available again unless another rental or protected hold applies.', 'success');
+    return true;
   }
 
   function updateAvailabilityType(key, field, value) {
@@ -3921,6 +3925,12 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       vehicles={vehicles}
       availabilityTypes={availabilityTypes}
       onCancel={() => setPaintModal(null)}
+      onRemove={paintModal.mode === 'edit' ? async (nextModal) => {
+        setPaintModal({ ...nextModal, saving: true, error: '' });
+        const removed = await deleteAvailabilityBlock(nextModal.id);
+        if (removed) setPaintModal(null);
+        else setPaintModal((current) => current ? { ...current, saving: false } : current);
+      } : undefined}
       onSave={async (nextModal) => {
         setPaintModal({ ...nextModal, saving: true, error: '' });
         try {
@@ -3958,7 +3968,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   </Panel>;
 }
 
-function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, onCancel, onSave }) {
+function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, onCancel, onSave, onRemove }) {
   const dialogRef = useDialogFocus(onCancel);
   const actionEntries = manualCalendarActionEntries(availabilityTypes)
     .filter(([key]) => modal.mode !== 'edit' || key !== 'available');
@@ -3996,6 +4006,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
       {modal.error && <p className="form-error">{modal.error}</p>}
       <div className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
+        {modal.mode === 'edit' && <button type="button" className="availability-remove-btn" disabled={modal.saving} onClick={() => onRemove?.(modal)}><CheckCircle2 size={16}/> Remove Block · Make Available</button>}
         <button type="submit" className="primary-btn" disabled={modal.saving}>{modal.saving ? 'Saving...' : isClear ? 'OK - Clear Dates' : 'OK - Apply Changes'}</button>
       </div>
     </form>
@@ -4781,6 +4792,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
   const [vehicleActionBusy, setVehicleActionBusy] = useState({});
+  const [vehicleStatusUndo, setVehicleStatusUndo] = useState({});
   const normalizeVehicleField = (key, value) => {
     if (key === 'vin') return normalizeVinInput(value);
     if (key === 'plate_number') return normalizePlateInput(value);
@@ -4872,6 +4884,29 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
     }
   }
 
+  async function changeVehicleCondition(vehicle, nextStatus) {
+    const previousStatus = operationalVehicleStatus(vehicle.status);
+    if (previousStatus === nextStatus) return;
+    const saved = await updateVehicleStatus(vehicle.id, nextStatus);
+    if (!saved) return;
+    setVehicleStatusUndo((current) => ({
+      ...current,
+      [vehicle.id]: { previousStatus, nextStatus },
+    }));
+  }
+
+  async function undoVehicleCondition(vehicle) {
+    const undo = vehicleStatusUndo[vehicle.id];
+    if (!undo || operationalVehicleStatus(vehicle.status) !== undo.nextStatus) return;
+    const saved = await updateVehicleStatus(vehicle.id, undo.previousStatus);
+    if (!saved) return;
+    setVehicleStatusUndo((current) => {
+      const next = { ...current };
+      delete next[vehicle.id];
+      return next;
+    });
+  }
+
   async function addUploadedVehicleImages(files, editing = false) {
     const selectedFiles = Array.from(files || []);
     if (!selectedFiles.length) return;
@@ -4915,6 +4950,13 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
           || getVehicleMaintenanceState(v);
         const scheduleStatus = vehicleScheduleStatus(v.status);
         const conditionStatus = v.maintenance_lock_active ? 'maintenance' : operationalVehicleStatus(v.status);
+        const statusUndo = vehicleStatusUndo[v.id];
+        const canUndoStatus = Boolean(statusUndo
+          && !scheduleStatus
+          && !v.maintenance_lock_active
+          && conditionStatus === statusUndo.nextStatus);
+        const showMarkAvailable = conditionStatus === 'unavailable' && !scheduleStatus && !v.maintenance_lock_active;
+        const showUndoStatus = canUndoStatus && !(showMarkAvailable && statusUndo.previousStatus === 'available');
         const vehicleImage = getAdminVehicleImage(v);
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
@@ -4955,7 +4997,17 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
               {scheduleStatus || v.maintenance_lock_active ? (
                 <span className="system-owned-status">{v.maintenance_lock_active ? 'Condition locked by maintenance' : 'Schedule state is automatic'}</span>
               ) : (
-                <label className="vehicle-status-control"><span>{vehicleActionBusy[`${v.id}:status`] ? 'Updating…' : 'Condition'}</span><select value={operationalVehicleStatus(v.status)} disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => event.stopPropagation()} onChange={(e)=>runVehicleAction(v.id, 'status', () => updateVehicleStatus(v.id, e.target.value))}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+                <div className="vehicle-condition-actions">
+                  <label className="vehicle-status-control"><span>{vehicleActionBusy[`${v.id}:status`] ? 'Updating…' : 'Condition'}</span><select value={operationalVehicleStatus(v.status)} disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => event.stopPropagation()} onChange={(e)=>runVehicleAction(v.id, 'status', () => changeVehicleCondition(v, e.target.value))}>{statusOptions.map(([key, label])=><option key={key} value={key}>{label}</option>)}</select></label>
+                  {showMarkAvailable && <button className="vehicle-mark-available-btn" type="button" disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => {
+                    event.stopPropagation();
+                    runVehicleAction(v.id, 'status', () => changeVehicleCondition(v, 'available'));
+                  }}><CheckCircle2 size={15}/> Mark Available</button>}
+                  {showUndoStatus && <button className="vehicle-undo-status-btn" type="button" disabled={Boolean(vehicleActionBusy[`${v.id}:status`])} onClick={(event) => {
+                    event.stopPropagation();
+                    runVehicleAction(v.id, 'status', () => undoVehicleCondition(v));
+                  }}><History size={15}/> Undo</button>}
+                </div>
               )}
               <button className="secondary-btn vehicle-edit-btn" type="button" onClick={(event) => {
                 event.stopPropagation();

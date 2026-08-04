@@ -5264,6 +5264,62 @@ input[type="radio"] {
   min-width: 0 !important;
 }
 
+.vehicle-card-manage .vehicle-condition-actions {
+  display: grid;
+  grid-template-columns: minmax(132px, 1fr) auto auto;
+  align-items: end;
+  gap: 7px;
+  min-width: 0;
+}
+
+.vehicle-card-manage .vehicle-mark-available-btn,
+.vehicle-card-manage .vehicle-undo-status-btn,
+.availability-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #20945c;
+  border-radius: 8px;
+  background: #edf8f2;
+  color: #155b3b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vehicle-card-manage .vehicle-undo-status-btn {
+  border-color: #c9d2ce;
+  background: #fff;
+  color: #34423b;
+}
+
+.vehicle-card-manage .vehicle-mark-available-btn:hover,
+.availability-remove-btn:hover {
+  border-color: #147444;
+  background: #dff3e8;
+}
+
+.vehicle-card-manage .vehicle-undo-status-btn:hover {
+  border-color: #87958e;
+  background: #f4f7f5;
+}
+
+.vehicle-card-manage .vehicle-mark-available-btn:disabled,
+.vehicle-card-manage .vehicle-undo-status-btn:disabled,
+.availability-remove-btn:disabled {
+  cursor: wait;
+  opacity: .58;
+}
+
+.availability-modal .availability-remove-btn {
+  margin-right: auto;
+}
+
 .vehicle-card-manage .vehicle-row-controls select {
   width: 100% !important;
   min-width: 0 !important;
@@ -5347,8 +5403,17 @@ input[type="radio"] {
     grid-template-columns: 1fr 1fr !important;
   }
 
+  .vehicle-card-manage .vehicle-condition-actions,
   .vehicle-card-manage .vehicle-status-control,
   .vehicle-card-manage .system-owned-status {
+    grid-column: 1 / -1 !important;
+  }
+
+  .vehicle-card-manage .vehicle-condition-actions {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .vehicle-card-manage .vehicle-condition-actions .vehicle-status-control {
     grid-column: 1 / -1 !important;
   }
 }

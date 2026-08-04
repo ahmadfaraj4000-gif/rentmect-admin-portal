@@ -30,3 +30,14 @@ test('vehicle management and status move to their own rows at narrower widths', 
   assert.match(stylesheet, /@media \(max-width:\s*1500px\)[\s\S]*\.vehicle-card-manage\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1\s*!important;/);
   assert.match(stylesheet, /@media \(max-width:\s*980px\)[\s\S]*\.vehicle-card-status\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1\s*!important;/);
 });
+
+test('manually unavailable vehicles have explicit restore and one-step undo controls', () => {
+  assert.match(mainSource, /conditionStatus === 'unavailable'[\s\S]*vehicle-mark-available-btn[\s\S]*Mark Available/);
+  assert.match(mainSource, /vehicle-undo-status-btn[\s\S]*undoVehicleCondition/);
+});
+
+test('manual calendar blocks can be removed from their edit dialog', () => {
+  assert.match(mainSource, /onRemove=\{paintModal\.mode === 'edit'/);
+  assert.match(mainSource, /Remove Block · Make Available/);
+  assert.match(mainSource, /System-created calendar holds cannot be removed here/);
+});
