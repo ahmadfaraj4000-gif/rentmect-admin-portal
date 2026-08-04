@@ -85,11 +85,11 @@ export default function AdminBirthdayInput({
     <fieldset className="admin-birthday-input" aria-describedby={statusId}>
       <legend>Date of birth{required ? ' *' : ''}</legend>
       <div className="admin-birthday-segments" role="group" aria-label="Date of birth, month day and year">
-        <label><span>MM</span><input ref={monthRef} type="text" inputMode="numeric" autoComplete="bday-month" pattern="[0-9]*" placeholder="MM" value={parts.month} onChange={(event) => updatePart('month', event.target.value)} aria-label="Birth month, two digits" /></label>
+        <input ref={monthRef} type="text" inputMode="numeric" autoComplete="bday-month" pattern="[0-9]*" placeholder="MM" value={parts.month} onChange={(event) => updatePart('month', event.target.value)} aria-label="Birth month, two digits" />
         <span aria-hidden="true">/</span>
-        <label><span>DD</span><input ref={dayRef} type="text" inputMode="numeric" autoComplete="bday-day" pattern="[0-9]*" placeholder="DD" value={parts.day} onChange={(event) => updatePart('day', event.target.value)} onKeyDown={(event) => handleBackspace(event, 'day')} aria-label="Birth day, two digits" /></label>
+        <input ref={dayRef} type="text" inputMode="numeric" autoComplete="bday-day" pattern="[0-9]*" placeholder="DD" value={parts.day} onChange={(event) => updatePart('day', event.target.value)} onKeyDown={(event) => handleBackspace(event, 'day')} aria-label="Birth day, two digits" />
         <span aria-hidden="true">/</span>
-        <label className="admin-birthday-year"><span>YYYY</span><input ref={yearRef} type="text" inputMode="numeric" autoComplete="bday-year" pattern="[0-9]*" placeholder="YYYY" value={parts.year} onChange={(event) => updatePart('year', event.target.value)} onKeyDown={(event) => handleBackspace(event, 'year')} aria-label="Birth year, four digits" /></label>
+        <input className="admin-birthday-year" ref={yearRef} type="text" inputMode="numeric" autoComplete="bday-year" pattern="[0-9]*" placeholder="YYYY" value={parts.year} onChange={(event) => updatePart('year', event.target.value)} onKeyDown={(event) => handleBackspace(event, 'year')} aria-label="Birth year, four digits" />
       </div>
       <div id={statusId} className={`admin-birthday-status ${complete && !eligible ? 'error' : eligible ? 'valid' : ''}`} aria-live="polite">
         {!complete && hasInput && 'Enter the full month, day, and four-digit year.'}
