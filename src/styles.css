@@ -2191,7 +2191,7 @@ button{
     padding:5px;
     border:1px solid var(--line);
     border-radius:12px;
-    background:#dcece3
+    background:#edf4f0
 }
 .customer-mode-switch button{
     min-height:44px;
@@ -2199,21 +2199,22 @@ button{
     align-items:center;
     justify-content:center;
     gap:8px;
-    border:2px solid #2f8f5b!important;
+    border:1px solid #9ec8b0!important;
     border-radius:8px;
-    background:#2f8f5b!important;
-    color:#fff!important;
-    font-weight:900;
+    background:#fff!important;
+    color:#246c47!important;
+    font-weight:850;
     cursor:pointer
 }
 .customer-mode-switch button.active{
-    background:#145c37!important;
-    border-color:#0b3f25!important;
+    background:#1f7047!important;
+    border-color:#1f7047!important;
     color:#fff!important;
-    box-shadow:0 5px 16px rgba(11,63,37,.35), inset 0 0 0 1px rgba(255,255,255,.14)
+    box-shadow:0 3px 10px rgba(20,92,55,.18)
 }
 .customer-mode-switch button:not(.active):hover{
-    background:#267a4d!important
+    background:#f4faf6!important;
+    border-color:#5e9f7a!important
 }
 .new-customer-fields{
     grid-column:1/-1;
@@ -2225,7 +2226,8 @@ button{
     min-width:0;
     margin:0;
     padding:0;
-    border:0
+    border:0;
+    align-self:start
 }
 .admin-birthday-input legend{
     margin-bottom:6px;
@@ -2237,47 +2239,50 @@ button{
 }
 .admin-birthday-segments{
     display:grid;
-    grid-template-columns:minmax(64px,1fr) auto minmax(64px,1fr) auto minmax(104px,1.5fr);
-    align-items:end;
-    gap:7px
+    grid-template-columns:minmax(52px,1fr) 18px minmax(52px,1fr) 18px minmax(88px,1.55fr);
+    align-items:center;
+    min-height:44px;
+    overflow:hidden;
+    border:1px solid var(--admin-line);
+    border-radius:8px;
+    background:#fff;
+    transition:border-color .15s ease,box-shadow .15s ease
 }
 .admin-birthday-segments>span{
-    padding-bottom:12px;
-    color:#617169;
-    font-size:18px;
-    font-weight:800
-}
-.admin-birthday-segments label{
-    display:grid;
-    gap:5px
-}
-.admin-birthday-segments label span{
-    color:#5d7168;
-    font-size:10px;
-    font-weight:900;
-    letter-spacing:.08em
+    color:#9aa6a0;
+    font-size:15px;
+    font-weight:700;
+    text-align:center
 }
 .admin-birthday-segments input{
     min-width:0;
-    min-height:44px;
-    padding:10px 8px!important;
-    border:2px solid #75ad8d!important;
-    background:#fff!important;
+    min-height:42px;
+    padding:9px 6px!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
     color:#173227!important;
-    font-size:16px!important;
-    font-weight:850!important;
+    font-size:14px!important;
+    font-weight:750!important;
     text-align:center
 }
 .admin-birthday-segments input:focus{
-    border-color:#145c37!important;
-    box-shadow:0 0 0 3px rgba(20,92,55,.14)!important
+    background:#f2f8f4!important;
+    box-shadow:none!important;
+    outline:0
+}
+.admin-birthday-segments:focus-within{
+    border-color:#2f8f5b;
+    box-shadow:0 0 0 3px rgba(47,143,91,.12)
 }
 .admin-birthday-status{
-    min-height:20px;
-    margin-top:6px;
+    margin-top:5px;
     color:#617169;
-    font-size:12px;
+    font-size:11px;
     line-height:1.4
+}
+.admin-birthday-status:empty{
+    display:none
 }
 .admin-birthday-status.valid{
     color:#146c3c
@@ -2475,18 +2480,22 @@ button{
     display:flex;
     align-items:center;
     gap:10px;
-    margin:5px 0 0;
-    color:var(--admin-muted);
-    font-size:11px;
+    margin:12px 0 2px;
+    padding:9px 11px;
+    border-left:3px solid var(--italy-green);
+    border-radius:7px;
+    background:#f2f7f4;
+    color:#244a38;
+    font-size:12px;
     font-weight:950;
-    letter-spacing:.08em;
+    letter-spacing:.06em;
     text-transform:uppercase
 }
+.manual-booking-form>.booking-divider:first-child{
+    margin-top:0
+}
 .booking-divider::after{
-    content:"";
-    height:1px;
-    flex:1;
-    background:var(--line)
+    content:none
 }
 .booking-summary-card{
     position:static;
