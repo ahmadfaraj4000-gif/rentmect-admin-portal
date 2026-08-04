@@ -5353,6 +5353,41 @@ input[type="radio"] {
   }
 }
 
+/* Return inspections can expand with damage notes and evidence. Keep the
+   dialog itself as the scroll container so every field and action is reachable
+   while the page behind it remains locked. */
+.return-completion-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-modal.return-completion-modal {
+  width: min(760px, calc(100vw - 40px)) !important;
+  max-width: 760px !important;
+  max-height: calc(100dvh - 40px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 680px) {
+  .return-completion-backdrop.admin-modal-backdrop {
+    padding: 8px !important;
+  }
+
+  .admin-modal.return-completion-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+}
+
 .automation-lock-note,
 .deposit-charge-block,
 .rental-charge-balance {
