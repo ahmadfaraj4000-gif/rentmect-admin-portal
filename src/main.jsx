@@ -424,6 +424,7 @@ function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [notice, setNotice] = useState(null);
+  const noticeTimeoutRef = useRef(null);
   const [activeTab, setActiveTab] = useState(() => {
     if (readActiveReturnRentalId()) return 'rentals';
     return ADMIN_TAB_KEYS.has(requestedAdminTab) ? requestedAdminTab : 'dashboard';
@@ -596,9 +597,9 @@ function App() {
       ? 'error'
       : type;
     setNotice({ text, type: resolvedType });
-    window.clearTimeout(notify.timeout);
+    window.clearTimeout(noticeTimeoutRef.current);
     if (resolvedType !== 'error') {
-      notify.timeout = window.setTimeout(() => setNotice(null), 5200);
+      noticeTimeoutRef.current = window.setTimeout(() => setNotice(null), 7000);
     }
   }
 
@@ -2742,6 +2743,7 @@ function App() {
     setSelectedRentalId(data?.rental?.id || '');
     setRentalFilter('needs_action');
     setActiveTab('rentals');
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
     const deliveredBy = (data?.deliveryChannels || []).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
     notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ` — secure completion link sent by ${deliveredBy}.` : ' — finish it in the focused procedure console.'}`, 'success');
     if (data?.onboardingWarning) notify(`Booking was saved, but one delivery method needs attention: ${data.onboardingWarning}`);
@@ -2974,6 +2976,7 @@ function App() {
 
   function selectAdminTab(key) {
     setActiveTab(key);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
     if (isMobileAdminNav) {
       setNavCollapsed(true);
     }
@@ -3033,7 +3036,7 @@ function App() {
       )}
 
       <main className="admin-main">
-        {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+        {notice && <div className="notice-viewport"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
         <header className="admin-header">
           {isMobileAdminNav && navCollapsed && (
             <button
@@ -7577,9 +7580,11 @@ function NotAdmin({ email, signOut }) {
 }
 function Notice({ notice, onDismiss }) {
   const isError = notice.type === 'error';
+  const Icon = isError ? AlertTriangle : CheckCircle2;
   return <div className={`notice-banner ${notice.type || 'info'}`} role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'} aria-atomic="true">
+    <Icon className="notice-icon" size={21} aria-hidden="true" />
     <span>{notice.text}</span>
-    <button type="button" onClick={onDismiss} aria-label="Dismiss notification">Dismiss</button>
+    <button type="button" className="notice-dismiss" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
   </div>;
 }
 
