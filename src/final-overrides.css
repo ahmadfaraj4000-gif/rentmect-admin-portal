@@ -5469,6 +5469,25 @@ input[type="radio"] {
   }
 }
 
+/* Keep every top-corner dismiss control consistent and away from status yellow. */
+.admin-close-button.admin-close-button {
+  border-color: #4d0f0c !important;
+  background: #681512 !important;
+  color: #fff !important;
+  box-shadow: 0 3px 10px rgba(77, 15, 12, .2) !important;
+}
+
+.admin-close-button.admin-close-button:hover,
+.admin-close-button.admin-close-button:focus-visible {
+  border-color: #681512 !important;
+  background: #81211d !important;
+  color: #fff !important;
+}
+
+.admin-close-button.admin-close-button svg {
+  color: currentColor !important;
+}
+
 /* Return inspections can expand with damage notes and evidence. Keep the
    dialog itself as the scroll container so every field and action is reachable
    while the page behind it remains locked. */
