@@ -1289,6 +1289,16 @@ function App() {
       status: vehicleDisposition,
       current_mileage: endingMileage ?? vehicle.current_mileage,
     } : vehicle));
+    setEmergencyExceptions((current) => current.map((exception) =>
+      exception.rental_id === rental.id && exception.status === 'active'
+        ? {
+          ...exception,
+          status: 'revoked',
+          resolved_at: new Date().toISOString(),
+          resolution_note: 'Automatically closed when the rental return was completed.',
+        }
+        : exception
+    ));
     notify(
       inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
@@ -1560,9 +1570,9 @@ function App() {
     notify('Charge waived.', 'success');
   }
 
-  async function chargeRentalSavedCard(charge) {
+  async function chargeRentalSavedCard(charge, options = {}) {
     if (!charge?.id) return false;
-    const confirmed = window.confirm(`Charge the customer's saved card ${money(charge.total_amount)} for “${charge.name}”? This attempts the charge immediately.`);
+    const confirmed = options.skipConfirmation || window.confirm(`Charge the customer's saved card ${money(charge.total_amount)} for “${charge.name}”? This attempts the charge immediately.`);
     if (!confirmed) return false;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: { action: 'admin_charge_saved_card', chargeId: charge.id },
@@ -3106,7 +3116,11 @@ function Dashboard({ dashboard, vehicles, rentals = [], maintenanceSchedules = [
     const schedules = maintenanceSchedules.filter((schedule) => schedule.vehicle_id === vehicle.id);
     return vehicle.maintenance_lock_active || schedules.some((schedule) => getMaintenanceScheduleState(schedule, vehicle).due);
   }).length;
-  const openEmergencyExceptions = emergencyExceptions.filter((item) => item.status === 'active');
+  const openEmergencyExceptions = emergencyExceptions.filter((item) => {
+    const rental = rentals.find((candidate) => candidate.id === item.rental_id) || item.rentals;
+    const rentalStatus = String(rental?.status || '').toLowerCase();
+    return item.status === 'active' && !['completed', 'cancelled'].includes(rentalStatus);
+  });
   return <>
     <section className="metric-grid">
       <Metric icon={Car} label="Cars Out" value={dashboard.active.length} />
@@ -5025,14 +5039,6 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
         </div>;
       })}
     </Panel>
-    {selectedVehicle && <MaintenanceCommandCenter
-      vehicle={selectedVehicle}
-      schedules={maintenanceSchedules.filter((schedule) => schedule.vehicle_id === selectedVehicle.id)}
-      serviceLogs={maintenanceServiceLogs.filter((log) => log.vehicle_id === selectedVehicle.id)}
-      completeMaintenanceSchedule={completeMaintenanceSchedule}
-      saveMaintenanceSchedule={saveMaintenanceSchedule}
-      overrideVehicleMaintenance={overrideVehicleMaintenance}
-    />}
     {addVehicleOpen && <div className="admin-modal-backdrop vehicle-editor-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeAddVehicle();
     }}>
@@ -5100,6 +5106,16 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
           <button className="vehicle-editor-close admin-close-button" type="button" onClick={cancelEditVehicle} aria-label="Close vehicle editor"><X size={19}/></button>
         </div>
         <div className="vehicle-editor-scroll">
+          <section className={`vehicle-editor-maintenance-callout ${editingVehicle.maintenance_lock_active ? 'locked' : ''}`} aria-label="Maintenance and service shortcut">
+            <span className="vehicle-editor-maintenance-icon"><Wrench size={19}/></span>
+            <div>
+              <strong>Maintenance &amp; Service</strong>
+              <span>{editingVehicle.maintenance_lock_active ? editingVehicle.maintenance_lock_reason || 'Required service needs attention.' : `Current odometer ${formatMiles(editingVehicle.current_mileage)}. Review service schedules and history in this window.`}</span>
+            </div>
+            <button type="button" className={editingVehicle.maintenance_lock_active ? 'reject' : 'secondary-btn'} onClick={() => document.getElementById(`vehicle-maintenance-${editingVehicle.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+              <Wrench size={15}/> Go to maintenance
+            </button>
+          </section>
           <section className="vehicle-editor-media">
             <div className="vehicle-editor-section-heading">
               <div><strong>Vehicle pictures</strong><span>The first picture is featured. Upload a replacement, set it featured, then delete the old picture.</span></div>
@@ -5139,6 +5155,16 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             </section>
             <VehicleFeatureChecklist value={editVehicleForm.features} onChange={(value)=>updateEdit('features', value)} />
           </div>
+          <section id={`vehicle-maintenance-${editingVehicle.id}`} className="vehicle-editor-maintenance-section" aria-label={`${editingVehicle.name} maintenance and service`}>
+            <MaintenanceCommandCenter
+              vehicle={editingVehicle}
+              schedules={maintenanceSchedules.filter((schedule) => schedule.vehicle_id === editingVehicle.id)}
+              serviceLogs={maintenanceServiceLogs.filter((log) => log.vehicle_id === editingVehicle.id)}
+              completeMaintenanceSchedule={completeMaintenanceSchedule}
+              saveMaintenanceSchedule={saveMaintenanceSchedule}
+              overrideVehicleMaintenance={overrideVehicleMaintenance}
+            />
+          </section>
         </div>
         <div className="modal-actions vehicle-editor-actions">
           <button className="secondary-btn" type="button" onClick={cancelEditVehicle}>Cancel</button>
@@ -6239,7 +6265,9 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   const returnState = getLateReturnState(rental.return_date, rental.return_time, rental.status);
   const canCompleteReturn = Boolean(completeRentalReturn) && ['active', 'overdue', 'return_initiated'].includes(rental.status);
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
-  const activeEmergencyException = emergencyExceptions.find((item) => item.status === 'active');
+  const activeEmergencyException = ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase())
+    ? undefined
+    : emergencyExceptions.find((item) => item.status === 'active');
   const canRecordExternalPayment = releaseChecklist.phone && releaseChecklist.identity && releaseChecklist.agreement && releaseChecklist.license && releaseChecklist.insurance;
   const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
@@ -6759,10 +6787,11 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
     }
   }
 
-  async function chargeCard(charge) {
+  async function chargeCard(charge, options = {}) {
     setChargingId(charge.id);
-    await chargeRentalSavedCard?.(charge);
+    const saved = await chargeRentalSavedCard?.(charge, options);
     setChargingId('');
+    return saved;
   }
   const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
   const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
@@ -6777,13 +6806,30 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
   const automaticTollTotal = automaticCollectible
     .filter((charge) => charge.source_type === 'tollspot')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const automaticCollectibleTotal = automaticCollectible
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+
+  async function chargeAllAutomatic() {
+    if (!automaticCollectible.length || chargingId) return;
+    const label = automaticCollectible.length === 1
+      ? `the ${automaticCollectible[0].name} charge`
+      : `${automaticCollectible.length} automatic charges`;
+    if (!window.confirm(`Charge the customer's saved card ${money(automaticCollectibleTotal)} for ${label}? This attempts the charge immediately.`)) return;
+
+    setChargingId('automatic-all');
+    for (const charge of automaticCollectible) {
+      const saved = await chargeRentalSavedCard?.(charge, { skipConfirmation: true });
+      if (!saved) break;
+    }
+    setChargingId('');
+  }
 
   function renderChargeActions(charge) {
     if (charge.included_in_initial_payment || !['pending', 'failed', 'checkout_open'].includes(charge.status)) return null;
     return <div className="row-actions charge-collection-actions">
       <button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button>
-      <button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button>
-      <button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button>
+      <button type="button" className="approve" disabled={Boolean(chargingId)} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button>
+      <button type="button" className="reject" disabled={Boolean(chargingId)} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button>
     </div>;
   }
 
@@ -6807,6 +6853,7 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
         {automaticCollectible.length > 0 && <div className="automatic-charge-totals">
           {automaticLateTotal > 0 && <span>Late fees <strong>{money(automaticLateTotal)}</strong></span>}
           {automaticTollTotal > 0 && <span>Tolls <strong>{money(automaticTollTotal)}</strong></span>}
+          <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
         </div>}
       </div>
       <div className="automatic-charge-list">
