@@ -6767,19 +6767,67 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
   const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
   const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const paidTotal = charges.filter((charge) => charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const automaticSources = new Set(['late_return', 'tollspot']);
+  const automaticCharges = charges.filter((charge) => automaticSources.has(String(charge.source_type || '').toLowerCase()));
+  const otherCharges = charges.filter((charge) => !automaticSources.has(String(charge.source_type || '').toLowerCase()));
+  const automaticCollectible = automaticCharges.filter((charge) => collectible.some((item) => item.id === charge.id));
+  const automaticLateTotal = automaticCollectible
+    .filter((charge) => charge.source_type === 'late_return')
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const automaticTollTotal = automaticCollectible
+    .filter((charge) => charge.source_type === 'tollspot')
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+
+  function renderChargeActions(charge) {
+    if (charge.included_in_initial_payment || !['pending', 'failed', 'checkout_open'].includes(charge.status)) return null;
+    return <div className="row-actions charge-collection-actions">
+      <button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button>
+      <button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button>
+      <button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button>
+    </div>;
+  }
+
+  function renderChargeRow(charge) {
+    return <div className="extension-action-row" key={charge.id}>
+      <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
+      {renderChargeActions(charge)}
+    </div>;
+  }
 
   return <div className="rental-charge-manager">
-    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Tolls, late fees, damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add charge</button></div>
+    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Automatic late fees and tolls, plus manual damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add manual charge</button></div>
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
       <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small>
     </div>
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
-    {charges.map((charge) => <div className="extension-action-row" key={charge.id}>
-      <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
-      {!charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status) && <div className="row-actions charge-collection-actions"><button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button><button type="button" className="approve" disabled={chargingId === charge.id} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button><button type="button" className="reject" disabled={chargingId === charge.id} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button></div>}
-    </div>)}
+    {automaticCharges.length > 0 && <section className="automatic-charge-section" aria-label="Automatically calculated charges">
+      <div className="automatic-charge-heading">
+        <div><CheckCircle2 size={17}/><span><strong>Automatically added</strong><small>No amount entry or duplicate Add charge step is needed.</small></span></div>
+        {automaticCollectible.length > 0 && <div className="automatic-charge-totals">
+          {automaticLateTotal > 0 && <span>Late fees <strong>{money(automaticLateTotal)}</strong></span>}
+          {automaticTollTotal > 0 && <span>Tolls <strong>{money(automaticTollTotal)}</strong></span>}
+        </div>}
+      </div>
+      <div className="automatic-charge-list">
+        {automaticCharges.map((charge) => <article className="automatic-charge-card" key={charge.id}>
+          <div className="automatic-charge-fields">
+            <label><span>Charge</span><input value={charge.name || ''} readOnly /></label>
+            <label><span>Type</span><input value={charge.source_type === 'tollspot' ? 'Toll • TollSpot' : 'Late fee • calculated'} readOnly /></label>
+            <label><span>Amount</span><input value={Number(charge.amount || 0).toFixed(2)} readOnly /></label>
+            <label><span>Total</span><input value={Number(charge.total_amount || 0).toFixed(2)} readOnly /></label>
+          </div>
+          <div className="automatic-charge-card-footer">
+            <small>{charge.description || (charge.source_type === 'tollspot' ? 'Exact TollSpot match added automatically.' : 'Late-return assessment added automatically.')}</small>
+            <span className={`workflow-badge ${charge.status === 'paid' ? 'success' : charge.status === 'waived' ? '' : 'warning'}`}>{prettyStatus(charge.status)}</span>
+            {renderChargeActions(charge)}
+          </div>
+        </article>)}
+      </div>
+    </section>}
+    {otherCharges.map(renderChargeRow)}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
+      <div className="manual-charge-heading"><strong>Manual charge</strong><small>Use this only for damage, cleaning, add-ons, or another charge that was not generated automatically.</small></div>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
       <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => setForm({ ...form, chargeType: event.target.value })}><option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
       <label className="charge-amount-field"><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>

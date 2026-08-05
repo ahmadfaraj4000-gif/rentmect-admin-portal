@@ -1307,6 +1307,124 @@ summary:focus-visible {
   color: #111 !important;
 }
 
+.automatic-charge-section {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #b8d7c3;
+  border-radius: 8px;
+  background: #f3faf5;
+}
+
+.automatic-charge-heading,
+.automatic-charge-heading > div:first-child,
+.automatic-charge-totals,
+.automatic-charge-card-footer {
+  display: flex;
+  align-items: center;
+}
+
+.automatic-charge-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.automatic-charge-heading > div:first-child {
+  align-items: flex-start;
+  gap: 8px;
+  color: #176a38;
+}
+
+.automatic-charge-heading > div:first-child > span {
+  display: grid;
+  gap: 2px;
+}
+
+.automatic-charge-heading small {
+  color: #52645a;
+}
+
+.automatic-charge-totals {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.automatic-charge-totals > span {
+  display: inline-flex;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid #c8dccf;
+  border-radius: 999px;
+  background: #fff;
+  color: #334b3b;
+  font-size: 12px;
+}
+
+.automatic-charge-list {
+  display: grid;
+  gap: 9px;
+}
+
+.automatic-charge-card {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #d5e4da;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.automatic-charge-fields {
+  display: grid;
+  grid-template-columns: minmax(210px, 2fr) minmax(150px, 1.2fr) minmax(105px, .7fr) minmax(105px, .7fr);
+  gap: 9px;
+}
+
+.automatic-charge-fields label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #526058;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.automatic-charge-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #ccd9d0;
+  border-radius: 6px;
+  background: #f7faf8;
+  color: #17251c;
+  font-weight: 750;
+}
+
+.automatic-charge-card-footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.automatic-charge-card-footer > small {
+  flex: 1 1 260px;
+  color: #607066;
+}
+
+.manual-charge-heading {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.manual-charge-heading small {
+  color: #68736c;
+}
+
 /* Customer row actions and manual communications composer. */
 .customer-summary-row {
   grid-template-columns: minmax(230px, 1.15fr) minmax(170px, .75fr) minmax(180px, .72fr) auto !important;
@@ -1676,6 +1794,10 @@ summary:focus-visible {
   .rental-charge-form.portal-form { grid-template-columns: 1fr !important; }
   .rental-charge-form .charge-description-field { grid-column: auto !important; }
   .rental-charge-form > button { justify-self: stretch !important; width: 100% !important; }
+  .automatic-charge-heading { display: grid; }
+  .automatic-charge-totals { justify-content: flex-start; }
+  .automatic-charge-fields { grid-template-columns: 1fr 1fr; }
+  .automatic-charge-card-footer { align-items: stretch; }
   .customer-summary-row { grid-template-columns: 1fr !important; gap: 10px !important; }
   .customer-row-actions { justify-content: stretch !important; }
   .customer-row-actions button { flex: 1 1 0 !important; }
@@ -1688,6 +1810,10 @@ summary:focus-visible {
   .customer-contact-actions > span { white-space: normal !important; }
   .customer-contact-actions > div { display: grid !important; grid-template-columns: 1fr 1fr !important; }
   .customer-contact-actions button { width: 100% !important; }
+}
+
+@media (max-width: 520px) {
+  .automatic-charge-fields { grid-template-columns: 1fr; }
 }
 
 /* Vehicle workspace redesign: calm hierarchy, compact controls, and one
