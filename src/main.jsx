@@ -94,7 +94,7 @@ const DEFAULT_BOOKING_POLICY = {
 const DOCUMENT_BUCKET = 'rental-documents';
 const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'checkout_hold'];
-const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES, 'completed'];
+const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 180;
 const SMS_TEMPLATE_MAX_LENGTH = 900;
@@ -2998,7 +2998,7 @@ function App() {
           <div className="mobile-drawer-brand">
             <img src={logoUrl} alt="Rent Me CT" />
           </div>
-          <button className="mobile-drawer-close" type="button" onClick={() => setNavCollapsed(true)} aria-label="Close admin navigation">
+          <button className="mobile-drawer-close admin-close-button" type="button" onClick={() => setNavCollapsed(true)} aria-label="Close admin navigation">
             <X size={22} />
           </button>
           <nav className="mobile-drawer-nav" id="admin-mobile-drawer-navigation">
@@ -4233,7 +4233,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
       <header className="admin-modal-header customer-contact-header">
         <span className="customer-contact-icon"><MessageCircle size={20}/></span>
         <div><small>Customer communication</small><strong>Send a message</strong><span>{profile.full_name || 'Unnamed Client'}{profile.email ? ` • ${profile.email}` : ''}</span></div>
-        <button className="customer-details-close" type="button" onClick={onClose} aria-label="Close"><XCircle size={20}/></button>
+        <button className="customer-details-close admin-close-button" type="button" onClick={onClose} aria-label="Close"><XCircle size={20}/></button>
       </header>
       <div className="customer-contact-body">
         <div className="contact-channel-toggle" role="group" aria-label="Message channel">
@@ -4270,7 +4270,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
       <header className="admin-modal-header">
         <UserRound size={22}/>
         <div><strong>{profile.full_name || 'Unnamed Client'}</strong><span>{profile.email || profile.id}</span></div>
-        <button className="customer-details-close" type="button" onClick={onClose} aria-label="Close customer details"><XCircle size={20}/></button>
+        <button className="customer-details-close admin-close-button" type="button" onClick={onClose} aria-label="Close customer details"><XCircle size={20}/></button>
       </header>
       <div className="customer-details-scroll">
         <section className="customer-details-overview">
@@ -4713,7 +4713,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
 
     {editingTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTemplate(null); }}>
       <form className="admin-modal email-template-modal" onSubmit={saveTemplate}>
-        <div className="admin-modal-header"><Mail size={21}/><div><strong>{editingTemplate.id ? 'Edit Email Template' : 'Add Email Template'}</strong><span>Versioned content sent through Twilio SendGrid</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTemplate(null)}><X size={19}/></button></div>
+        <div className="admin-modal-header"><Mail size={21}/><div><strong>{editingTemplate.id ? 'Edit Email Template' : 'Add Email Template'}</strong><span>Versioned content sent through Twilio SendGrid</span></div><button type="button" className="vehicle-editor-close admin-close-button" onClick={() => setEditingTemplate(null)} aria-label="Close email template editor"><X size={19}/></button></div>
         <div className="email-template-editor"><div className="portal-form"><input placeholder="Template name" value={editingTemplate.name} onChange={(event) => setEditingTemplate({ ...editingTemplate, name: limitText(event.target.value, 120) })}/><input placeholder="Subject" value={editingTemplate.subject} onChange={(event) => setEditingTemplate({ ...editingTemplate, subject: limitText(event.target.value, 200) })}/><input placeholder="Preview text" value={editingTemplate.preheader || ''} onChange={(event) => setEditingTemplate({ ...editingTemplate, preheader: limitText(event.target.value, 240) })}/><label className="field-label email-body-field">Email body<textarea value={editingTemplate.html_body} onChange={(event) => setEditingTemplate({ ...editingTemplate, html_body: limitText(event.target.value, 30000) })}/></label><label className="checkbox-pill"><input type="checkbox" checked={editingTemplate.enabled !== false} onChange={(event) => setEditingTemplate({ ...editingTemplate, enabled: event.target.checked })}/> Enabled</label><div className="email-send-actions"><input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)}/><button type="button" className="secondary-btn" disabled={busy} onClick={() => sendTemplateTest()}><Send size={15}/> Send Test</button></div></div><iframe className="email-preview-frame" title="Template preview" sandbox="" srcDoc={editorPreview}/></div>
         <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setEditingTemplate(null)}>Cancel</button><button className="approve" disabled={busy}><CheckCircle2 size={16}/> Save Template</button></div>
       </form>
@@ -4721,7 +4721,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
 
     {editingTextTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTextTemplate(null); }}>
       <form className="admin-modal contact-text-template-modal" onSubmit={saveTextTemplate}>
-        <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingTextTemplate(null)}><X size={19}/></button></div>
+        <div className="admin-modal-header"><MessageCircle size={21}/><div><strong>{editingTextTemplate.id ? 'Edit Text Template' : 'Add Text Template'}</strong><span>{prettyStatus(editingTextTemplate.category || 'manual')} customer SMS content</span></div><button type="button" className="vehicle-editor-close admin-close-button" onClick={() => setEditingTextTemplate(null)} aria-label="Close text template editor"><X size={19}/></button></div>
         <div className="portal-form contact-text-template-editor">
           <label><span>Template name</span><input required maxLength="120" value={editingTextTemplate.name || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, name: limitText(event.target.value, 120) })}/></label>
           <label className="full-field"><span>Text message</span><textarea required maxLength={SMS_TEMPLATE_MAX_LENGTH} value={editingTextTemplate.body || ''} onChange={(event) => setEditingTextTemplate({ ...editingTextTemplate, body: limitText(event.target.value, SMS_TEMPLATE_MAX_LENGTH) })}/><small>{String(editingTextTemplate.body || '').length}/{SMS_TEMPLATE_MAX_LENGTH} characters before variables are rendered.</small></label>
@@ -5043,7 +5043,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             <strong>Add New Vehicle</strong>
             <span>Create the inventory record, upload pictures, and choose whether to publish it.</span>
           </div>
-          <button className="vehicle-editor-close" type="button" onClick={closeAddVehicle} aria-label="Close add vehicle form"><X size={19}/></button>
+          <button className="vehicle-editor-close admin-close-button" type="button" onClick={closeAddVehicle} aria-label="Close add vehicle form"><X size={19}/></button>
         </div>
         <form className="portal-form vehicle-editor-scroll vehicle-detail-form" onSubmit={async (event) => {
           const created = await addVehicle(event);
@@ -5097,7 +5097,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             <strong>Edit Vehicle</strong>
             <span>{editingVehicle.name} • pricing, pictures, features, and inventory details</span>
           </div>
-          <button className="vehicle-editor-close" type="button" onClick={cancelEditVehicle} aria-label="Close vehicle editor"><X size={19}/></button>
+          <button className="vehicle-editor-close admin-close-button" type="button" onClick={cancelEditVehicle} aria-label="Close vehicle editor"><X size={19}/></button>
         </div>
         <div className="vehicle-editor-scroll">
           <section className="vehicle-editor-media">
@@ -5261,7 +5261,7 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
 
     {completionSchedule && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setCompletionSchedule(null)}>
       <form className="admin-modal maintenance-action-modal" onSubmit={submitCompletion}>
-        <div className="admin-modal-header"><Wrench size={21}/><div><strong>Record {completionSchedule.label}</strong><span>Mileage is mandatory and recalculates the next milestone.</span></div><button type="button" className="vehicle-editor-close" onClick={() => setCompletionSchedule(null)}><X size={18}/></button></div>
+        <div className="admin-modal-header"><Wrench size={21}/><div><strong>Record {completionSchedule.label}</strong><span>Mileage is mandatory and recalculates the next milestone.</span></div><button type="button" className="vehicle-editor-close admin-close-button" onClick={() => setCompletionSchedule(null)} aria-label="Close maintenance completion"><X size={18}/></button></div>
         <div className="portal-form">
           <label><span>Service mileage</span><input required type="number" min={vehicle.current_mileage || 0} max={MILEAGE_MAX} step="1" value={completion.mileage} onChange={(event) => setCompletion({ ...completion, mileage: event.target.value })}/></label>
           <label><span>Service date</span><input required type="date" max={adminBookingDateOffset(0)} value={completion.completedAt} onChange={(event) => setCompletion({ ...completion, completedAt: event.target.value })}/></label>
@@ -5273,7 +5273,7 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
 
     {editingSchedule && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setEditingSchedule(null)}>
       <form className="admin-modal maintenance-action-modal" onSubmit={submitSchedule}>
-        <div className="admin-modal-header"><Wrench size={21}/><div><strong>Configure {editingSchedule.label}</strong><span>OEM defaults can be adjusted for this exact vehicle and service history.</span></div><button type="button" className="vehicle-editor-close" onClick={() => setEditingSchedule(null)}><X size={18}/></button></div>
+        <div className="admin-modal-header"><Wrench size={21}/><div><strong>Configure {editingSchedule.label}</strong><span>OEM defaults can be adjusted for this exact vehicle and service history.</span></div><button type="button" className="vehicle-editor-close admin-close-button" onClick={() => setEditingSchedule(null)} aria-label="Close maintenance schedule"><X size={18}/></button></div>
         <div className="portal-form maintenance-config-form">
           <label><span>Milestone label</span><input required maxLength="80" value={editingSchedule.label} onChange={(event) => setEditingSchedule({ ...editingSchedule, label: event.target.value })}/></label>
           <div className="form-row">
@@ -5300,7 +5300,7 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
 
     {overrideOpen && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setOverrideOpen(false)}>
       <form className="admin-modal maintenance-action-modal" onSubmit={submitOverride}>
-        <div className="admin-modal-header"><AlertTriangle size={21}/><div><strong>Override Maintenance Lock</strong><span>This is time-limited, audited, and sends an admin push alert.</span></div><button type="button" className="vehicle-editor-close" onClick={() => setOverrideOpen(false)}><X size={18}/></button></div>
+        <div className="admin-modal-header"><AlertTriangle size={21}/><div><strong>Override Maintenance Lock</strong><span>This is time-limited, audited, and sends an admin push alert.</span></div><button type="button" className="vehicle-editor-close admin-close-button" onClick={() => setOverrideOpen(false)} aria-label="Close maintenance override"><X size={18}/></button></div>
         <div className="portal-form">
           <label><span>Specific operational reason</span><textarea required minLength="10" maxLength="1000" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Explain why this vehicle is safe to release before service…"/></label>
           <label><span>Override duration</span><select value={overrideHours} onChange={(event) => setOverrideHours(event.target.value)}><option value="4">4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option><option value="168">7 days maximum</option></select></label>
@@ -5708,7 +5708,7 @@ function MobileAdminQuickLinks() {
     >
       <header className="mobile-quick-links-heading">
         <div><p>Shortcuts</p><h2 id="mobile-quick-links-title">Quick Links</h2></div>
-        <button ref={closeRef} type="button" aria-label="Close Quick Links" onClick={closeSheet}><X size={22}/></button>
+        <button ref={closeRef} className="admin-close-button" type="button" aria-label="Close Quick Links" onClick={closeSheet}><X size={22}/></button>
       </header>
       <div className="mobile-quick-links-content">
         {ADMIN_QUICK_LINK_GROUPS.map((group) => <section key={group.label}>
@@ -6536,7 +6536,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
           <strong>Edit Existing Rental</strong>
           <span>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'} • {prettyStatus(rental.status)}</span>
         </div>
-        <button type="button" className="customer-details-close" onClick={onCancel} disabled={saving} aria-label="Close"><XCircle size={20}/></button>
+        <button type="button" className="customer-details-close admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close"><XCircle size={20}/></button>
       </header>
 
       <div className="rental-amendment-scroll">
@@ -6696,7 +6696,7 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
     <form ref={dialogRef} className="admin-modal emergency-exception-modal" role="dialog" aria-modal="true" aria-label="Create Emergency Rental Exception" onSubmit={submit}>
       <div className="admin-modal-header danger">
         <div><p className="eyebrow">Extraordinary Case</p><h3>Release With Emergency Exception</h3></div>
-        <button type="button" onClick={onCancel} aria-label="Close"><XCircle size={20}/></button>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close"><XCircle size={20}/></button>
       </div>
       <div className="emergency-truth-warning"><AlertTriangle size={20}/><span>This permits vehicle release; it does not mark verification, documents, agreement, or payment complete. Every exception stays visible and auditable.</span></div>
       <div className="emergency-rental-summary"><strong>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'}</strong><span>{formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span></div>
@@ -7584,7 +7584,7 @@ function Notice({ notice, onDismiss }) {
   return <div className={`notice-banner ${notice.type || 'info'}`} role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'} aria-atomic="true">
     <Icon className="notice-icon" size={21} aria-hidden="true" />
     <span>{notice.text}</span>
-    <button type="button" className="notice-dismiss" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
+    <button type="button" className="notice-dismiss admin-close-button" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
   </div>;
 }
 
