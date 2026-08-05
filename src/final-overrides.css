@@ -3558,6 +3558,19 @@ input[type="radio"] {
   background: #f7faf8;
 }
 
+/* Generic modal input rules make checkboxes full width and push their label
+   text outside the return panel. Keep every return-inspection checkbox compact. */
+.return-completion-panel input[type="checkbox"] {
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
 .payments-filter-bar {
   display: flex;
   align-items: end;
