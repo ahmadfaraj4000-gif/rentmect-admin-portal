@@ -79,10 +79,10 @@ const DEFAULT_BILLING_AUTOMATION = {
   tollspot_auto_create_charges: true,
 };
 const DEFAULT_BOOKING_PAGE_SETTING = {
-  active_provider: 'wheelbase',
+  active_provider: 'supabase',
   scheduled_provider: null,
   scheduled_at: null,
-  effective_provider: 'wheelbase',
+  effective_provider: 'supabase',
   updated_by: null,
   updated_at: null,
   server_now: null,
@@ -220,8 +220,7 @@ const DEFAULT_AVAILABILITY_TYPES = {
 };
 const SITE_PAGE_OPTIONS = [
   { value: 'index.html', label: 'Home page (index.html)' },
-  { value: 'cars.html', label: 'Cars page (cars.html)' },
-  { value: 'cars-2.html', label: 'New booking preview (cars-2.html)' },
+  { value: 'cars-2.html', label: 'Cars and booking page (cars-2.html)' },
 ];
 const DEFAULT_VEHICLE_IMAGE_NAMES = new Set([
   'Audi-A4-002', 'Audi-A4-158', 'Audi-A6-385', 'Audi-A6-473', 'Audi-A8L-YPS',
@@ -374,14 +373,14 @@ const EMPTY_PROMOTION_FORM = {
   banner_title: '',
   banner_body: 'Use code',
   cta_label: 'Choose Your Car',
-  cta_url: 'cars.html',
+  cta_url: 'cars-2.html',
   fine_print: '',
   starts_at: '',
   ends_at: '',
   popup_enabled: true,
   banner_enabled: true,
   popup_pages: ['index.html'],
-  banner_pages: ['cars.html'],
+  banner_pages: ['cars-2.html'],
   active: true,
 };
 
@@ -487,10 +486,8 @@ function App() {
   const [billingAutomation, setBillingAutomation] = useState(DEFAULT_BILLING_AUTOMATION);
   const [billingAutomationSaving, setBillingAutomationSaving] = useState(false);
   const [bookingPageSetting, setBookingPageSetting] = useState(DEFAULT_BOOKING_PAGE_SETTING);
-  const [bookingPageSaving, setBookingPageSaving] = useState(false);
   const [bookingPolicy, setBookingPolicy] = useState(DEFAULT_BOOKING_POLICY);
   const [bookingPolicySaving, setBookingPolicySaving] = useState(false);
-  const [bookingPageConfirmation, setBookingPageConfirmation] = useState(null);
   const [sitePromotions, setSitePromotions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
@@ -2433,72 +2430,9 @@ function App() {
     notify('Booking rules saved. New quotes and bookings now use these limits.', 'success');
   }
 
-  function requestBookingPageChange(change) {
-    const effectiveProvider = bookingPageSetting.effective_provider || bookingPageSetting.active_provider || 'wheelbase';
-    if (change.mode !== 'cancel' && !['wheelbase', 'supabase'].includes(change.provider)) {
-      return notify('Choose Wheelbase or Supabase.');
-    }
-    if (change.mode !== 'cancel' && change.provider === effectiveProvider) {
-      return notify(`${bookingProviderLabel(change.provider)} is already live.`);
-    }
-    if (change.mode === 'schedule') {
-      const scheduledTime = new Date(change.scheduledAt || '').getTime();
-      if (!Number.isFinite(scheduledTime) || scheduledTime <= Date.now() + 60000) {
-        return notify('Choose a valid Eastern Time at least one minute in the future.');
-      }
-    }
-    setBookingPageConfirmation(change);
-  }
-
-  async function refreshBookingPageSetting() {
-    const { data, error } = await supabase.rpc('get_admin_booking_page_setting');
-    if (error) throw error;
-    if (data?.[0]) setBookingPageSetting(data[0]);
-  }
-
-  async function confirmBookingPageChange() {
-    if (!bookingPageConfirmation) return;
-    const change = bookingPageConfirmation;
-    setBookingPageSaving(true);
-    let result;
-    if (change.mode === 'schedule') {
-      result = await supabase.rpc('schedule_booking_page_switch', {
-        p_provider: change.provider,
-        p_scheduled_at: change.scheduledAt,
-      });
-    } else if (change.mode === 'cancel') {
-      result = await supabase.rpc('cancel_booking_page_switch');
-    } else {
-      result = await supabase.rpc('set_booking_page_now', { p_provider: change.provider });
-    }
-
-    if (result.error) {
-      setBookingPageSaving(false);
-      return notify(userFacingPortalError(result.error, 'The booking page setting could not be changed.'));
-    }
-
-    try {
-      await refreshBookingPageSetting();
-    } catch (error) {
-      setBookingPageSaving(false);
-      setBookingPageConfirmation(null);
-      return notify(userFacingPortalError(error, 'The setting changed, but its new status could not be refreshed.'));
-    }
-
-    setBookingPageSaving(false);
-    setBookingPageConfirmation(null);
-    if (change.mode === 'schedule') {
-      notify(`${bookingProviderLabel(change.provider)} is scheduled to go live ${formatEasternDateTime(change.scheduledAt)}.`, 'success');
-    } else if (change.mode === 'cancel') {
-      notify('The scheduled booking-page switch was cancelled.', 'success');
-    } else {
-      notify(`${bookingProviderLabel(change.provider)} is now the live booking page.`, 'success');
-    }
-  }
-
   function resetPromotionForm() {
     setEditingPromotionId('');
-    setPromotionForm({ ...EMPTY_PROMOTION_FORM, popup_pages: ['index.html'], banner_pages: ['cars.html'] });
+    setPromotionForm({ ...EMPTY_PROMOTION_FORM, popup_pages: ['index.html'], banner_pages: ['cars-2.html'] });
   }
 
   function editSitePromotion(promotion) {
@@ -2545,7 +2479,7 @@ function App() {
       banner_title: promotionForm.banner_title.trim() || promotionForm.name.trim(),
       banner_body: promotionForm.banner_body.trim() || 'Use code',
       cta_label: promotionForm.cta_label.trim() || 'Choose Your Car',
-      cta_url: promotionForm.cta_url.trim() || 'cars.html',
+      cta_url: promotionForm.cta_url.trim() || 'cars-2.html',
       fine_print: promotionForm.fine_print.trim() || null,
       starts_at: startsAt,
       ends_at: endsAt,
@@ -3507,7 +3441,7 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
-        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} bookingPageSetting={bookingPageSetting} bookingPageSaving={bookingPageSaving} requestBookingPageChange={requestBookingPageChange} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
       </main>
       {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
         confirmation={vehiclePriceConfirmation}
@@ -3519,13 +3453,6 @@ function App() {
           setVehiclePriceConfirmationError('');
         }}
         onConfirm={confirmVehiclePriceChange}
-      />, document.body)}
-      {bookingPageConfirmation && createPortal(<BookingPageConfirmationModal
-        change={bookingPageConfirmation}
-        currentProvider={bookingPageSetting.effective_provider || bookingPageSetting.active_provider || 'wheelbase'}
-        saving={bookingPageSaving}
-        onCancel={() => !bookingPageSaving && setBookingPageConfirmation(null)}
-        onConfirm={confirmBookingPageChange}
       />, document.body)}
     </div>
   );
@@ -6255,16 +6182,11 @@ function SettingsTab({
   setBookingPolicy,
   saveBookingPolicy,
   bookingPolicySaving,
-  bookingPageSetting,
-  bookingPageSaving,
-  requestBookingPageChange,
   availabilityTypes,
   updateAvailabilityType,
 }) {
   const [settingsSection, setSettingsSection] = useState('pricing');
-  const [bookingPageTarget, setBookingPageTarget] = useState('supabase');
-  const [bookingPageScheduleAt, setBookingPageScheduleAt] = useState(() => formatEasternDateTimeInput(new Date(Date.now() + 30 * 60 * 1000)));
-  const effectiveBookingProvider = bookingPageSetting.effective_provider || bookingPageSetting.active_provider || 'wheelbase';
+  const effectiveBookingProvider = 'supabase';
   const advanceNoticeMinutes = Number(bookingPolicy.advance_notice_minutes || 0);
   const advanceNoticeUnit = advanceNoticeMinutes === 0 ? 'immediate' : advanceNoticeMinutes % 1440 === 0 ? 'days' : 'hours';
   const advanceNoticeValue = advanceNoticeUnit === 'days' ? advanceNoticeMinutes / 1440 : advanceNoticeUnit === 'hours' ? advanceNoticeMinutes / 60 : 0;
@@ -6276,9 +6198,6 @@ function SettingsTab({
     ...current,
     advance_notice_minutes: Math.max(0, Number(value) || 0) * (advanceNoticeUnit === 'days' ? 1440 : 60),
   }));
-  useEffect(() => {
-    setBookingPageTarget(effectiveBookingProvider === 'wheelbase' ? 'supabase' : 'wheelbase');
-  }, [effectiveBookingProvider]);
   const updateDiscount = (key, value) => setDiscountForm({ ...discountForm, [key]: key === 'code' ? normalizeCodeInput(value) : value });
   const updateFee = (key, value) => {
     const normalizedValue = key === 'name' ? limitText(value, 60)
@@ -6463,7 +6382,7 @@ function SettingsTab({
             <h4>Popup button and terms</h4>
             <div className="form-row">
               <label><span>Button label</span><input maxLength="60" value={promotionForm.cta_label} onChange={(event) => updatePromotion('cta_label', limitText(event.target.value, 60))} /></label>
-              <label><span>Button destination</span><input maxLength="300" placeholder="cars.html" value={promotionForm.cta_url} onChange={(event) => updatePromotion('cta_url', limitText(event.target.value, 300))} /></label>
+              <label><span>Button destination</span><input maxLength="300" placeholder="cars-2.html" value={promotionForm.cta_url} onChange={(event) => updatePromotion('cta_url', limitText(event.target.value, 300))} /></label>
             </div>
             <label><span>Fine print (optional)</span><textarea maxLength="300" placeholder="Leave blank to show an automatically formatted ending time." value={promotionForm.fine_print} onChange={(event) => updatePromotion('fine_print', limitText(event.target.value, 300))} /></label>
             <label className="checkbox-pill promotion-active-toggle"><input type="checkbox" checked={promotionForm.active} onChange={(event) => updatePromotion('active', event.target.checked)} /> Publish this promotion when its schedule begins</label>
@@ -6547,72 +6466,10 @@ function SettingsTab({
           <strong>{bookingProviderLabel(effectiveBookingProvider)}</strong>
           <small>{bookingProviderPath(effectiveBookingProvider)}</small>
         </div>
-
-        <div className="booking-route-options" role="radiogroup" aria-label="Booking page to activate">
-          {[
-            { provider: 'wheelbase', description: 'Existing Wheelbase availability and checkout.' },
-            { provider: 'supabase', description: 'New Supabase fleet and custom booking flow.' },
-          ].map((option) => {
-            const selected = bookingPageTarget === option.provider;
-            const live = effectiveBookingProvider === option.provider;
-            return <button
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              className={`booking-route-option${selected ? ' selected' : ''}${live ? ' live' : ''}`}
-              key={option.provider}
-              onClick={() => setBookingPageTarget(option.provider)}
-            >
-              <span>{selected ? <CheckCircle2 size={19}/> : <span className="booking-route-radio" aria-hidden="true"/>}</span>
-              <div>
-                <strong>{bookingProviderLabel(option.provider)}</strong>
-                <small>{bookingProviderPath(option.provider)}</small>
-                <p>{option.description}</p>
-              </div>
-              {live && <em>Live</em>}
-            </button>;
-          })}
-        </div>
-
+        <p className="muted">Cars-2 is the permanent customer booking page. Legacy customer pages and provider switching are disabled.</p>
         <div className="booking-route-preview-links">
-          <a href="https://rentmect.com/cars.html" target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/> Preview Wheelbase</a>
-          <a href="https://rentmect.com/cars-2.html" target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/> Preview Supabase</a>
+          <a href="https://rentmect.com/cars-2.html" target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/> Open live booking page</a>
         </div>
-
-        <div className="booking-route-actions">
-          <button
-            type="button"
-            className="primary-btn"
-            disabled={bookingPageSaving || bookingPageTarget === effectiveBookingProvider}
-            onClick={() => requestBookingPageChange({ mode: 'now', provider: bookingPageTarget })}
-          >
-            <ArrowRight size={17}/> Switch now
-          </button>
-          <div className="booking-route-schedule">
-            <label><span>Schedule in Eastern Time</span><input type="datetime-local" value={bookingPageScheduleAt} onChange={(event) => setBookingPageScheduleAt(event.target.value)} /></label>
-            <button
-              type="button"
-              className="secondary-btn"
-              disabled={bookingPageSaving || bookingPageTarget === effectiveBookingProvider}
-              onClick={() => requestBookingPageChange({
-                mode: 'schedule',
-                provider: bookingPageTarget,
-                scheduledAt: easternDateTimeInputToIso(bookingPageScheduleAt),
-              })}
-            >
-              <CalendarClock size={17}/> Schedule switch
-            </button>
-          </div>
-        </div>
-
-        {bookingPageSetting.scheduled_provider && bookingPageSetting.scheduled_at && <div className="booking-route-pending">
-          <CalendarClock size={19}/>
-          <div>
-            <strong>{bookingProviderLabel(bookingPageSetting.scheduled_provider)} is scheduled to go live</strong>
-            <span>{formatEasternDateTime(bookingPageSetting.scheduled_at)}</span>
-          </div>
-          <button type="button" className="secondary-btn" disabled={bookingPageSaving} onClick={() => requestBookingPageChange({ mode: 'cancel' })}>Cancel scheduled switch</button>
-        </div>}
       </div>
     </Panel>}
 
@@ -7683,54 +7540,6 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
         <button type="submit" className="reject" disabled={reason.trim().length < 3}><XCircle size={14}/> Confirm Cancel</button>
       </div>
     </form>
-  </div>;
-}
-
-function BookingPageConfirmationModal({ change, currentProvider, saving, onCancel, onConfirm }) {
-  const dialogRef = useDialogFocus(onCancel);
-  const cancelling = change.mode === 'cancel';
-  const scheduled = change.mode === 'schedule';
-  const nextProvider = change.provider || '';
-  const title = cancelling
-    ? 'Cancel Scheduled Switch?'
-    : scheduled
-      ? `Schedule ${bookingProviderLabel(nextProvider)}?`
-      : `Switch to ${bookingProviderLabel(nextProvider)}?`;
-  const description = cancelling
-    ? 'The currently live booking page will remain unchanged.'
-    : `${bookingProviderLabel(currentProvider)} will remain online, but every public Cars, Reserve Now, and normal booking link will use ${bookingProviderLabel(nextProvider)}.`;
-
-  return <div className="admin-modal-backdrop booking-route-confirmation-backdrop" role="presentation" onMouseDown={(event) => {
-    if (event.target === event.currentTarget && !saving) onCancel();
-  }}>
-    <div
-      ref={dialogRef}
-      className="admin-modal booking-route-confirmation-modal"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="booking-route-confirmation-title"
-      aria-describedby="booking-route-confirmation-description"
-      tabIndex="-1"
-    >
-      <div className="admin-modal-header">
-        <AlertTriangle size={22}/>
-        <div>
-          <strong id="booking-route-confirmation-title">{title}</strong>
-          <span>{cancelling ? 'Scheduled website routing' : `${bookingProviderPath(currentProvider)} → ${bookingProviderPath(nextProvider)}`}</span>
-        </div>
-      </div>
-      <div id="booking-route-confirmation-description" className="booking-route-confirmation-message">
-        <strong>{cancelling ? 'Keep the current public route' : scheduled ? `Automatic switch: ${formatEasternDateTime(change.scheduledAt)}` : 'This change takes effect immediately.'}</strong>
-        <span>{description}</span>
-        {!cancelling && <small>Customers already completing a booking will not be redirected or interrupted.</small>}
-      </div>
-      <div className="modal-actions booking-route-confirmation-actions">
-        <button type="button" className="secondary-btn" disabled={saving} onClick={onCancel}>Go back</button>
-        <button type="button" className={cancelling ? 'reject' : 'primary-btn'} disabled={saving} onClick={onConfirm}>
-          {saving ? 'Saving…' : cancelling ? 'Cancel Scheduled Switch' : scheduled ? 'Confirm Schedule' : 'Confirm & Switch Now'}
-        </button>
-      </div>
-    </div>
   </div>;
 }
 
@@ -9779,10 +9588,12 @@ function easternDateTimeInputToIso(value) {
   return new Date(guess).toISOString();
 }
 function bookingProviderLabel(provider) {
-  return provider === 'supabase' ? 'Supabase' : 'Wheelbase';
+  void provider;
+  return 'Supabase';
 }
 function bookingProviderPath(provider) {
-  return provider === 'supabase' ? 'cars-2.html' : 'cars.html';
+  void provider;
+  return 'cars-2.html';
 }
 function formatEasternDateTime(value) {
   if (!value) return '';
@@ -9799,7 +9610,7 @@ function formatEasternDateTime(value) {
   }).format(date);
 }
 function promotionPlacementLabel(promotion) {
-  const pageLabel = (page) => page === 'index.html' ? 'Home' : page === 'cars.html' ? 'Cars' : page;
+  const pageLabel = (page) => page === 'index.html' ? 'Home' : page === 'cars-2.html' ? 'Cars' : page;
   const placements = [];
   if (promotion.popup_enabled) placements.push(`Popup: ${(promotion.popup_pages || []).map(pageLabel).join(', ')}`);
   if (promotion.banner_enabled) placements.push(`Banner: ${(promotion.banner_pages || []).map(pageLabel).join(', ')}`);
