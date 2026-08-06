@@ -2222,6 +2222,20 @@ button{
     grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     gap:10px
 }
+.admin-legal-name-field{
+    align-self:start!important;
+    align-content:start!important;
+    grid-template-rows:auto minmax(44px,auto) minmax(34px,auto)!important
+}
+.admin-legal-name-field>small{
+    align-self:start
+}
+.existing-customer-legal-name{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:10px;
+    margin-top:10px
+}
 .admin-birthday-input{
     min-width:0;
     margin:0;
@@ -3057,6 +3071,9 @@ button{
     .manual-booking-sidebar{
         position:static
     }
+}
+@media(max-width:700px){
+    .existing-customer-legal-name{grid-template-columns:1fr}
 }
 @media(max-width:560px){
     .quick-links-dropdown{

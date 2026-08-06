@@ -524,6 +524,8 @@ function App() {
   const [manualBookingForm, setManualBookingForm] = useState({
     customerMode: 'existing',
     customerId: '',
+    existingFirstName: '',
+    existingLastName: '',
     existingDateOfBirth: '',
     existingPhone: '',
     firstName: '',
@@ -3006,6 +3008,11 @@ function App() {
     event.preventDefault();
     const vehicle = vehicles.find((item) => item.id === manualBookingForm.vehicleId);
     if (manualBookingForm.customerMode === 'existing' && !manualBookingForm.customerId) return notify('Choose a customer.');
+    const selectedExistingCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
+    if (manualBookingForm.customerMode === 'existing' && !selectedExistingCustomer?.full_name?.trim()
+      && (!manualBookingForm.existingFirstName.trim() || !manualBookingForm.existingLastName.trim())) {
+      return notify('Enter the existing customer’s first and last name so it can be saved to their profile.');
+    }
     if (manualBookingForm.customerMode === 'new' && (!manualBookingForm.firstName.trim() || !manualBookingForm.lastName.trim() || !manualBookingForm.email.trim() || !manualBookingForm.phone.trim() || !manualBookingForm.dateOfBirth)) {
       return notify('Enter the new customer’s first name, last name, email, phone, and date of birth.');
     }
@@ -3045,6 +3052,9 @@ function App() {
       body: {
         customerMode: manualBookingForm.customerMode,
         customerId: manualBookingForm.customerId || undefined,
+        customerFullName: manualBookingForm.customerMode === 'existing' && !selectedExistingCustomer?.full_name?.trim()
+          ? joinLegalName(manualBookingForm.existingFirstName, manualBookingForm.existingLastName)
+          : undefined,
         customerDateOfBirth: manualBookingForm.existingDateOfBirth || undefined,
         customerPhone: manualBookingForm.customerMode === 'existing' ? manualBookingForm.existingPhone.trim() : undefined,
         driverInfo: {
@@ -3082,7 +3092,7 @@ function App() {
       return notify(detail);
     }
 
-    setManualBookingForm({ customerMode: 'existing', customerId: '', existingDateOfBirth: '', existingPhone: '', firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
+    setManualBookingForm({ customerMode: 'existing', customerId: '', existingFirstName: '', existingLastName: '', existingDateOfBirth: '', existingPhone: '', firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
     await loadAllData({ silent: true });
     setManualBookingFocusId(data?.rental?.id || '');
     setSelectedRentalId(data?.rental?.id || '');
@@ -4480,7 +4490,9 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [contactCustomerId, setContactCustomerId] = useState('');
-  const customerProfiles = profiles.filter((profile) => String(profile.role || 'customer').toLowerCase() !== 'admin');
+  // Administrators can also be renters. Their role still controls authorization,
+  // but it must not hide them from customer records or family bookings.
+  const customerProfiles = profiles;
   const normalizedSearch = customerSearch.trim().toLowerCase();
   const searchDigits = customerSearch.replace(/\D/g, '');
   const visibleCustomers = customerProfiles.filter((profile) => {
@@ -5929,6 +5941,8 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
       ...current,
       customerMode,
       customerId: '',
+      existingFirstName: '',
+      existingLastName: '',
       existingDateOfBirth: '',
       existingPhone: '',
       driverLicenseNumber: '',
@@ -5937,8 +5951,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
       insurancePolicyNumber: '',
     }));
   };
-  const customers = profiles
-    .filter((profile) => profile.role !== 'admin')
+  const customers = [...profiles]
     .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
   const normalizedCustomerSearch = customerSearch.trim().toLowerCase();
   const customerSearchDigits = normalizedCustomerSearch.replace(/\D/g, '');
@@ -6002,7 +6015,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
             <input id="manual-customer-search" value={customerSearch} onFocus={() => setCustomerDropdownOpen(true)} onBlur={() => window.setTimeout(() => setCustomerDropdownOpen(false), 120)} onChange={(event) => {
               setCustomerSearch(limitText(event.target.value, 160));
               setCustomerDropdownOpen(true);
-              setManualBookingForm((current) => ({ ...current, customerId: '', existingDateOfBirth: '', existingPhone: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '' }));
+              setManualBookingForm((current) => ({ ...current, customerId: '', existingFirstName: '', existingLastName: '', existingDateOfBirth: '', existingPhone: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '' }));
             }} placeholder="Search name, email, or phone" autoComplete="off" role="combobox" aria-expanded={customerDropdownOpen} aria-controls="manual-customer-results" />
           </div>
           {customerDropdownOpen && <div className="customer-search-results" id="manual-customer-results" role="listbox">
@@ -6012,6 +6025,8 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
             setManualBookingForm((current) => ({
               ...current,
               customerId: customer.id,
+              existingFirstName: '',
+              existingLastName: '',
               existingDateOfBirth: customer?.date_of_birth || '',
               existingPhone: customer?.phone || '',
               driverLicenseNumber: customer?.drivers_license_number || '',
@@ -6022,10 +6037,15 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
             }}><strong>{customer.full_name || 'Unnamed customer'}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>No customers match that search.</p>}
           </div>}
           {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}<small>{selectedCustomer.email || 'Email missing'} • {selectedCustomer.phone || 'Phone missing'} • {selectedCustomer.phone_verified ? 'Phone verified' : 'Phone verification needed'} • {String(selectedCustomer.identity_verification_status || '').toLowerCase() === 'verified' ? 'Identity verified' : 'Identity verification needed'}</small></span></div>}
+          {selectedCustomer && !selectedCustomer.full_name?.trim() && <div className="existing-customer-legal-name full-field">
+            <label className="admin-legal-name-field"><span>First name</span><input value={manualBookingForm.existingFirstName} onChange={(event) => update('existingFirstName', limitText(event.target.value, 80))} autoComplete="given-name" placeholder="First name + middle name or initial" required /><small>Include the middle name or initial exactly as shown on the customer’s ID.</small></label>
+            <label className="admin-legal-name-field"><span>Last name</span><input value={manualBookingForm.existingLastName} onChange={(event) => update('existingLastName', limitText(event.target.value, 80))} autoComplete="family-name" placeholder="Last name exactly as shown on ID" required /><small>This legal name will be saved to the selected customer profile.</small></label>
+            <div className="admin-legal-name-notice full-field" role="note"><AlertTriangle size={17}/><span><strong>This profile currently has only an email.</strong> Entering the legal name here permanently attaches it to the customer before the rental is created.</span></div>
+          </div>}
           {selectedCustomer && <label className="full-field"><span>Mobile number for secure texts</span><input type="tel" value={manualBookingForm.existingPhone} onChange={(event) => update('existingPhone', limitText(event.target.value, 32))} autoComplete="tel" placeholder="(860) 555-0123" /><small>{isValidUSPhone(manualBookingForm.existingPhone) ? 'Ready for SMS delivery. The customer must still verify this number personally.' : 'Enter 10 US digits to send the secure booking link by text.'}</small></label>}
         </div> : <div className="new-customer-fields">
-          <label><span>First name</span><input value={manualBookingForm.firstName} onChange={(event) => update('firstName', limitText(event.target.value, 80))} autoComplete="given-name" placeholder="First name + middle name or initial" required /><small>Put the customer’s middle name or initial in this field exactly as shown on their ID.</small></label>
-          <label><span>Last name</span><input value={manualBookingForm.lastName} onChange={(event) => update('lastName', limitText(event.target.value, 80))} autoComplete="family-name" placeholder="Last name exactly as shown on ID" required /></label>
+          <label className="admin-legal-name-field"><span>First name</span><input value={manualBookingForm.firstName} onChange={(event) => update('firstName', limitText(event.target.value, 80))} autoComplete="given-name" placeholder="First name + middle name or initial" required /><small>Put the customer’s middle name or initial in this field exactly as shown on their ID.</small></label>
+          <label className="admin-legal-name-field"><span>Last name</span><input value={manualBookingForm.lastName} onChange={(event) => update('lastName', limitText(event.target.value, 80))} autoComplete="family-name" placeholder="Last name exactly as shown on ID" required /><small>Use the customer’s legal last name exactly as shown on their ID.</small></label>
           <div className="admin-legal-name-notice full-field" role="note"><AlertTriangle size={17}/><span><strong>Match the customer’s ID exactly.</strong> If the ID shows a middle name or initial, enter it immediately after the first name. Stripe Identity may reject a missing or mismatched name.</span></div>
           <label><span>Email</span><input type="email" value={manualBookingForm.email} onChange={(event) => update('email', limitText(event.target.value, 200))} autoComplete="email" placeholder="customer@email.com" required /></label>
           <label><span>Phone</span><input type="tel" value={manualBookingForm.phone} onChange={(event) => update('phone', limitText(event.target.value, 32))} autoComplete="tel" placeholder="(860) 555-0123" required /></label>
