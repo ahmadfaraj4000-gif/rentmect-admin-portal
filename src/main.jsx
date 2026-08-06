@@ -3089,7 +3089,7 @@ function App() {
     setActiveTab('rentals');
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
     const deliveredBy = (data?.deliveryChannels || []).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
-    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ` — secure completion link sent by ${deliveredBy}.` : ' — finish it in the focused procedure console.'}`, 'success');
+    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ` — secure completion link sent by ${deliveredBy}.` : ' — finish it from the workflow circles in Rental Manager.'}`, 'success');
     if (data?.onboardingWarning) notify(`Booking was saved, but one delivery method needs attention: ${data.onboardingWarning}`);
     const textDelivery = (data?.deliveryDetails || []).find((item) => item.channel === 'text');
     if (textDelivery && textDelivery.status !== 'delivered') {
@@ -6053,8 +6053,8 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         <div className="booking-divider"><span>4. Next steps &amp; payment plan</span></div>
         <label className="full-field"><span>Send the customer’s guided completion link</span><select value={manualBookingForm.onboardingDelivery} onChange={(event) => update('onboardingDelivery', event.target.value)}><option value="both">Email + text guided link (recommended)</option><option value="text">Text guided link only</option><option value="email">Email guided link only</option><option value="none">Do not send yet — I will send it later</option></select></label>
         <label className="full-field"><span>How will payment be collected?</span><select value={manualBookingForm.paymentCollectionPreference} onChange={(event) => update('paymentCollectionPreference', event.target.value)}><option value="customer_link">Customer pays through the secure link (recommended)</option><option value="admin_stripe">Admin opens Stripe Checkout on this device</option><option value="external">Admin records payment received outside Stripe</option><option value="later">Decide later</option></select></label>
-        {manualBookingForm.paymentCollectionPreference === 'admin_stripe' && <p className="payment-plan-note full-field"><CreditCard size={17}/><span>After the customer finishes verification, approved uploads, and signing, the procedure console will unlock <strong>Open Stripe Checkout on this device</strong>. Card details stay in Stripe and are never entered into this portal.</span></p>}
-        {manualBookingForm.paymentCollectionPreference === 'external' && <p className="payment-plan-note full-field"><DollarSign size={17}/><span>After every prerequisite passes, use <strong>Record External Payment</strong> only after cash, card-terminal, bank, or other outside payment has actually cleared.</span></p>}
+        {manualBookingForm.paymentCollectionPreference === 'admin_stripe' && <p className="payment-plan-note full-field"><CreditCard size={17}/><span>Open the <strong>Payment</strong> circle after creating the booking, then launch secure Stripe Checkout on this device. Card details stay in Stripe and are never entered into this portal.</span></p>}
+        {manualBookingForm.paymentCollectionPreference === 'external' && <p className="payment-plan-note full-field"><DollarSign size={17}/><span>Open the <strong>Payment</strong> circle and use <strong>Record phone / external payment</strong> only after the exact amount has actually cleared.</span></p>}
         <p className="customer-save-note full-field"><ShieldCheck size={17}/><span>{manualBookingForm.customerMode === 'existing'
           ? 'Returning-customer path: the link asks for the account email. Verified phone, successful Stripe Identity, and an approved driver license are reused automatically; only missing or rental-specific steps remain.'
           : 'New-customer path: the link asks for the booking email, then guides the customer through phone, Stripe Identity, driver license, insurance, agreement, and payment.'}</span></p>
@@ -9687,9 +9687,9 @@ function manualPaymentPreferenceLabel(preference) {
   })[preference] || 'Customer pays through the secure link';
 }
 function manualPaymentPreferenceSummary(preference) {
-  if (preference === 'admin_stripe') return 'Payment starts as due. Stripe Checkout unlocks in the procedure console after every prerequisite passes.';
-  if (preference === 'external') return 'Payment starts as due. Record it only after the external payment has cleared and every prerequisite passes.';
-  if (preference === 'later') return 'Payment starts as due. The collection method can be chosen later in the procedure console.';
+  if (preference === 'admin_stripe') return 'Payment starts as due. Open secure Stripe Checkout from the Payment circle on the rental.';
+  if (preference === 'external') return 'Payment starts as due. Record the exact cleared phone or external payment from the Payment circle.';
+  if (preference === 'later') return 'Payment starts as due. Choose the collection method later from the Payment circle.';
   return 'Payment starts as due. The customer can finish payment and documents through the secure client link.';
 }
 function calculateAdminUnder25Deposit(baseDeposit, settings = DEFAULT_UNDER_25_PRICING) {
