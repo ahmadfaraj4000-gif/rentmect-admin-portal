@@ -45,6 +45,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { withRequestDeadline } from './requestDeadline';
 import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInput';
 import { optimizeVehicleImage } from './lib/imageOptimizer';
 import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
@@ -129,6 +130,21 @@ const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', '
 const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
 const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
 const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings']);
+const ADMIN_TAB_DOMAINS = {
+  dashboard: ['snapshot'],
+  queue: ['core', 'workflow'],
+  payments: ['core', 'payments'],
+  calendar: ['core', 'calendar'],
+  'new-booking': ['core', 'calendar', 'settings'],
+  rentals: ['core', 'workflow', 'payments', 'templates'],
+  customers: ['core', 'workflow', 'templates'],
+  vehicles: ['core', 'maintenance-history'],
+  documents: ['core', 'workflow'],
+  emails: ['core', 'workflow', 'templates'],
+  audit: ['audit'],
+  settings: ['settings'],
+  tolls: ['core'],
+};
 const VIN_MAX_LENGTH = 17;
 const PLATE_MAX_LENGTH = 12;
 const MONEY_MAX = 100000;
@@ -420,6 +436,9 @@ function App() {
     errors: [],
     lastUpdated: null,
   });
+  const [dashboardSnapshot, setDashboardSnapshot] = useState(null);
+  const loadedAdminDomainsRef = useRef(new Set());
+  const adminDomainLoadsRef = useRef(new Map());
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authMessage, setAuthMessage] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
@@ -638,8 +657,15 @@ function App() {
   }, [session]);
 
   useEffect(() => {
-    if (isAdminUser) loadAllData();
+    if (isAdminUser) loadAllData({ force: false });
   }, [isAdminUser]);
+
+  useEffect(() => {
+    if (!isAdminUser || activeTab === 'dashboard') return;
+    (ADMIN_TAB_DOMAINS[activeTab] || ['core']).forEach((domain) => {
+      void loadAdminDomain(domain);
+    });
+  }, [activeTab, isAdminUser]);
 
   useEffect(() => {
     if (!isAdminUser || !session?.user?.id) return;
@@ -900,7 +926,141 @@ function App() {
     }
   }
 
-  async function loadAllData({ silent = false } = {}) {
+  function recordAdminResults(results) {
+    const attemptedLabels = new Set(results.map(([label]) => label));
+    const nextErrors = results
+      .filter(([, result]) => Boolean(result?.error))
+      .map(([label, result]) => ({ label, message: userFacingPortalError(result.error, `${label} could not refresh.`) }));
+    setDataHealth((current) => ({
+      refreshing: false,
+      errors: [...(current.errors || []).filter((item) => !attemptedLabels.has(item.label)), ...nextErrors],
+      lastUpdated: new Date().toISOString(),
+    }));
+    return nextErrors;
+  }
+
+  async function loadDashboardSnapshot({ force = false } = {}) {
+    if (!force && loadedAdminDomainsRef.current.has('snapshot')) return;
+    if (adminDomainLoadsRef.current.has('snapshot')) return adminDomainLoadsRef.current.get('snapshot');
+    const request = (async () => {
+      const snapshotResult = await withRequestDeadline(supabase.rpc('get_admin_dashboard_snapshot'), 'Dashboard snapshot');
+      if (snapshotResult.error && /get_admin_dashboard_snapshot|schema cache|does not exist/i.test(snapshotResult.error.message || '')) {
+        await loadAdminDomain('core', { force });
+        return;
+      }
+      if (snapshotResult.data) setDashboardSnapshot(snapshotResult.data);
+      const errors = recordAdminResults([['Dashboard snapshot', snapshotResult]]);
+      if (!errors.length) loadedAdminDomainsRef.current.add('snapshot');
+    })().finally(() => adminDomainLoadsRef.current.delete('snapshot'));
+    adminDomainLoadsRef.current.set('snapshot', request);
+    return request;
+  }
+
+  async function loadAdminDomain(domain, { force = false } = {}) {
+    if (domain === 'snapshot') return loadDashboardSnapshot({ force });
+    if (!force && loadedAdminDomainsRef.current.has(domain)) return;
+    if (adminDomainLoadsRef.current.has(domain)) return adminDomainLoadsRef.current.get(domain);
+    setDataHealth((current) => ({ ...current, refreshing: true }));
+    const request = (async () => {
+      let results = [];
+      if (domain === 'core') {
+        const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, emergencyExceptionsRes, maintenanceSchedulesRes] = await Promise.all([
+          withRequestDeadline(supabase.from('profiles').select('*').order('created_at', { ascending: false }), 'Customers'),
+          withRequestDeadline(supabase.from('vehicles').select('*').order('created_at', { ascending: false }), 'Vehicles'),
+          withRequestDeadline(supabase.from('rentals').select('*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*)').order('created_at', { ascending: false }), 'Rentals'),
+          withRequestDeadline(supabase.from('pending_bookings').select('*').neq('status', 'converted').order('created_at', { ascending: false }), 'Booking holds'),
+          withRequestDeadline(supabase.from('rental_emergency_exceptions').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Emergency exceptions'),
+          withRequestDeadline(supabase.from('vehicle_maintenance_schedules').select('*').order('service_type'), 'Maintenance schedules'),
+        ]);
+        if (profilesRes.data) setProfiles(profilesRes.data);
+        if (vehiclesRes.data) setVehicles(vehiclesRes.data);
+        if (rentalsRes.data) setRentals(rentalsRes.data);
+        if (pendingBookingsRes.data) setPendingBookings(pendingBookingsRes.data);
+        if (emergencyExceptionsRes.data) setEmergencyExceptions(emergencyExceptionsRes.data);
+        if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
+        results = [['Customers', profilesRes], ['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes]];
+      } else if (domain === 'workflow') {
+        const [documentsRes, messagesRes, reportsRes, extensionsRes] = await Promise.all([
+          withRequestDeadline(supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
+          withRequestDeadline(supabase.from('rental_messages').select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: true }), 'Messages'),
+          withRequestDeadline(supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Reports'),
+          withRequestDeadline(supabase.from('rental_extension_requests').select('*, rentals!rental_extension_requests_rental_id_fkey(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Extensions'),
+        ]);
+        if (documentsRes.data) setDocuments(documentsRes.data);
+        if (messagesRes.data) setMessages(messagesRes.data);
+        if (reportsRes.data) setReports(reportsRes.data);
+        if (extensionsRes.data) setExtensionRequests(extensionsRes.data);
+        results = [['Documents', documentsRes], ['Messages', messagesRes], ['Reports', reportsRes], ['Extensions', extensionsRes]];
+      } else if (domain === 'payments') {
+        const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes] = await Promise.all([
+          withRequestDeadline(supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
+          withRequestDeadline(supabase.from('rental_payments').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Payments'),
+          withRequestDeadline(supabase.from('rental_payment_refunds').select('*').order('created_at', { ascending: false }), 'Refunds'),
+          withRequestDeadline(supabase.from('rental_charge_items').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Additional charges'),
+        ]);
+        if (depositAllocationsRes.data) setDepositAllocations(depositAllocationsRes.data);
+        if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
+        if (rentalRefundsRes.data) setRentalRefunds(rentalRefundsRes.data);
+        if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
+        setPaymentLoadError([depositAllocationsRes.error, rentalPaymentsRes.error, rentalRefundsRes.error, rentalChargesRes.error].filter(Boolean).map((error) => error.message).join(' '));
+        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes]];
+      } else if (domain === 'templates') {
+        const [emailRes, smsRes] = await Promise.all([
+          withRequestDeadline(supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
+          withRequestDeadline(supabase.from('sms_templates').select('id,template_key,name,body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Text templates'),
+        ]);
+        if (emailRes.data) setCustomerEmailTemplates(emailRes.data);
+        if (smsRes.data) setSmsTemplates(smsRes.data);
+        results = [['Email templates', emailRes], ['Text templates', smsRes]];
+      } else if (domain === 'calendar') {
+        const result = await withRequestDeadline(supabase.from('vehicle_availability_blocks').select('*, vehicles(*)').eq('active', true).order('start_date', { ascending: true }), 'Calendar blocks');
+        if (result.data) setAvailabilityBlocks(result.data);
+        results = [['Calendar blocks', result]];
+      } else if (domain === 'settings') {
+        const [discountsRes, feesRes, promotionsRes, pricingRes, automationRes, bookingPageRes, bookingPolicyRes] = await Promise.all([
+          withRequestDeadline(supabase.from('discount_codes').select('*').order('created_at', { ascending: false }), 'Discounts'),
+          withRequestDeadline(supabase.from('service_fees').select('*').order('created_at', { ascending: false }), 'Fees'),
+          withRequestDeadline(supabase.from('site_promotions').select('*').order('updated_at', { ascending: false }), 'Promotions'),
+          withRequestDeadline(supabase.from('under_25_pricing_settings').select('*').eq('id', true).maybeSingle(), 'Under-25 pricing'),
+          withRequestDeadline(supabase.from('billing_automation_settings').select('*').eq('id', true).maybeSingle(), 'Billing automation'),
+          withRequestDeadline(supabase.rpc('get_admin_booking_page_setting'), 'Booking page'),
+          withRequestDeadline(supabase.rpc('get_admin_booking_policy'), 'Booking rules'),
+        ]);
+        if (discountsRes.data) setDiscountCodes(discountsRes.data);
+        if (feesRes.data) setServiceFees(feesRes.data);
+        if (promotionsRes.data) setSitePromotions(promotionsRes.data);
+        if (pricingRes.data) setUnder25Pricing(pricingRes.data);
+        if (automationRes.data) setBillingAutomation(automationRes.data);
+        if (bookingPageRes.data?.[0]) setBookingPageSetting(bookingPageRes.data[0]);
+        if (bookingPolicyRes.data?.[0]) setBookingPolicy(bookingPolicyRes.data[0]);
+        results = [['Discounts', discountsRes], ['Fees', feesRes], ['Promotions', promotionsRes], ['Under-25 pricing', pricingRes], ['Billing automation', automationRes], ['Booking page', bookingPageRes], ['Booking rules', bookingPolicyRes]];
+      } else if (domain === 'audit') {
+        const result = await withRequestDeadline(supabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(750), 'Audit log');
+        if (result.data) setAuditLogs(result.data);
+        results = [['Audit log', result]];
+      } else if (domain === 'maintenance-history') {
+        const result = await withRequestDeadline(supabase.from('vehicle_maintenance_service_logs').select('*').order('completed_at', { ascending: false }).limit(500), 'Maintenance history');
+        if (result.data) setMaintenanceServiceLogs(result.data);
+        results = [['Maintenance history', result]];
+      }
+      const errors = recordAdminResults(results);
+      if (!errors.length) loadedAdminDomainsRef.current.add(domain);
+    })().finally(() => adminDomainLoadsRef.current.delete(domain));
+    adminDomainLoadsRef.current.set(domain, request);
+    return request;
+  }
+
+  async function loadAllData({ silent = false, domains = null, force = true } = {}) {
+    if (!silent) setLoading(true);
+    const requestedDomains = domains || [...new Set([
+      ...(ADMIN_TAB_DOMAINS[activeTab] || ['core']),
+      ...loadedAdminDomainsRef.current,
+    ])];
+    await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
+    if (!silent) setLoading(false);
+  }
+
+  async function loadAllDataLegacy({ silent = false } = {}) {
     if (silent && backgroundRefreshInFlightRef.current) return;
     if (silent) backgroundRefreshInFlightRef.current = true;
     if (!silent) {
@@ -3094,6 +3254,28 @@ function App() {
     }
   }
 
+  function prefetchAdminTab(key) {
+    (ADMIN_TAB_DOMAINS[key] || ['core']).forEach((domain) => {
+      void loadAdminDomain(domain);
+    });
+  }
+
+  function retryAdminSection(label) {
+    const domainByLabel = {
+      'Dashboard snapshot': 'snapshot',
+      Customers: 'core', Vehicles: 'core', Rentals: 'core', 'Booking holds': 'core',
+      'Emergency exceptions': 'core', 'Maintenance schedules': 'core',
+      Documents: 'workflow', Messages: 'workflow', Reports: 'workflow', Extensions: 'workflow',
+      Deposits: 'payments', Payments: 'payments', Refunds: 'payments', 'Additional charges': 'payments',
+      'Email templates': 'templates', 'Text templates': 'templates',
+      'Calendar blocks': 'calendar',
+      Discounts: 'settings', Fees: 'settings', Promotions: 'settings', 'Under-25 pricing': 'settings',
+      'Billing automation': 'settings', 'Booking page': 'settings', 'Booking rules': 'settings',
+      'Audit log': 'audit', 'Maintenance history': 'maintenance-history',
+    };
+    return loadAdminDomain(domainByLabel[label] || 'core', { force: true });
+  }
+
   function toggleMobileNav() {
     setNavCollapsed((current) => !current);
   }
@@ -3118,7 +3300,7 @@ function App() {
               <CalendarClock size={20}/><span>New Booking</span>
             </button>
             {adminTabs.map(({ key, label, icon: Icon }) => (
-              <button key={key} type="button" className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
+              <button key={key} type="button" className={activeTab === key ? 'active' : ''} onMouseEnter={() => prefetchAdminTab(key)} onFocus={() => prefetchAdminTab(key)} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon size={20}/><span>{label}</span>
               </button>
             ))}
@@ -3138,7 +3320,7 @@ function App() {
           </button>
           <nav className="side-nav" id="admin-primary-navigation">
             {adminTabs.map(({ key, label, icon: Icon }) => (
-              <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
+              <button key={key} className={activeTab === key ? 'active' : ''} onMouseEnter={() => prefetchAdminTab(key)} onFocus={() => prefetchAdminTab(key)} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon size={18}/><span>{label}</span>
               </button>
             ))}
@@ -3172,11 +3354,11 @@ function App() {
 
         <PortalDataHealth
           health={dataHealth}
-          onRetry={() => loadAllData({ silent: true })}
+          onRetry={retryAdminSection}
           audience="admin"
         />
 
-        {activeTab === 'dashboard' && <Dashboard dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
+        {activeTab === 'dashboard' && <Dashboard snapshot={dashboardSnapshot} dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
@@ -3213,23 +3395,26 @@ function App() {
   );
 }
 
-function Dashboard({ dashboard, vehicles, rentals = [], maintenanceSchedules = [], emergencyExceptions = [], sendManualReminder }) {
+function Dashboard({ snapshot, dashboard, vehicles, rentals = [], maintenanceSchedules = [], emergencyExceptions = [], sendManualReminder }) {
   const maintenanceDue = vehicles.filter((vehicle) => {
     const schedules = maintenanceSchedules.filter((schedule) => schedule.vehicle_id === vehicle.id);
     return vehicle.maintenance_lock_active || schedules.some((schedule) => getMaintenanceScheduleState(schedule, vehicle).due);
   }).length;
-  const openEmergencyExceptions = emergencyExceptions.filter((item) => {
+  const openEmergencyExceptions = (snapshot?.emergency_exceptions || emergencyExceptions).filter((item) => {
     const rental = rentals.find((candidate) => candidate.id === item.rental_id) || item.rentals;
     const rentalStatus = String(rental?.status || '').toLowerCase();
     return item.status === 'active' && !['completed', 'cancelled'].includes(rentalStatus);
   });
+  const returnRows = snapshot
+    ? [...(snapshot.overdue_rentals || []), ...(snapshot.due_soon_rentals || [])]
+    : [...dashboard.overdue, ...dashboard.dueSoon];
   return <>
     <section className="metric-grid">
-      <Metric icon={Car} label="Cars Out" value={dashboard.active.length} />
-      <Metric icon={AlertTriangle} label="Overdue" value={dashboard.overdue.length} danger={dashboard.overdue.length > 0} />
-      <Metric icon={Wrench} label="Maintenance Due" value={maintenanceDue} danger={maintenanceDue > 0} />
-      <Metric icon={Banknote} label="Month Revenue" value={money(dashboard.monthRevenue)} />
-      <Metric icon={CreditCard} label="Active Deposits" value={money(dashboard.deposits)} />
+      <Metric icon={Car} label="Cars Out" value={snapshot?.cars_out ?? dashboard.active.length} />
+      <Metric icon={AlertTriangle} label="Overdue" value={snapshot?.overdue_count ?? dashboard.overdue.length} danger={(snapshot?.overdue_count ?? dashboard.overdue.length) > 0} />
+      <Metric icon={Wrench} label="Maintenance Due" value={snapshot?.maintenance_due ?? maintenanceDue} danger={(snapshot?.maintenance_due ?? maintenanceDue) > 0} />
+      <Metric icon={Banknote} label="Month Revenue" value={money(snapshot?.month_revenue ?? dashboard.monthRevenue)} />
+      <Metric icon={CreditCard} label="Active Deposits" value={money(snapshot?.active_deposits ?? dashboard.deposits)} />
     </section>
     {openEmergencyExceptions.length > 0 && <section className="dashboard-emergency-exceptions">
       <div><AlertTriangle size={21}/><strong>{openEmergencyExceptions.length} emergency exception{openEmergencyExceptions.length === 1 ? '' : 's'} require follow-up</strong></div>
@@ -3240,8 +3425,8 @@ function Dashboard({ dashboard, vehicles, rentals = [], maintenanceSchedules = [
       })}
     </section>}
     <Panel title="Due Soon / Overdue" eyebrow="Return Monitor">
-      {dashboard.dueSoon.length === 0 && dashboard.overdue.length === 0 && <p className="muted">No due-soon rentals right now.</p>}
-      {[...dashboard.overdue, ...dashboard.dueSoon].slice(0, 6).map((r) => <ReturnMonitorRow key={r.id} rental={r} sendManualReminder={sendManualReminder} />)}
+      {returnRows.length === 0 && <p className="muted">No due-soon rentals right now.</p>}
+      {returnRows.slice(0, 6).map((r) => <ReturnMonitorRow key={r.id} rental={r} sendManualReminder={sendManualReminder} />)}
     </Panel>
   </>;
 }
@@ -3386,25 +3571,25 @@ function TollsTab({ rentals = [], notify }) {
   async function loadTollspotData({ silent = false } = {}) {
     if (!silent) setLoading(true);
     const [transactionsRes, runsRes, mappingsRes, fleetRes] = await Promise.all([
-      supabase
+      withRequestDeadline(supabase
         .from('admin_tollspot_transactions')
         .select('*')
         .order('occurred_at', { ascending: false })
-        .limit(500),
-      supabase
+        .limit(500), 'Toll transactions'),
+      withRequestDeadline(supabase
         .from('tollspot_sync_runs')
         .select('*')
         .order('started_at', { ascending: false })
-        .limit(30),
-      supabase
+        .limit(30), 'Toll sync history'),
+      withRequestDeadline(supabase
         .from('tollspot_vehicle_mappings')
         .select('*')
-        .order('updated_at', { ascending: false }),
-      supabase
+        .order('updated_at', { ascending: false }), 'Toll vehicle mappings'),
+      withRequestDeadline(supabase
         .from('vehicles')
         .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
         .neq('id', '00000000-0000-4000-8000-000000000015')
-        .order('name'),
+        .order('name'), 'Toll fleet'),
     ]);
     const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error].filter(Boolean);
     setLoadError(errors.map((error) => error.message).join(' '));
@@ -3697,10 +3882,10 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
 
   async function loadCanonicalCalendar() {
     setCalendarLoading(true);
-    const { data, error } = await supabase.rpc('get_admin_calendar_events', {
+    const { data, error } = await withRequestDeadline(supabase.rpc('get_admin_calendar_events', {
       p_start_date: viewStart,
       p_end_date: viewEnd,
-    });
+    }), 'Calendar events');
     if (error) {
       setCalendarError(userFacingPortalError(error, 'Live calendar data could not refresh.'));
     } else {
@@ -4597,11 +4782,11 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
   async function loadEmailData(silent = false) {
     if (!silent) setLoadingEmails(true);
     const [templatesRes, textTemplatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
-      supabase.from('email_templates').select('*').order('category').order('name'),
-      supabase.from('sms_templates').select('*').order('category').order('name'),
-      supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100),
-      supabase.from('email_outbox').select('*').order('created_at', { ascending: false }).limit(100),
-      supabase.from('email_delivery_events').select('*').order('event_at', { ascending: false }).limit(200),
+      withRequestDeadline(supabase.from('email_templates').select('*').order('category').order('name'), 'Email templates'),
+      withRequestDeadline(supabase.from('sms_templates').select('*').order('category').order('name'), 'Text templates'),
+      withRequestDeadline(supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100), 'Campaigns'),
+      withRequestDeadline(supabase.from('email_outbox').select('*').order('created_at', { ascending: false }).limit(100), 'Email outbox'),
+      withRequestDeadline(supabase.from('email_delivery_events').select('*').order('event_at', { ascending: false }).limit(200), 'Delivery events'),
     ]);
     const firstError = templatesRes.error || textTemplatesRes.error || campaignsRes.error || outboxRes.error || eventsRes.error;
     if (firstError) notify(firstError.message);
@@ -7797,9 +7982,9 @@ function PortalDataHealth({ health, onRetry, audience = 'portal' }) {
     <div>
       <strong>Some {audience} data could not refresh</strong>
       <span>{labels.join(', ')} may be incomplete{lastUpdated ? `. Last refresh attempt: ${lastUpdated}.` : '.'} Existing records have not been changed.</span>
-      <details><summary>View details</summary><ul>{health.errors.map((item) => <li key={item.label}><strong>{item.label}:</strong> {item.message}</li>)}</ul></details>
+      <details><summary>View details</summary><ul>{health.errors.map((item) => <li key={item.label}><strong>{item.label}:</strong> {item.message} <button type="button" onClick={() => onRetry(item.label)} disabled={health.refreshing}>Retry section</button></li>)}</ul></details>
     </div>
-    <button type="button" className="secondary-btn" onClick={onRetry} disabled={health.refreshing}>{health.refreshing ? 'Retrying…' : 'Retry failed data'}</button>
+    <button type="button" className="secondary-btn" onClick={() => health.errors.forEach((item) => onRetry(item.label))} disabled={health.refreshing}>{health.refreshing ? 'Retrying…' : 'Retry failed data'}</button>
   </section>;
 }
 
