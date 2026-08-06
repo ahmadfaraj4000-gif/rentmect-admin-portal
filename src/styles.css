@@ -4228,6 +4228,41 @@ body{
     color:#6d797d!important;
     border-color:#b9c3c0!important
 }
+.progress-step.bypassed{
+    background:#fff3d6!important;
+    color:#8a5a00!important;
+    border-color:#c68a20!important
+}
+.progress-step.interactive{
+    padding:0!important;
+    cursor:pointer!important;
+    appearance:none
+}
+.progress-step.interactive:hover,
+.progress-step.interactive:focus-visible{
+    background:#fff0ed!important;
+    color:var(--italy-red)!important;
+    border-color:var(--italy-red)!important;
+    box-shadow:0 0 0 4px rgba(143,23,20,.12)!important;
+    outline:none
+}
+.emergency-step-hint{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    width:fit-content;
+    margin-top:7px;
+    color:#7a4e00!important;
+    font-weight:800
+}
+.procedure-step-grid>div.bypassed{
+    border-color:#dfb45c;
+    background:#fff3d6;
+    color:#7a4e00
+}
+.emergency-step-modal{
+    width:min(620px,calc(100vw - 32px))
+}
 .progress-step-wrap span{
     color:#4f6268!important;
     font-weight:800!important
