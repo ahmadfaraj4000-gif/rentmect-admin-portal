@@ -2455,6 +2455,29 @@ button{
     font-size:12px;
     font-weight:800
 }
+.admin-legal-name-notice{
+    display:flex!important;
+    grid-template-columns:auto 1fr!important;
+    align-items:flex-start;
+    gap:9px!important;
+    margin:0;
+    padding:11px 12px;
+    border:1px solid #e4b04a;
+    border-radius:9px;
+    background:#fff8e7;
+    color:#704d08;
+    font-size:12px;
+    font-weight:750;
+    line-height:1.45
+}
+.admin-legal-name-notice svg{
+    flex:0 0 auto;
+    margin-top:1px
+}
+.admin-legal-name-notice strong{
+    display:inline;
+    color:#4c3303
+}
 .payment-plan-note{
     display:flex!important;
     grid-template-columns:auto 1fr!important;
