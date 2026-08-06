@@ -2379,11 +2379,19 @@ summary:focus-visible {
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
   display: grid !important;
+  grid-template-areas:
+    "maintenance-shortcut maintenance-shortcut"
+    "photos details"
+    "maintenance maintenance" !important;
   grid-template-columns: minmax(310px, .78fr) minmax(0, 1.22fr) !important;
   align-items: start !important;
   gap: 16px !important;
   padding: 18px 20px !important;
   background: #f7f9f8 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-maintenance-callout {
+  grid-area: maintenance-shortcut !important;
 }
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media,
@@ -2397,8 +2405,16 @@ summary:focus-visible {
 }
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media {
-  position: sticky !important;
-  top: 0 !important;
+  grid-area: photos !important;
+  position: static !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form {
+  grid-area: details !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-maintenance-section {
+  grid-area: maintenance !important;
 }
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-image-card img {
@@ -2484,6 +2500,17 @@ summary:focus-visible {
   }
 }
 
+@media (max-width: 1100px) {
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
+    grid-template-areas:
+      "maintenance-shortcut"
+      "photos"
+      "details"
+      "maintenance" !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 @media (max-width: 900px) {
   .vehicles-layout .list-search-toolbar {
     grid-template-columns: 1fr auto !important;
@@ -2506,10 +2533,6 @@ summary:focus-visible {
 
   .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
     grid-template-columns: 1fr !important;
-  }
-
-  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media {
-    position: relative !important;
   }
 }
 
