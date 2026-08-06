@@ -653,26 +653,128 @@ function App() {
 
   useEffect(() => {
     if (!isAdminUser) return undefined;
-    let refreshTimer;
-    let calendarPoll;
-    const refreshCalendarSourceOfTruth = () => {
-      if (document.visibilityState === 'hidden' || backgroundRefreshInFlightRef.current) return;
-      window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => loadAllData({ silent: true }), 500);
+    const refreshTimers = new Map();
+    let calendarRecoveryPoll;
+    let lastRecoveryAt = 0;
+    let recoveryInFlight = false;
+
+    const calendarLoaders = {
+      rentals: async () => {
+        const result = await supabase
+          .from('rentals')
+          .select('*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*)')
+          .order('created_at', { ascending: false });
+        if (!result.error) setRentals(result.data || []);
+        return result.error;
+      },
+      pending_bookings: async () => {
+        const result = await supabase
+          .from('pending_bookings')
+          .select('*')
+          .neq('status', 'converted')
+          .order('created_at', { ascending: false });
+        if (!result.error) setPendingBookings(result.data || []);
+        return result.error;
+      },
+      vehicle_availability_blocks: async () => {
+        const result = await supabase
+          .from('vehicle_availability_blocks')
+          .select('*, vehicles(*)')
+          .eq('active', true)
+          .order('start_date', { ascending: true });
+        if (!result.error) setAvailabilityBlocks(result.data || []);
+        return result.error;
+      },
+      vehicles: async () => {
+        const result = await supabase
+          .from('vehicles')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!result.error) setVehicles(result.data || []);
+        return result.error;
+      },
+      vehicle_maintenance_schedules: async () => {
+        const result = await supabase
+          .from('vehicle_maintenance_schedules')
+          .select('*')
+          .order('service_type');
+        if (!result.error) setMaintenanceSchedules(result.data || []);
+        return result.error;
+      },
     };
+
+    const recordCalendarRefresh = (table, error) => {
+      setDataHealth((current) => {
+        const calendarLabels = {
+          rentals: 'Rentals',
+          pending_bookings: 'Booking holds',
+          vehicle_availability_blocks: 'Calendar blocks',
+          vehicles: 'Vehicles',
+          vehicle_maintenance_schedules: 'Maintenance schedules',
+        };
+        const label = calendarLabels[table];
+        const otherErrors = (current.errors || []).filter((item) => item.label !== label);
+        return {
+          ...current,
+          errors: error
+            ? [...otherErrors, { label, message: userFacingPortalError(error, `${label} could not refresh.`) }]
+            : otherErrors,
+          lastUpdated: new Date().toISOString(),
+        };
+      });
+    };
+
+    const refreshCalendarDataset = async (table) => {
+      if (document.visibilityState === 'hidden' || backgroundRefreshInFlightRef.current) return;
+      const loader = calendarLoaders[table];
+      if (!loader) return;
+      const error = await loader();
+      recordCalendarRefresh(table, error);
+    };
+
+    const scheduleCalendarDatasetRefresh = (table) => {
+      window.clearTimeout(refreshTimers.get(table));
+      refreshTimers.set(table, window.setTimeout(() => refreshCalendarDataset(table), 350));
+    };
+
+    const recoverCalendarSourceOfTruth = async ({ force = false } = {}) => {
+      const now = Date.now();
+      if (
+        document.visibilityState === 'hidden' ||
+        backgroundRefreshInFlightRef.current ||
+        recoveryInFlight ||
+        (!force && now - lastRecoveryAt < 30_000)
+      ) return;
+      recoveryInFlight = true;
+      lastRecoveryAt = now;
+      try {
+        await Promise.all(Object.keys(calendarLoaders).map(refreshCalendarDataset));
+      } finally {
+        recoveryInFlight = false;
+      }
+    };
+
     const calendarChannel = supabase
       .channel('admin-calendar-source-of-truth')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, refreshCalendarSourceOfTruth)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_bookings' }, refreshCalendarSourceOfTruth)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, refreshCalendarSourceOfTruth)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, refreshCalendarSourceOfTruth)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, refreshCalendarSourceOfTruth)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, () => scheduleCalendarDatasetRefresh('rentals'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_bookings' }, () => scheduleCalendarDatasetRefresh('pending_bookings'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, () => scheduleCalendarDatasetRefresh('vehicle_availability_blocks'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => scheduleCalendarDatasetRefresh('vehicles'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, () => scheduleCalendarDatasetRefresh('vehicle_maintenance_schedules'))
       .subscribe();
-    calendarPoll = window.setInterval(refreshCalendarSourceOfTruth, 60 * 1000);
+    calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
+    const recoverOnFocus = () => recoverCalendarSourceOfTruth();
+    const recoverOnVisibility = () => {
+      if (document.visibilityState === 'visible') recoverCalendarSourceOfTruth();
+    };
+    window.addEventListener('focus', recoverOnFocus);
+    document.addEventListener('visibilitychange', recoverOnVisibility);
 
     return () => {
-      window.clearTimeout(refreshTimer);
-      window.clearInterval(calendarPoll);
+      refreshTimers.forEach((timer) => window.clearTimeout(timer));
+      window.clearInterval(calendarRecoveryPoll);
+      window.removeEventListener('focus', recoverOnFocus);
+      document.removeEventListener('visibilitychange', recoverOnVisibility);
       supabase.removeChannel(calendarChannel);
     };
   }, [isAdminUser]);
