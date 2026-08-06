@@ -5761,6 +5761,212 @@ input[type="radio"] {
   }
 }
 
+/* One-step bypass and document-circle actions must explain every blocking rule. */
+.emergency-step-modal,
+.document-step-action-modal {
+  width: min(640px, calc(100vw - 28px)) !important;
+  max-width: min(640px, calc(100vw - 28px)) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 22px !important;
+}
+
+.emergency-step-modal .admin-modal-header,
+.document-step-action-modal .admin-modal-header {
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr) 38px !important;
+  align-items: start !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 0 16px !important;
+  background: transparent !important;
+}
+
+.emergency-step-modal .admin-modal-header > div,
+.document-step-action-modal .admin-modal-header > div {
+  min-width: 0 !important;
+}
+
+.emergency-step-modal .admin-modal-header h3,
+.document-step-action-modal .admin-modal-header h3 {
+  margin: 2px 0 0 !important;
+  color: var(--ui-ink) !important;
+}
+
+.emergency-step-modal .admin-modal-header > button,
+.document-step-action-modal .admin-modal-header > button {
+  display: grid !important;
+  place-items: center !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid #e0e5e3 !important;
+  border-radius: 8px !important;
+  background: #f7f9f8 !important;
+  color: #9f1f17 !important;
+}
+
+.emergency-step-modal .admin-modal-header > button svg,
+.document-step-action-modal .admin-modal-header > button svg {
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+  color: currentColor !important;
+}
+
+.emergency-step-modal > label {
+  display: grid !important;
+  gap: 6px !important;
+}
+
+.emergency-step-modal > label > span {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: space-between !important;
+  gap: 6px 12px !important;
+}
+
+.emergency-step-modal > label > span strong {
+  color: #8f1714 !important;
+  font-size: 11px !important;
+  letter-spacing: .02em !important;
+}
+
+.field-requirement {
+  display: flex !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  color: #8f1714 !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+.field-requirement.valid {
+  color: #176b42 !important;
+}
+
+.field-has-error textarea,
+.field-has-error input {
+  border-color: #b52d27 !important;
+  box-shadow: 0 0 0 3px rgba(181, 45, 39, .12) !important;
+}
+
+.bypass-form-status {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  padding: 11px 12px !important;
+  border: 1px solid #efb4b0 !important;
+  border-radius: 10px !important;
+  background: #fff1f0 !important;
+  color: #81211d !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.bypass-form-status.ready {
+  border-color: #acd3bb !important;
+  background: #edf8f1 !important;
+  color: #176b42 !important;
+}
+
+.document-step-hint {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  width: fit-content !important;
+  margin-top: 7px !important;
+  color: #145c37 !important;
+  font-weight: 800 !important;
+}
+
+.progress-step.document-upload-step:hover,
+.progress-step.document-upload-step:focus-visible {
+  background: #edf8f1 !important;
+  color: #176b42 !important;
+  border-color: #176b42 !important;
+  box-shadow: 0 0 0 4px rgba(23, 107, 66, .13) !important;
+}
+
+.document-step-action-copy {
+  display: grid !important;
+  gap: 5px !important;
+  padding: 14px !important;
+  border: 1px solid #d8e0dd !important;
+  border-radius: 11px !important;
+  background: #f7f9f8 !important;
+}
+
+.document-step-action-copy span {
+  color: var(--ui-ink-soft) !important;
+  line-height: 1.5 !important;
+}
+
+.document-step-upload-button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 9px !important;
+  width: 100% !important;
+  padding: 13px 16px !important;
+  border: 1px solid #176b42 !important;
+  border-radius: 10px !important;
+  background: #176b42 !important;
+  color: #fff !important;
+  font-weight: 900 !important;
+  cursor: pointer !important;
+}
+
+.document-step-upload-button.is-busy {
+  opacity: .7 !important;
+  cursor: wait !important;
+}
+
+.document-step-upload-button input {
+  display: none !important;
+}
+
+.document-step-bypass-option {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 13px !important;
+  border: 1px solid #efc56d !important;
+  border-radius: 10px !important;
+  background: #fff8e7 !important;
+  color: #5b4212 !important;
+}
+
+.document-step-bypass-option span {
+  line-height: 1.45 !important;
+}
+
+@media (max-width: 680px) {
+  .admin-modal-backdrop:has(.emergency-step-modal),
+  .admin-modal-backdrop:has(.document-step-action-modal) {
+    align-items: stretch !important;
+    padding: 8px !important;
+  }
+
+  .emergency-step-modal,
+  .document-step-action-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 16px) !important;
+    padding: 16px !important;
+  }
+
+  .field-requirement {
+    display: grid !important;
+    gap: 3px !important;
+  }
+}
+
 /* Keep every top-corner dismiss control consistent and away from status yellow. */
 .admin-close-button.admin-close-button {
   border-color: #4d0f0c !important;

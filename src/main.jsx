@@ -39,6 +39,7 @@ import {
   Star,
   Tag,
   Trash2,
+  Upload,
   UserRound,
   Wrench,
   X,
@@ -6603,6 +6604,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [emergencyStepScope, setEmergencyStepScope] = useState('');
+  const [documentStepScope, setDocumentStepScope] = useState('');
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
@@ -6712,7 +6714,9 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       <RentalProgressTracker
         steps={progressSteps}
         onStepClick={emergencyAuthorized ? (step) => setEmergencyStepScope(step.key) : undefined}
+        onDocumentStepClick={(step) => setDocumentStepScope(step.key)}
       />
+      {progressSteps.some((step) => !step.complete && ['license', 'insurance'].includes(step.key)) && <small className="document-step-hint"><FileText size={13}/> Click License or Insurance to upload a customer-provided image or PDF.</small>}
       {emergencyAuthorized && progressSteps.some((step) => step.bypassable) && <small className="emergency-step-hint"><AlertTriangle size={13}/> Click one incomplete step to record an emergency bypass for only that step.</small>}
       {detailed && <div className="rental-doc-summary">
         <DocumentStatusBadge label="License" document={license} />
@@ -6771,6 +6775,18 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
           const saved = await addEmergencyExceptionScope?.(rental, form);
           if (saved) setEmergencyStepScope('');
           return saved;
+        }}
+      />}
+      {documentStepScope && <DocumentStepActionModal
+        rental={rental}
+        scope={documentStepScope}
+        canBypass={Boolean(emergencyAuthorized)}
+        onCancel={() => setDocumentStepScope('')}
+        onUpload={(file) => uploadAdminBookingDocument?.(rental, documentStepScope, file)}
+        onBypass={() => {
+          const scope = documentStepScope;
+          setDocumentStepScope('');
+          setEmergencyStepScope(scope);
         }}
       />}
       {cancelModalOpen && <CancelRentalModal
@@ -7125,8 +7141,51 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
   </div>;
 }
 
+function DocumentStepActionModal({ rental, scope, canBypass, onCancel, onUpload, onBypass }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const [busy, setBusy] = useState(false);
+  const label = scope === 'license' ? 'Driver License' : 'Insurance';
+
+  async function upload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || busy) return;
+    setBusy(true);
+    const saved = await onUpload?.(file);
+    setBusy(false);
+    if (saved) onCancel();
+  }
+
+  return <div className="admin-modal-backdrop" role="presentation">
+    <div ref={dialogRef} className="admin-modal document-step-action-modal" role="dialog" aria-modal="true" aria-label={`Manage ${label}`}>
+      <div className="admin-modal-header">
+        {scope === 'license' ? <FileText size={20}/> : <ShieldCheck size={20}/>}
+        <div><p className="eyebrow">Document Step</p><h3>{label}</h3></div>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close"><XCircle size={20}/></button>
+      </div>
+      <div className="document-step-action-copy">
+        <strong>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'}</strong>
+        <span>Upload the customer-provided {label.toLowerCase()} image or PDF. It will remain pending until an admin reviews and approves it.</span>
+      </div>
+      <label className={`document-step-upload-button ${busy ? 'is-busy' : ''}`}>
+        <Upload size={18}/>{busy ? `Uploading ${label}…` : `Choose ${label} File`}
+        <input type="file" accept="image/*,.pdf,application/pdf" disabled={busy} onChange={upload}/>
+      </label>
+      {canBypass && <div className="document-step-bypass-option">
+        <span><strong>Emergency only</strong> Bypassing does not approve a document and remains auditable.</span>
+        <button type="button" className="emergency-exception-action" disabled={busy} onClick={onBypass}><AlertTriangle size={15}/> Bypass only this step</button>
+      </div>}
+      <div className="modal-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function EmergencyStepBypassModal({ rental, scope, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
+  const reasonRef = useRef(null);
+  const confirmationRef = useRef(null);
   const [form, setForm] = useState({
     scope,
     reason: '',
@@ -7135,17 +7194,34 @@ function EmergencyStepBypassModal({ rental, scope, onCancel, onConfirm }) {
     confirmation: '',
   });
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const reasonLength = form.reason.trim().length;
+  const reasonValid = reasonLength >= 20;
+  const confirmationValid = form.confirmation === 'BYPASS STEP';
 
   async function submit(event) {
     event.preventDefault();
+    setSubmitted(true);
+    if (!reasonValid) {
+      reasonRef.current?.focus();
+      return;
+    }
+    if (!confirmationValid) {
+      confirmationRef.current?.focus();
+      return;
+    }
+    if (!event.currentTarget.checkValidity()) {
+      event.currentTarget.reportValidity();
+      return;
+    }
     setSaving(true);
     await onConfirm(form);
     setSaving(false);
   }
 
   return <div className="admin-modal-backdrop" role="presentation">
-    <form ref={dialogRef} className="admin-modal emergency-step-modal" role="dialog" aria-modal="true" aria-label={`Bypass ${EMERGENCY_SCOPE_LABELS[scope] || prettyStatus(scope)}`} onSubmit={submit}>
+    <form ref={dialogRef} className="admin-modal emergency-step-modal" role="dialog" aria-modal="true" aria-label={`Bypass ${EMERGENCY_SCOPE_LABELS[scope] || prettyStatus(scope)}`} onSubmit={submit} noValidate>
       <div className="admin-modal-header danger">
         <AlertTriangle size={20}/>
         <div><p className="eyebrow">One Step Only</p><h3>Bypass {EMERGENCY_SCOPE_LABELS[scope] || prettyStatus(scope)}</h3></div>
@@ -7153,13 +7229,16 @@ function EmergencyStepBypassModal({ rental, scope, onCancel, onConfirm }) {
       </div>
       <div className="emergency-truth-warning"><ShieldCheck size={20}/><span>Only this step receives a temporary exception. Every other incomplete step remains required, and this action does not release the vehicle.</span></div>
       <div className="emergency-rental-summary"><strong>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'}</strong><span>The vehicle can be released only after every other requirement is complete or separately bypassed.</span></div>
-      <label><span>Emergency reason</span><textarea required minLength="20" maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain exactly why this one requirement must be bypassed and who authorized it."/></label>
+      <label className={!reasonValid && (submitted || form.reason.length > 0) ? 'field-has-error' : ''}><span>Emergency reason <strong>Required — minimum 20 characters</strong></span><textarea ref={reasonRef} required minLength="20" maxLength="1000" aria-invalid={!reasonValid && (submitted || form.reason.length > 0)} aria-describedby="step-bypass-reason-help" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain exactly why this one requirement must be bypassed and who authorized it."/><small id="step-bypass-reason-help" className={`field-requirement ${reasonValid ? 'valid' : ''}`}><span>{reasonValid ? 'Reason requirement met.' : `Add ${20 - reasonLength} more character${20 - reasonLength === 1 ? '' : 's'} to continue.`}</span><strong>{reasonLength}/20 minimum</strong></small></label>
       <label><span>Evidence or follow-up note</span><textarea maxLength="1000" value={form.evidenceNote} onChange={(event) => update('evidenceNote', event.target.value)} placeholder="Insurer callback, paper document location, payment arrangement, verification reference…"/></label>
       <label><span>Exception expires</span><input type="datetime-local" required min={emergencyDateTimeValue(new Date(Date.now() + 15 * 60 * 1000))} max={emergencyDateTimeValue(new Date(Date.now() + 24 * 60 * 60 * 1000))} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)}/></label>
-      <label><span>Type BYPASS STEP</span><input required autoComplete="off" value={form.confirmation} onChange={(event) => update('confirmation', event.target.value)} placeholder="BYPASS STEP"/></label>
+      <label className={!confirmationValid && submitted ? 'field-has-error' : ''}><span>Type BYPASS STEP</span><input ref={confirmationRef} required autoComplete="off" aria-invalid={!confirmationValid && submitted} value={form.confirmation} onChange={(event) => update('confirmation', event.target.value)} placeholder="BYPASS STEP"/><small className={`field-requirement ${confirmationValid ? 'valid' : ''}`}>{confirmationValid ? 'Confirmation phrase matches.' : 'Enter the exact phrase shown above.'}</small></label>
+      <div className={`bypass-form-status ${reasonValid && confirmationValid ? 'ready' : ''}`} role="status" aria-live="polite">
+        {reasonValid && confirmationValid ? <><CheckCircle2 size={16}/><span>Ready to record this one-step bypass.</span></> : <><AlertTriangle size={16}/><span>{!reasonValid ? 'Emergency reason must contain at least 20 characters.' : 'Enter BYPASS STEP exactly to continue.'}</span></>}
+      </div>
       <div className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="danger-confirm-btn" disabled={saving || form.reason.trim().length < 20 || form.confirmation !== 'BYPASS STEP'}>{saving ? 'Recording bypass…' : 'Bypass Only This Step'}</button>
+        <button type="submit" className="danger-confirm-btn" disabled={saving}>{saving ? 'Recording bypass…' : 'Bypass Only This Step'}</button>
       </div>
     </form>
   </div>;
@@ -8000,7 +8079,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
   </div>, document.body);
 }
 
-function RentalProgressTracker({ steps, onStepClick }) {
+function RentalProgressTracker({ steps, onStepClick, onDocumentStepClick }) {
   const icons = {
     phone: ShieldCheck,
     vehicle: Car,
@@ -8014,9 +8093,14 @@ function RentalProgressTracker({ steps, onStepClick }) {
   return <div className="rental-progress-tracker" aria-label="Rental progress">
     {steps.map((step) => {
       const Icon = icons[step.key] || CheckCircle2;
+      const documentUploadStep = !step.complete && ['license', 'insurance'].includes(step.key) && onDocumentStepClick;
+      const bypassStep = step.bypassable && onStepClick;
+      const interactiveLabel = documentUploadStep
+        ? `${step.label}: ${step.detail}. Click to upload the customer-provided document or choose an emergency bypass.`
+        : `${step.label}: ${step.detail}. Click to bypass only this step.`;
       return <div className="progress-step-wrap" key={step.key}>
-          {step.bypassable && onStepClick
-            ? <button type="button" className={`progress-step ${step.state} interactive`} title={`${step.label}: ${step.detail}. Click to bypass only this step.`} aria-label={`Bypass ${step.label} requirement`} onClick={() => onStepClick(step)}>
+          {documentUploadStep || bypassStep
+            ? <button type="button" className={`progress-step ${step.state} interactive ${documentUploadStep ? 'document-upload-step' : ''}`} title={interactiveLabel} aria-label={documentUploadStep ? `Manage ${step.label} document` : `Bypass ${step.label} requirement`} onClick={() => documentUploadStep ? onDocumentStepClick(step) : onStepClick(step)}>
                 <Icon size={16}/>
               </button>
             : <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
