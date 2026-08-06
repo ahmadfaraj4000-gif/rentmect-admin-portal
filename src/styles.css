@@ -2540,6 +2540,24 @@ button{
     background:#e7f4ec;
     color:#145c37
 }
+
+.focused-rental-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}
+.admin-completion-badges{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.admin-completion-badge{display:inline-flex;align-items:center;gap:5px;width:max-content;border:1px solid #b7dcc7;background:#effaf3;color:#17683f;border-radius:999px;padding:5px 9px;font-size:.75rem;font-weight:800}
+.admin-completion-badge.warning{border-color:#e9d2a5;background:#fff8e8;color:#855d13}
+.admin-step-modal{width:min(680px,calc(100vw - 28px));display:grid;gap:16px}
+.admin-step-modal.agreement-step-modal{width:min(920px,calc(100vw - 28px));max-height:calc(100vh - 30px);overflow:auto}
+.step-complete-summary,.assisted-identity-note{display:flex;align-items:flex-start;gap:10px;border:1px solid #b7dcc7;background:#effaf3;border-radius:12px;padding:13px;color:#154f35}
+.step-complete-summary span,.assisted-identity-note span{display:grid;gap:3px}
+.step-complete-summary small,.assisted-identity-note small{color:#4e6b5c}
+.admin-payment-choice,.admin-document-completion{display:grid;gap:12px}
+.admin-payment-choice button{justify-content:center}
+.agreement-embed{height:min(46vh,520px);border:1px solid #cfdbd4;border-radius:12px;overflow:hidden;background:#fff}
+.agreement-embed iframe{width:100%;height:100%;border:0}
+.admin-signature-pad{display:grid;gap:8px}
+.admin-signature-pad>span{font-weight:800;color:#293c32}
+.admin-signature-pad canvas{display:block;width:100%;height:150px;border:1px solid #b9c9c0;border-radius:10px;background:#fff;touch-action:none}
+.admin-signature-pad button{justify-self:start}
 .manual-booking-focus-banner>div{
     display:grid;
     flex:1;

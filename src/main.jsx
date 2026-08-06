@@ -60,6 +60,8 @@ import './final-overrides.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CLIENT_PORTAL_URL = (import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com').replace(/\/$/, '');
+const ADMIN_AGREEMENT_VERSION = 'rentmect-master-v2026-07-30-final-r2';
+const PUBLIC_AGREEMENT_URL = 'https://rentmect.com/agreement.html';
 const CT_TAX_RATE = 0.0635;
 const DEFAULT_NEW_VEHICLE_DEPOSIT = 300;
 const DEFAULT_UNDER_25_PRICING = {
@@ -89,6 +91,7 @@ const DEFAULT_BOOKING_POLICY = {
   minimum_rental_days: 1,
   minimum_rental_hours: 24,
   advance_notice_minutes: 0,
+  admin_booking_payment_deadline_minutes: 60,
   updated_by: null,
   updated_at: null,
   server_now: null,
@@ -468,6 +471,7 @@ function App() {
   const [reports, setReports] = useState([]);
   const [extensionRequests, setExtensionRequests] = useState([]);
   const [emergencyExceptions, setEmergencyExceptions] = useState([]);
+  const [rentalStepCompletions, setRentalStepCompletions] = useState([]);
   const [depositAllocations, setDepositAllocations] = useState([]);
   const [rentalPayments, setRentalPayments] = useState([]);
   const [rentalRefunds, setRentalRefunds] = useState([]);
@@ -818,6 +822,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_allocations' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, () => scheduleDomainRefresh('workflow'))
       .subscribe();
     calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
     const recoverOnFocus = () => recoverCalendarSourceOfTruth();
@@ -1013,17 +1018,19 @@ function App() {
         if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
         results = [['Customers', profilesRes], ['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes]];
       } else if (domain === 'workflow') {
-        const [documentsRes, messagesRes, reportsRes, extensionsRes] = await Promise.all([
+        const [documentsRes, messagesRes, reportsRes, extensionsRes, stepCompletionsRes] = await Promise.all([
           withRequestDeadline(supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
           withRequestDeadline(supabase.from('rental_messages').select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: true }), 'Messages'),
           withRequestDeadline(supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Reports'),
           withRequestDeadline(supabase.from('rental_extension_requests').select('*, rentals!rental_extension_requests_rental_id_fkey(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Extensions'),
+          withRequestDeadline(supabase.from('rental_step_completions').select('*').order('completed_at', { ascending: false }), 'Admin step completions'),
         ]);
         if (documentsRes.data) setDocuments(documentsRes.data);
         if (messagesRes.data) setMessages(messagesRes.data);
         if (reportsRes.data) setReports(reportsRes.data);
         if (extensionsRes.data) setExtensionRequests(extensionsRes.data);
-        results = [['Documents', documentsRes], ['Messages', messagesRes], ['Reports', reportsRes], ['Extensions', extensionsRes]];
+        if (stepCompletionsRes.data) setRentalStepCompletions(stepCompletionsRes.data);
+        results = [['Documents', documentsRes], ['Messages', messagesRes], ['Reports', reportsRes], ['Extensions', extensionsRes], ['Admin step completions', stepCompletionsRes]];
       } else if (domain === 'payments') {
         const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, reconciliationIssuesRes] = await Promise.all([
           withRequestDeadline(supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
@@ -2396,17 +2403,22 @@ function App() {
     event?.preventDefault();
     const minimumDays = Number(bookingPolicy.minimum_rental_days);
     const advanceMinutes = Number(bookingPolicy.advance_notice_minutes);
+    const adminDeadlineMinutes = Number(bookingPolicy.admin_booking_payment_deadline_minutes);
     if (!Number.isInteger(minimumDays) || minimumDays < 1 || minimumDays > 30) {
       return notify('Minimum rental duration must be a whole number from 1 to 30 days.');
     }
     if (!Number.isInteger(advanceMinutes) || advanceMinutes < 0 || advanceMinutes > 525600) {
       return notify('Advance notice must be between immediate and 365 days.');
     }
+    if (!Number.isInteger(adminDeadlineMinutes) || adminDeadlineMinutes < 5 || adminDeadlineMinutes > 10080) {
+      return notify('Admin-created booking payment deadline must be between 5 minutes and 7 days.');
+    }
 
     setBookingPolicySaving(true);
     const { data, error } = await supabase.rpc('set_admin_booking_policy', {
       p_minimum_rental_days: minimumDays,
       p_advance_notice_minutes: advanceMinutes,
+      p_admin_booking_payment_deadline_minutes: adminDeadlineMinutes,
     });
     setBookingPolicySaving(false);
     if (error) return notify(error.message);
@@ -3137,6 +3149,58 @@ function App() {
     return true;
   }
 
+  async function completeAdminRentalStep(rental, stepKey, note, metadata = {}) {
+    const { data, error } = await supabase.rpc('admin_complete_rental_step', {
+      p_rental_id: rental.id,
+      p_step_key: stepKey,
+      p_note: note,
+      p_metadata: metadata,
+    });
+    if (error) {
+      notify(error.message);
+      return false;
+    }
+    const nextRental = data?.rental;
+    const completion = data?.completion;
+    if (nextRental) {
+      setRentals((current) => current.map((item) => item.id === rental.id
+        ? { ...item, ...nextRental, profiles: item.profiles, vehicles: item.vehicles }
+        : item));
+    }
+    if (completion) {
+      setRentalStepCompletions((current) => [completion, ...current.filter((item) => !(item.rental_id === rental.id && item.step_key === stepKey))]);
+    }
+    await loadAllData({ silent: true, domains: ['core', 'workflow', 'payments'] });
+    notify(`${prettyStatus(stepKey)} marked complete and added to activity history.`, 'success');
+    return true;
+  }
+
+  async function signAdminRentalAgreement(rental, signature) {
+    const snapshot = buildAdminAgreementSnapshot(rental, signature.name, signature.image);
+    const hashBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(snapshot));
+    const agreementHash = [...new Uint8Array(hashBytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const { data, error } = await supabase.rpc('admin_sign_rental_agreement_in_office', {
+      p_rental_id: rental.id,
+      p_signature_name: signature.name,
+      p_agreement_version: ADMIN_AGREEMENT_VERSION,
+      p_agreement_snapshot: snapshot,
+      p_agreement_hash: agreementHash,
+      p_signature_data: signature.image,
+      p_note: signature.note,
+    });
+    if (error) {
+      notify(error.message);
+      return false;
+    }
+    const nextRental = data?.rental;
+    const completion = data?.completion;
+    if (nextRental) setRentals((current) => current.map((item) => item.id === rental.id ? { ...item, ...nextRental, profiles: item.profiles, vehicles: item.vehicles } : item));
+    if (completion) setRentalStepCompletions((current) => [completion, ...current.filter((item) => !(item.rental_id === rental.id && item.step_key === 'agreement'))]);
+    await loadAllData({ silent: true, domains: ['core', 'workflow'] });
+    notify('Signed rental agreement saved to the booking and activity history.', 'success');
+    return true;
+  }
+
   async function createAdminPaymentLink(rental, mode = 'copy') {
     const successUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_success`;
     const cancelUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_cancelled`;
@@ -3149,7 +3213,7 @@ function App() {
       return 'completed-with-discount';
     }
     if (error || data?.error || !data?.url) {
-      notify(data?.error || error?.message || 'Payment cannot start until verification, documents, and the agreement are complete.');
+      notify(data?.error || error?.message || 'The secure Stripe payment session could not be created.');
       return null;
     }
     if (mode === 'open') window.open(data.url, '_blank', 'noopener,noreferrer');
@@ -3425,7 +3489,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -4385,7 +4449,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const displayedRentals = focusRentalId ? rentals.filter((rental) => rental.id === focusRentalId) : rentals;
   const filterCounts = Object.fromEntries(rentalFilterOptions().map((filter) => [
     filter.key,
@@ -4394,7 +4458,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
 
   return <>
     <Panel title="All Rentals" eyebrow="Reservations">
-      {focusRentalId && <div className="manual-booking-focus-banner"><CheckCircle2 size={20}/><div><strong>Manual booking created</strong><span>Finish this customer’s required steps below. The payment controls unlock only after verification, approved documents, and agreement.</span></div><button type="button" className="secondary-btn" onClick={clearRentalFocus}>Show All Rentals</button></div>}
+      {focusRentalId && <div className="focused-rental-actions"><span className="admin-completion-badge"><CheckCircle2 size={14}/> Admin booking</span><button type="button" className="secondary-btn" onClick={clearRentalFocus}>Show All Rentals</button></div>}
       {!focusRentalId && <>
       <div className="filter-pills" role="group" aria-label="Rental filters">
         {rentalFilterOptions().map((filter) => (
@@ -4406,7 +4470,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
     </Panel>
   </>;
 }
@@ -6230,6 +6294,14 @@ function SettingsTab({
           </div>
           <small>One day means 24 actual hours. A 9:00 AM pickup cannot return before 9:00 AM the following day.</small>
         </label>
+        <label>
+          <span>Admin-created unpaid booking deadline</span>
+          <div className="booking-policy-inline-control">
+            <input type="number" min="5" max="10080" step="5" value={bookingPolicy.admin_booking_payment_deadline_minutes ?? 60} onChange={(event) => setBookingPolicy((current) => ({ ...current, admin_booking_payment_deadline_minutes: event.target.value }))} />
+            <strong>minutes</strong>
+          </div>
+          <small>New unpaid bookings created by staff auto-cancel after this many minutes. You can still change an individual open booking’s deadline.</small>
+        </label>
         <div className="form-row">
           <label>
             <span>Minimum advance notice</span>
@@ -6598,13 +6670,12 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
-  const [emergencyStepScope, setEmergencyStepScope] = useState('');
-  const [documentStepScope, setDocumentStepScope] = useState('');
+  const [adminStepScope, setAdminStepScope] = useState('');
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
@@ -6626,15 +6697,16 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
     ? undefined
     : emergencyExceptions.find((item) => item.status === 'active' && new Date(item.expires_at).getTime() > Date.now());
   const emergencyScopeSet = getActiveEmergencyScopeSet(activeEmergencyException);
-  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, emergencyScopeSet);
-  const canRecordExternalPayment = effectiveReleaseChecklist.phone && effectiveReleaseChecklist.identity && effectiveReleaseChecklist.agreement && effectiveReleaseChecklist.license && effectiveReleaseChecklist.insurance;
+  const completionScopeSet = new Set(stepCompletions.map((item) => item.step_key));
+  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, new Set([...emergencyScopeSet, ...completionScopeSet]));
+  const canRecordExternalPayment = rental.payment_status !== 'paid';
   const canMarkActive = effectiveReleaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const canCreateEmergencyException = Boolean(emergencyAuthorized)
     && !activeEmergencyException
     && !releaseChecklist.ready
     && ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(rental.status);
-  const progressSteps = getRentalProgressSteps(rental, documentsForProgress, emergencyScopeSet);
+  const progressSteps = getRentalProgressSteps(rental, documentsForProgress, emergencyScopeSet, completionScopeSet);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, effectiveReleaseChecklist);
@@ -6710,29 +6782,20 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       {detailed && <small>Intended use: {rental.profiles?.intended_vehicle_use || 'Not provided'}</small>}
       {detailed && <DepositReleaseStatus rental={rental} />}
       {detailed && <MileageSummary rental={rental} />}
-      {activeEmergencyException && <EmergencyExceptionBanner exception={activeEmergencyException} checklist={releaseChecklist} onResolve={(scope) => resolveEmergencyExceptionScope?.(activeEmergencyException.id, scope)} />}
+      {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
+        {stepCompletions.map((completion) => <span className="admin-completion-badge" key={completion.id}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</span>)}
+        {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
+      </div>}
       <RentalProgressTracker
         steps={progressSteps}
-        onStepClick={emergencyAuthorized ? (step) => setEmergencyStepScope(step.key) : undefined}
-        onDocumentStepClick={(step) => setDocumentStepScope(step.key)}
+        onStepClick={(step) => setAdminStepScope(step.key)}
       />
-      {progressSteps.some((step) => !step.complete && ['license', 'insurance'].includes(step.key)) && <small className="document-step-hint"><FileText size={13}/> Click License or Insurance to upload a customer-provided image or PDF.</small>}
-      {emergencyAuthorized && progressSteps.some((step) => step.bypassable) && <small className="emergency-step-hint"><AlertTriangle size={13}/> Click one incomplete step to record an emergency bypass for only that step.</small>}
+      {progressSteps.some((step) => step.adminAction) && <small className="document-step-hint"><CheckCircle2 size={13}/> Click any booking circle to review it, upload documents, sign in office, collect payment, or mark that step complete.</small>}
       {detailed && <div className="rental-doc-summary">
         <DocumentStatusBadge label="License" document={license} />
         <DocumentStatusBadge label="Insurance" document={insurance} />
       </div>}
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
-      {detailed && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && !rental.customer_auth_deleted_at && <AdminBookingProcedure
-        rental={rental}
-        checklist={effectiveReleaseChecklist}
-        bypassedScopes={emergencyScopeSet}
-        documents={documentsForProgress}
-        sendBookingCompletionLink={sendBookingCompletionLink}
-        uploadAdminBookingDocument={uploadAdminBookingDocument}
-        createAdminPaymentLink={createAdminPaymentLink}
-        recordExternalPayment={() => setExternalPaymentModalOpen(true)}
-      />}
       {detailed && <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} />}
       {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
       {detailed && outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong> Use Charge customer below; the refund action unlocks automatically when the balance is clear.</span></div>}
@@ -6767,27 +6830,17 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
           return saved;
         }}
       />}
-      {emergencyStepScope && <EmergencyStepBypassModal
+      {adminStepScope && <AdminStepCompletionModal
         rental={rental}
-        scope={emergencyStepScope}
-        onCancel={() => setEmergencyStepScope('')}
-        onConfirm={async (form) => {
-          const saved = await addEmergencyExceptionScope?.(rental, form);
-          if (saved) setEmergencyStepScope('');
-          return saved;
-        }}
-      />}
-      {documentStepScope && <DocumentStepActionModal
-        rental={rental}
-        scope={documentStepScope}
-        canBypass={Boolean(emergencyAuthorized)}
-        onCancel={() => setDocumentStepScope('')}
-        onUpload={(file) => uploadAdminBookingDocument?.(rental, documentStepScope, file)}
-        onBypass={() => {
-          const scope = documentStepScope;
-          setDocumentStepScope('');
-          setEmergencyStepScope(scope);
-        }}
+        scope={adminStepScope}
+        complete={progressSteps.find((step) => step.key === adminStepScope)?.complete}
+        document={adminStepScope === 'license' ? license : adminStepScope === 'insurance' ? insurance : null}
+        onCancel={() => setAdminStepScope('')}
+        onUpload={(file) => uploadAdminBookingDocument?.(rental, adminStepScope, file)}
+        onComplete={(note, metadata) => completeAdminRentalStep?.(rental, adminStepScope, note, metadata)}
+        onSignAgreement={(signature) => signAdminRentalAgreement?.(rental, signature)}
+        onOpenStripe={() => createAdminPaymentLink?.(rental, 'open')}
+        onRecordExternal={() => { setAdminStepScope(''); setExternalPaymentModalOpen(true); }}
       />}
       {cancelModalOpen && <CancelRentalModal
         rental={rental}
@@ -6822,7 +6875,6 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
         {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button className="approve" onClick={() => setExternalPaymentModalOpen(true)}><CreditCard size={15}/> Record External Payment</button>}
         {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
-        {canCreateEmergencyException && <button className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={15}/> Emergency Exception</button>}
         {canCompleteReturn && <button className="approve primary-action" onClick={openReturnPanel}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
         {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund Payment</button>}
         {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
@@ -7139,6 +7191,131 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
       </div>
     </form>
   </div>;
+}
+
+function AdminStepCompletionModal({ rental, scope, complete, document, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [depositDisposition, setDepositDisposition] = useState(rental.payment_status === 'paid' ? 'collected' : 'waived');
+  const [agreementChecked, setAgreementChecked] = useState(false);
+  const [signatureName, setSignatureName] = useState(rental.profiles?.full_name || rental.customer_name_snapshot || '');
+  const [signatureImage, setSignatureImage] = useState('');
+  const label = prettyStatus(scope);
+  const isDocument = ['license', 'insurance'].includes(scope);
+
+  async function completeStep(event) {
+    event.preventDefault();
+    if (note.trim().length < 5) {
+      setError('Add a completion note of at least 5 characters so staff can see what was verified.');
+      return;
+    }
+    if (scope === 'agreement') {
+      if (!agreementChecked) return setError('The customer must check “I Agree to the Terms.”');
+      if (signatureName.trim().length < 2) return setError('Enter the customer’s full legal signature name.');
+      if (!signatureImage) return setError('The customer must draw an e-signature.');
+    }
+    setBusy(true);
+    setError('');
+    try {
+      if (isDocument && file) {
+        const uploaded = await onUpload?.(file);
+        if (!uploaded) return;
+      }
+      const saved = scope === 'agreement'
+        ? await onSignAgreement?.({ name: signatureName.trim(), image: signatureImage, note: note.trim() })
+        : await onComplete?.(note.trim(), scope === 'deposit' ? { disposition: depositDisposition } : { verified_in_person: true, uploaded_document: Boolean(file) });
+      if (saved) onCancel();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (scope === 'payment') {
+    return createPortal(<div className="admin-modal-backdrop" role="presentation">
+      <div ref={dialogRef} className="admin-modal admin-step-modal" role="dialog" aria-modal="true" aria-labelledby="admin-step-title">
+        <header className="admin-modal-header"><CreditCard size={21}/><div><small>Booking step</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(Number(rental.rental_total || 0) + Number(rental.service_fee_total || 0) + Number(rental.tax_amount || 0) + Number(rental.security_deposit || 0))} due</span></div></header>
+        {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
+          <button type="button" className="primary-btn" onClick={async () => { setBusy(true); await onOpenStripe?.(); setBusy(false); }} disabled={busy}><CreditCard size={16}/> Open secure Stripe checkout on this device</button>
+          <button type="button" className="secondary-btn" onClick={onRecordExternal}><Banknote size={16}/> Record phone / external payment as completed</button>
+          <small>Stripe payments reconcile automatically. External payments require the exact amount and payment method before they are marked paid.</small>
+        </div>}
+        <div className="modal-actions"><button type="button" onClick={onCancel}>Close</button></div>
+      </div>
+    </div>, document.body);
+  }
+
+  return createPortal(<div className="admin-modal-backdrop" role="presentation">
+    <form ref={dialogRef} className={`admin-modal admin-step-modal ${scope === 'agreement' ? 'agreement-step-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="admin-step-title" onSubmit={completeStep}>
+      <header className="admin-modal-header"><CheckCircle2 size={21}/><div><small>Admin-assisted booking</small><strong id="admin-step-title">{complete ? `Review ${label}` : `Complete ${label}`}</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • every action is added to activity history</span></div></header>
+      {complete && scope !== 'agreement' ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>This step is complete.</strong> Re-completing it will update the audit note and verification time.</span></div> : null}
+      {isDocument && <div className="admin-document-completion">
+        <p>{document ? `${docLabel(scope)} is currently ${prettyStatus(document.status)}.` : `No ${docLabel(scope).toLowerCase()} file is saved yet.`}</p>
+        <label className="procedure-upload"><Upload size={15}/> {file ? file.name : `Upload ${docLabel(scope)} (optional when inspected in person)`}<input type="file" accept="image/*,.pdf" onChange={(event) => setFile(event.target.files?.[0] || null)}/></label>
+      </div>}
+      {scope === 'identity' && <div className="assisted-identity-note"><UserRound size={18}/><span><strong>Physical identity check</strong><small>Inspect the customer and their government-issued driver’s license. Completing this step records “Admin verified in person”; Stripe Identity will no longer block this booking.</small></span></div>}
+      {scope === 'phone' && <p className="muted">Confirm the phone number with the customer in person, then record that verification below.</p>}
+      {scope === 'deposit' && <label><span>Deposit decision</span><select value={depositDisposition} onChange={(event) => setDepositDisposition(event.target.value)}>{rental.payment_status === 'paid' && <option value="collected">Collected with completed payment</option>}<option value="waived">Waived by management</option></select><small>{rental.payment_status === 'paid' ? 'A captured Stripe deposit cannot be waived here; use the refund workflow instead.' : 'Record a full phone/external payment or Stripe payment to collect the deposit. The standalone pre-payment action is a documented waiver.'}</small></label>}
+      {scope === 'agreement' && <>
+        <div className="agreement-embed"><iframe title="Rent Me CT rental agreement" src={PUBLIC_AGREEMENT_URL}/></div>
+        <label className="checkbox-row"><input type="checkbox" checked={agreementChecked} onChange={(event) => setAgreementChecked(event.target.checked)}/> I Agree to the Terms</label>
+        <label><span>Customer’s full legal signature</span><input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} placeholder="Full legal name" autoComplete="name"/></label>
+        <AdminSignaturePad value={signatureImage} onChange={setSignatureImage}/>
+      </>}
+      <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/><small>{Math.min(note.trim().length, 5)}/5 minimum characters</small></label>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button><button type="submit" className="approve" disabled={busy}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button></div>
+    </form>
+  </div>, document.body);
+}
+
+function AdminSignaturePad({ value, onChange }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+
+  function point(event) {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const source = event.touches?.[0] || event;
+    return { x: (source.clientX - rect.left) * (canvas.width / rect.width), y: (source.clientY - rect.top) * (canvas.height / rect.height) };
+  }
+  function start(event) {
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    const startPoint = point(event);
+    context.beginPath();
+    context.moveTo(startPoint.x, startPoint.y);
+    drawingRef.current = true;
+  }
+  function draw(event) {
+    if (!drawingRef.current) return;
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    const nextPoint = point(event);
+    context.strokeStyle = '#111b16';
+    context.lineWidth = 3;
+    context.lineCap = 'round';
+    context.lineTo(nextPoint.x, nextPoint.y);
+    context.stroke();
+  }
+  function finish() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    onChange(canvasRef.current.toDataURL('image/png'));
+  }
+  function clear() {
+    const canvas = canvasRef.current;
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    onChange('');
+  }
+  useEffect(() => {
+    if (!value) clear();
+  }, []);
+  return <div className="admin-signature-pad"><span>Customer e-signature</span><canvas ref={canvasRef} width="900" height="240" onMouseDown={start} onMouseMove={draw} onMouseUp={finish} onMouseLeave={finish} onTouchStart={start} onTouchMove={draw} onTouchEnd={finish}/><button type="button" onClick={clear}>Clear signature</button></div>;
 }
 
 function DocumentStepActionModal({ rental, scope, canBypass, onCancel, onUpload, onBypass }) {
@@ -8079,7 +8256,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
   </div>, document.body);
 }
 
-function RentalProgressTracker({ steps, onStepClick, onDocumentStepClick }) {
+function RentalProgressTracker({ steps, onStepClick }) {
   const icons = {
     phone: ShieldCheck,
     vehicle: Car,
@@ -8087,20 +8264,19 @@ function RentalProgressTracker({ steps, onStepClick, onDocumentStepClick }) {
     payment: CreditCard,
     license: FileText,
     insurance: ShieldCheck,
+    identity: UserRound,
+    deposit: DollarSign,
     ready: CheckCircle2,
   };
 
   return <div className="rental-progress-tracker" aria-label="Rental progress">
     {steps.map((step) => {
       const Icon = icons[step.key] || CheckCircle2;
-      const documentUploadStep = !step.complete && ['license', 'insurance'].includes(step.key) && onDocumentStepClick;
-      const bypassStep = step.bypassable && onStepClick;
-      const interactiveLabel = documentUploadStep
-        ? `${step.label}: ${step.detail}. Click to upload the customer-provided document or choose an emergency bypass.`
-        : `${step.label}: ${step.detail}. Click to bypass only this step.`;
+      const interactive = step.adminAction && onStepClick;
+      const interactiveLabel = `${step.label}: ${step.detail}. Click to manage or complete this step.`;
       return <div className="progress-step-wrap" key={step.key}>
-          {documentUploadStep || bypassStep
-            ? <button type="button" className={`progress-step ${step.state} interactive ${documentUploadStep ? 'document-upload-step' : ''}`} title={interactiveLabel} aria-label={documentUploadStep ? `Manage ${step.label} document` : `Bypass ${step.label} requirement`} onClick={() => documentUploadStep ? onDocumentStepClick(step) : onStepClick(step)}>
+          {interactive
+            ? <button type="button" className={`progress-step ${step.state} interactive`} title={interactiveLabel} aria-label={`Manage ${step.label}`} onClick={() => onStepClick(step)}>
                 <Icon size={16}/>
               </button>
             : <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
@@ -8796,20 +8972,48 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
   return items.sort((a, b) => rank[a.severity] - rank[b.severity]);
 }
 
-function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet = new Set()) {
+function buildAdminAgreementSnapshot(rental, signatureName, signatureImage) {
+  return `RENT ME CT — SIGNED RENTAL AGREEMENT RECORD
+
+Agreement Version: ${ADMIN_AGREEMENT_VERSION}
+Agreement URL: ${PUBLIC_AGREEMENT_URL}
+Signed in Office: ${new Date().toISOString()}
+Customer Present: Yes
+
+Renter: ${rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}
+Email: ${rental.profiles?.email || rental.customer_email_snapshot || ''}
+Phone: ${rental.profiles?.phone || rental.customer_phone_snapshot || ''}
+Vehicle: ${rental.vehicles?.name || 'Vehicle'}
+Pickup: ${formatRentalDate(rental.pickup_date, rental.pickup_time)}
+Return: ${formatRentalDate(rental.return_date, rental.return_time)}
+Rental Total: ${money(rental.rental_total)}
+Tax: ${money(rental.tax_amount)}
+Security Deposit: ${money(rental.security_deposit)}
+
+CONSENT
+The renter reviewed the Rent Me CT Master Vehicle Rental Agreement identified above, checked “I Agree to the Terms,” and electronically signed while physically present with an authorized administrator.
+
+Typed Signature: ${signatureName}
+Drawn Signature Image: ${signatureImage}`;
+}
+
+function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet = new Set(), completionScopeSet = new Set()) {
   const license = latestDocument(rentalDocuments, 'license');
   const insurance = latestDocument(rentalDocuments, 'insurance');
   const hasLicense = license?.status === 'approved';
   const hasInsurance = insurance?.status === 'approved';
-  const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at);
-  const identityVerified = rental.profiles?.identity_verification_status === 'verified';
+  const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at || completionScopeSet.has('phone'));
+  const identityVerified = rental.profiles?.identity_verification_status === 'verified' || completionScopeSet.has('identity');
   const hasDatesAndVehicle = Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date);
-  const agreementSigned = Boolean(rental.agreement_signed);
-  const paymentPaid = (rental.payment_status || 'pending') === 'paid';
+  const agreementSigned = Boolean(rental.agreement_signed || completionScopeSet.has('agreement'));
+  const paymentPaid = (rental.payment_status || 'pending') === 'paid' || completionScopeSet.has('payment');
+  const depositComplete = Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase()) || completionScopeSet.has('deposit');
+  const effectiveLicenseNative = hasLicense || completionScopeSet.has('license');
+  const effectiveInsuranceNative = hasInsurance || completionScopeSet.has('insurance');
   const effectivePhone = phoneVerified || emergencyScopeSet.has('phone');
   const effectiveIdentity = identityVerified || emergencyScopeSet.has('identity');
-  const effectiveLicense = hasLicense || emergencyScopeSet.has('license');
-  const effectiveInsurance = hasInsurance || emergencyScopeSet.has('insurance');
+  const effectiveLicense = effectiveLicenseNative || emergencyScopeSet.has('license');
+  const effectiveInsurance = effectiveInsuranceNative || emergencyScopeSet.has('insurance');
   const effectiveAgreement = agreementSigned || emergencyScopeSet.has('agreement');
   const effectivePayment = paymentPaid || emergencyScopeSet.has('payment');
   const readyForPickup = rental.status === 'ready_for_pickup' || (
@@ -8819,17 +9023,19 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
     effectiveAgreement &&
     effectivePayment &&
     effectiveLicense &&
-    effectiveInsurance
+    effectiveInsurance &&
+    depositComplete
   );
 
   const steps = [
     { key: 'phone', label: 'Phone', complete: phoneVerified, detail: phoneVerified ? 'Phone verified' : 'Phone verification needed' },
-    { key: 'identity', label: 'Identity', complete: identityVerified, detail: identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
+    { key: 'identity', label: 'Identity', complete: identityVerified, detail: completionScopeSet.has('identity') || rental.profiles?.identity_verification_method === 'admin_in_person' ? 'Verified in person by admin' : identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
     { key: 'vehicle', label: 'Vehicle', complete: hasDatesAndVehicle, detail: hasDatesAndVehicle ? 'Dates and vehicle selected' : 'Dates or vehicle missing' },
-    { key: 'license', label: 'License', complete: hasLicense, detail: hasLicense ? `Driver license ${prettyStatus(license.status)}` : license?.status === 'rejected' ? 'Driver license rejected — replacement required' : 'Driver license missing' },
-    { key: 'insurance', label: 'Insurance', complete: hasInsurance, detail: hasInsurance ? `Insurance ${prettyStatus(insurance.status)}` : insurance?.status === 'rejected' ? 'Insurance rejected — replacement required' : 'Insurance missing' },
+    { key: 'license', label: 'License', complete: effectiveLicenseNative, detail: completionScopeSet.has('license') ? 'Verified in person by admin' : hasLicense ? `Driver license ${prettyStatus(license.status)}` : license?.status === 'rejected' ? 'Driver license rejected — replacement required' : 'Driver license missing' },
+    { key: 'insurance', label: 'Insurance', complete: effectiveInsuranceNative, detail: completionScopeSet.has('insurance') ? 'Verified in person by admin' : hasInsurance ? `Insurance ${prettyStatus(insurance.status)}` : insurance?.status === 'rejected' ? 'Insurance rejected — replacement required' : 'Insurance missing' },
     { key: 'agreement', label: 'Agreement', complete: agreementSigned, detail: agreementSigned ? 'Agreement signed' : 'Agreement not signed' },
     { key: 'payment', label: 'Payment', complete: paymentPaid, detail: paymentPaid ? 'Payment complete' : `Payment ${prettyStatus(rental.payment_status || 'pending')}` },
+    { key: 'deposit', label: 'Deposit', complete: depositComplete, detail: depositComplete ? `Deposit ${prettyStatus(rental.deposit_status || 'complete')}` : 'Deposit collection required' },
     { key: 'ready', label: 'Ready', complete: readyForPickup, detail: readyForPickup ? 'Ready for pickup' : 'Not ready for pickup' },
   ];
 
@@ -8837,6 +9043,7 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
   const firstMissingIndex = steps.findIndex((step) => !step.complete && !emergencyScopeSet.has(step.key));
   return steps.map((step, index) => ({
     ...step,
+    adminAction: !['vehicle', 'ready'].includes(step.key) && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(String(rental.status || '').toLowerCase()),
     bypassed: emergencyScopeSet.has(step.key),
     bypassable: eligibleForBypass && !step.complete && !emergencyScopeSet.has(step.key) && Object.hasOwn(EMERGENCY_SCOPE_LABELS, step.key),
     state: step.complete ? 'complete' : emergencyScopeSet.has(step.key) ? 'bypassed' : index === firstMissingIndex ? 'current' : 'missing',
@@ -8858,10 +9065,11 @@ function getEffectiveReleaseChecklist(checklist, emergencyScopeSet = new Set()) 
     insurance: checklist.insurance || emergencyScopeSet.has('insurance'),
     agreement: checklist.agreement || emergencyScopeSet.has('agreement'),
     payment: checklist.payment || emergencyScopeSet.has('payment'),
+    deposit: checklist.deposit || emergencyScopeSet.has('deposit'),
   };
   effective.ready = Boolean(
     effective.phone && effective.identity && effective.vehicle && effective.license &&
-    effective.insurance && effective.agreement && effective.payment
+    effective.insurance && effective.agreement && effective.payment && effective.deposit
   );
   return effective;
 }
@@ -8875,6 +9083,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
     vehicle: Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date),
     agreement: Boolean(rental.agreement_signed),
     payment: (rental.payment_status || 'pending') === 'paid',
+    deposit: Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase()),
     license: license?.status === 'approved',
     insurance: insurance?.status === 'approved',
     ready: Boolean(
@@ -8885,6 +9094,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
       rental.return_date &&
       rental.agreement_signed &&
       (rental.payment_status || 'pending') === 'paid' &&
+      (Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase())) &&
       license?.status === 'approved' &&
       insurance?.status === 'approved'
     ),
@@ -8897,6 +9107,7 @@ function getMissingReleaseRequirements(releaseChecklist) {
     !releaseChecklist.identity ? 'Stripe Identity verification' : '',
     !releaseChecklist.agreement ? 'signed agreement' : '',
     !releaseChecklist.payment ? 'payment' : '',
+    !releaseChecklist.deposit ? 'deposit' : '',
     !releaseChecklist.license ? 'driver license' : '',
     !releaseChecklist.insurance ? 'insurance' : '',
   ].filter(Boolean);
