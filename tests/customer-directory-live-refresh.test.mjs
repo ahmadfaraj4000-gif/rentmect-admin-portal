@@ -26,4 +26,7 @@ test('an open admin tab detects a newer deployed JavaScript bundle', () => {
   assert.match(source, /admin-build-check/);
   assert.match(source, /A newer Admin Portal version is available/);
   assert.match(source, /label: 'Reload now'/);
+  assert.match(source, /searchParams\.set\('admin-build'/);
+  assert.match(source, /window\.location\.replace\(reloadUrl\.toString\(\)\)/);
+  assert.match(source, /className="notice-controls"/);
 });

@@ -6647,14 +6647,21 @@ input[type="radio"] {
   color: #9a6a11;
 }
 
+.notice-banner .notice-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .notice-banner .notice-action {
   flex: 0 0 auto;
   min-height: 36px;
   padding: 0 14px;
-  border: 1px solid #0d4b34;
-  border-radius: 9px;
-  background: #0d4b34;
-  color: #fff;
+  border: 1px solid #0d4b34 !important;
+  border-radius: 9px !important;
+  background: #0d4b34 !important;
+  color: #fff !important;
   font-weight: 800;
   white-space: nowrap;
 }

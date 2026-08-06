@@ -660,7 +660,14 @@ function App() {
         notify(
           'A newer Admin Portal version is available. Reload before continuing so customer and rental records are current.',
           'update',
-          { label: 'Reload now', onClick: () => window.location.reload() },
+          {
+            label: 'Reload now',
+            onClick: () => {
+              const reloadUrl = new URL(window.location.href);
+              reloadUrl.searchParams.set('admin-build', String(Date.now()));
+              window.location.replace(reloadUrl.toString());
+            },
+          },
         );
       } catch {
         // A version check must never interrupt admin work when the network is down.
@@ -8282,8 +8289,10 @@ function Notice({ notice, onDismiss }) {
   return <div className={`notice-banner ${notice.type || 'info'}`} role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'} aria-atomic="true">
     <Icon className="notice-icon" size={21} aria-hidden="true" />
     <span>{notice.text}</span>
-    {notice.action && <button type="button" className="notice-action" onClick={notice.action.onClick}>{notice.action.label}</button>}
-    <button type="button" className="notice-dismiss admin-close-button" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
+    <div className="notice-controls">
+      {notice.action && <button type="button" className="notice-action" onClick={notice.action.onClick}>{notice.action.label}</button>}
+      <button type="button" className="notice-dismiss admin-close-button" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
+    </div>
   </div>;
 }
 
