@@ -3162,6 +3162,29 @@ input[type="radio"] {
   accent-color: var(--ui-green) !important;
 }
 
+/* Legacy admin-modal input rules size every input like a text field. Keep
+   confirmation controls compact in every modal, including future dialogs. */
+.admin-modal input[type="checkbox"],
+.admin-modal input[type="radio"] {
+  display: inline-block !important;
+  flex: 0 0 18px !important;
+  box-sizing: border-box !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+.admin-modal input[type="radio"] {
+  border-radius: 50% !important;
+}
+
 .search-row {
   display: flex !important;
   align-items: center !important;
@@ -6066,32 +6089,44 @@ input[type="radio"] {
 }
 
 .closed-rental-confirmation {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #edc5a5;
-  border-radius: 10px;
-  background: #fff7ef;
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 10px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 12px !important;
+  overflow: hidden !important;
+  border: 1px solid #edc5a5 !important;
+  border-radius: 10px !important;
+  background: #fff7ef !important;
+  cursor: pointer;
 }
 
-.closed-rental-confirmation input {
-  margin-top: 3px;
+.closed-rental-confirmation input[type="checkbox"] {
+  margin: 2px 0 0 !important;
 }
 
-.closed-rental-confirmation span {
-  display: grid;
-  gap: 2px;
+.closed-rental-confirmation > span {
+  display: grid !important;
+  gap: 2px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow-wrap: anywhere;
 }
 
 .closed-rental-confirmation strong {
+  display: block;
   color: #793d16;
   font-size: 12px;
 }
 
 .closed-rental-confirmation small {
+  display: block;
   color: #8a674f;
   font-size: 10px;
+  line-height: 1.4;
 }
 
 .rental-amendment-preview {
