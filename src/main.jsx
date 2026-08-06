@@ -471,6 +471,7 @@ function App() {
   const [rentalPayments, setRentalPayments] = useState([]);
   const [rentalRefunds, setRentalRefunds] = useState([]);
   const [rentalCharges, setRentalCharges] = useState([]);
+  const [stripeReconciliationIssues, setStripeReconciliationIssues] = useState([]);
   const [paymentLoadError, setPaymentLoadError] = useState('');
   const [customerEmailTemplates, setCustomerEmailTemplates] = useState([]);
   const [smsTemplates, setSmsTemplates] = useState([]);
@@ -788,6 +789,25 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => scheduleCalendarDatasetRefresh('vehicles'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, () => scheduleCalendarDatasetRefresh('vehicle_maintenance_schedules'))
       .subscribe();
+    const scheduleDomainRefresh = (domain) => {
+      const timerKey = `domain:${domain}`;
+      window.clearTimeout(refreshTimers.get(timerKey));
+      refreshTimers.set(timerKey, window.setTimeout(() => {
+        if (document.visibilityState !== 'hidden') void loadAdminDomain(domain, { force: true });
+      }, 250));
+    };
+    const paymentChannel = supabase
+      .channel('admin-payment-source-of-truth')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_extension_requests' }, () => {
+        scheduleDomainRefresh('workflow');
+        scheduleDomainRefresh('payments');
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payment_refunds' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payments' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_allocations' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
+      .subscribe();
     calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
     const recoverOnFocus = () => recoverCalendarSourceOfTruth();
     const recoverOnVisibility = () => {
@@ -802,6 +822,7 @@ function App() {
       window.removeEventListener('focus', recoverOnFocus);
       document.removeEventListener('visibilitychange', recoverOnVisibility);
       supabase.removeChannel(calendarChannel);
+      supabase.removeChannel(paymentChannel);
     };
   }, [isAdminUser]);
 
@@ -872,7 +893,8 @@ function App() {
     extensionRequests,
     rentalCharges,
     depositAllocations,
-  }), [rentals, rentalPayments, rentalRefunds, extensionRequests, rentalCharges, depositAllocations]);
+    stripeReconciliationIssues,
+  }), [rentals, rentalPayments, rentalRefunds, extensionRequests, rentalCharges, depositAllocations, stripeReconciliationIssues]);
 
   const filteredRentals = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -992,18 +1014,20 @@ function App() {
         if (extensionsRes.data) setExtensionRequests(extensionsRes.data);
         results = [['Documents', documentsRes], ['Messages', messagesRes], ['Reports', reportsRes], ['Extensions', extensionsRes]];
       } else if (domain === 'payments') {
-        const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes] = await Promise.all([
+        const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, reconciliationIssuesRes] = await Promise.all([
           withRequestDeadline(supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
           withRequestDeadline(supabase.from('rental_payments').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Payments'),
           withRequestDeadline(supabase.from('rental_payment_refunds').select('*').order('created_at', { ascending: false }), 'Refunds'),
           withRequestDeadline(supabase.from('rental_charge_items').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Additional charges'),
+          withRequestDeadline(supabase.from('stripe_reconciliation_issues').select('*').order('created_at', { ascending: false }).limit(500), 'Stripe reconciliation'),
         ]);
         if (depositAllocationsRes.data) setDepositAllocations(depositAllocationsRes.data);
         if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
         if (rentalRefundsRes.data) setRentalRefunds(rentalRefundsRes.data);
         if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
-        setPaymentLoadError([depositAllocationsRes.error, rentalPaymentsRes.error, rentalRefundsRes.error, rentalChargesRes.error].filter(Boolean).map((error) => error.message).join(' '));
-        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes]];
+        if (reconciliationIssuesRes.data) setStripeReconciliationIssues(reconciliationIssuesRes.data);
+        setPaymentLoadError([depositAllocationsRes.error, rentalPaymentsRes.error, rentalRefundsRes.error, rentalChargesRes.error, reconciliationIssuesRes.error].filter(Boolean).map((error) => error.message).join(' '));
+        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes], ['Stripe reconciliation', reconciliationIssuesRes]];
       } else if (domain === 'templates') {
         const [emailRes, smsRes] = await Promise.all([
           withRequestDeadline(supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
@@ -3267,6 +3291,7 @@ function App() {
       'Emergency exceptions': 'core', 'Maintenance schedules': 'core',
       Documents: 'workflow', Messages: 'workflow', Reports: 'workflow', Extensions: 'workflow',
       Deposits: 'payments', Payments: 'payments', Refunds: 'payments', 'Additional charges': 'payments',
+      'Stripe reconciliation': 'payments',
       'Email templates': 'templates', 'Text templates': 'templates',
       'Calendar blocks': 'calendar',
       Discounts: 'settings', Fees: 'settings', Promotions: 'settings', 'Under-25 pricing': 'settings',
@@ -3482,6 +3507,7 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
   const outstanding = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
   const depositsHeld = rentals.filter((rental) => ['held', 'adjustment_refund_due', 'release_pending'].includes(String(rental.deposit_status || '').toLowerCase()));
   const visibleEvents = paymentEvents.filter((event) => paymentEventMatchesFilter(event, paymentFilter, paymentTypeFilter));
+  const openReconciliation = paymentEvents.filter((event) => event.type === 'reconciliation' && ['pending', 'failed'].includes(event.statusGroup));
 
   return <>
     <section className="metric-grid payments-metrics">
@@ -3490,6 +3516,11 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
       <Metric icon={Clock} label="Outstanding" value={money(outstanding)} danger={outstanding > 0} />
       <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
     </section>
+    {openReconciliation.length > 0 && (
+      <p className="form-error" role="alert">
+        Urgent: {openReconciliation.length} Stripe {openReconciliation.length === 1 ? 'transaction requires' : 'transactions require'} reconciliation. No captured payment or refund in this list should be treated as fully coordinated until its status is resolved.
+      </p>
+    )}
     <Panel title="Payments" eyebrow="Payment Activity">
       {loadError && <p className="form-error" role="alert">Some payment sources could not be loaded: {loadError}</p>}
       <div className="payments-filter-bar">
@@ -3512,6 +3543,7 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
             <option value="extension">Extensions and switches</option>
             <option value="charge">Additional charges</option>
             <option value="refund">Refunds</option>
+            <option value="reconciliation">Reconciliation issues</option>
           </select>
         </label>
       </div>
@@ -8841,6 +8873,7 @@ function buildPaymentEvents({
   extensionRequests = [],
   rentalCharges = [],
   depositAllocations = [],
+  stripeReconciliationIssues = [],
 }) {
   const events = [];
   const rentalsById = new Map(rentals.map((rental) => [rental.id, rental]));
@@ -9135,6 +9168,34 @@ function buildPaymentEvents({
         date: charge.paid_at || charge.updated_at || charge.created_at,
       });
     });
+
+  stripeReconciliationIssues.forEach((issue) => {
+    const { customer, vehicle } = contextFor(issue, issue.rental_id);
+    const rawStatus = String(issue.status || 'open').toLowerCase();
+    const statusGroup = rawStatus === 'resolved' || rawStatus === 'refunded'
+      ? (rawStatus === 'refunded' ? 'refunded' : 'paid')
+      : rawStatus === 'processing' ? 'pending' : 'failed';
+    const reference = issue.refund_id || issue.payment_intent_id || issue.checkout_session_id;
+    events.push({
+      id: `stripe-reconciliation-${issue.id}`,
+      rentalId: issue.rental_id,
+      customer: issue.rental_id ? customer : 'Unmatched Stripe transaction',
+      vehicle: issue.rental_id ? vehicle : 'Review required',
+      type: 'reconciliation',
+      typeLabel: 'Stripe Reconciliation',
+      statusGroup,
+      displayStatus: rawStatus === 'open' ? 'action required' : rawStatus,
+      amount: Number(issue.amount || 0),
+      cashImpact: 0,
+      outstandingAmount: 0,
+      detail: [
+        prettyStatus(issue.issue_type || 'payment reconciliation'),
+        issue.error_message,
+        shortPaymentReference(reference, issue.refund_id ? 'Refund' : 'Stripe'),
+      ].filter(Boolean).join(' • '),
+      date: issue.updated_at || issue.created_at,
+    });
+  });
 
   return events.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
