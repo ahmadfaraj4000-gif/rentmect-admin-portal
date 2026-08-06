@@ -136,18 +136,18 @@ const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
 const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings']);
 const ADMIN_TAB_DOMAINS = {
   dashboard: ['snapshot'],
-  queue: ['core', 'workflow'],
-  payments: ['core', 'payments'],
-  calendar: ['core', 'calendar'],
-  'new-booking': ['core', 'calendar', 'settings'],
-  rentals: ['core', 'workflow', 'payments', 'templates'],
-  customers: ['core', 'workflow', 'templates'],
-  vehicles: ['core', 'maintenance-history'],
-  documents: ['core', 'workflow'],
-  emails: ['core', 'workflow', 'templates'],
+  queue: ['customer-directory', 'core', 'workflow'],
+  payments: ['customer-directory', 'core', 'payments'],
+  calendar: ['customer-directory', 'core', 'calendar'],
+  'new-booking': ['customer-directory', 'core', 'calendar', 'settings'],
+  rentals: ['customer-directory', 'core', 'workflow', 'payments', 'templates'],
+  customers: ['customer-directory', 'core', 'workflow', 'templates'],
+  vehicles: ['customer-directory', 'core', 'maintenance-history'],
+  documents: ['customer-directory', 'core', 'workflow'],
+  emails: ['customer-directory', 'core', 'workflow', 'templates'],
   audit: ['audit'],
   settings: ['settings'],
-  tolls: ['core'],
+  tolls: ['customer-directory', 'core'],
 };
 const VIN_MAX_LENGTH = 17;
 const PLATE_MAX_LENGTH = 12;
@@ -440,6 +440,11 @@ function App() {
     lastUpdated: null,
   });
   const [dashboardSnapshot, setDashboardSnapshot] = useState(null);
+  const [customerDirectoryState, setCustomerDirectoryState] = useState({
+    loading: false,
+    error: '',
+    lastUpdated: null,
+  });
   const loadedAdminDomainsRef = useRef(new Set());
   const adminDomainLoadsRef = useRef(new Map());
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
@@ -447,6 +452,7 @@ function App() {
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [notice, setNotice] = useState(null);
   const noticeTimeoutRef = useRef(null);
+  const updateNoticeShownRef = useRef(false);
   const [activeTab, setActiveTab] = useState(() => {
     if (readActiveReturnRentalId()) return 'rentals';
     return ADMIN_TAB_KEYS.has(requestedAdminTab) ? requestedAdminTab : 'dashboard';
@@ -617,16 +623,67 @@ function App() {
     };
   }, [isMobileAdminNav, navCollapsed]);
 
-  function notify(text, type = 'info') {
+  function notify(text, type = 'info', action = null) {
     const resolvedType = type === 'info' && /could not|failed|error|invalid|expired|cannot|must|required|choose|enter|complete|verify|unavailable/i.test(text)
       ? 'error'
       : type;
-    setNotice({ text, type: resolvedType });
+    if (resolvedType !== 'update') updateNoticeShownRef.current = false;
+    setNotice({ text, type: resolvedType, action });
     window.clearTimeout(noticeTimeoutRef.current);
-    if (resolvedType !== 'error') {
+    if (resolvedType !== 'error' && !action) {
       noticeTimeoutRef.current = window.setTimeout(() => setNotice(null), 7000);
     }
   }
+
+  useEffect(() => {
+    if (!isAdminUser) return undefined;
+
+    const checkForNewAdminBuild = async () => {
+      if (document.visibilityState === 'hidden' || updateNoticeShownRef.current) return;
+      const currentScript = document.querySelector('script[type="module"][src]')?.getAttribute('src') || '';
+      if (!currentScript.includes('/assets/')) return;
+
+      try {
+        const checkUrl = new URL(window.location.href);
+        checkUrl.searchParams.set('admin-build-check', String(Date.now()));
+        const response = await fetch(checkUrl, {
+          cache: 'no-store',
+          headers: { Accept: 'text/html' },
+        });
+        if (!response.ok) return;
+        const documentText = await response.text();
+        const latestDocument = new DOMParser().parseFromString(documentText, 'text/html');
+        const latestScript = latestDocument.querySelector('script[type="module"][src]')?.getAttribute('src') || '';
+        if (!latestScript || latestScript === currentScript) return;
+
+        updateNoticeShownRef.current = true;
+        notify(
+          'A newer Admin Portal version is available. Reload before continuing so customer and rental records are current.',
+          'update',
+          {
+            label: 'Reload now',
+            onClick: () => {
+              const reloadUrl = new URL(window.location.href);
+              reloadUrl.searchParams.set('admin-build', String(Date.now()));
+              window.location.replace(reloadUrl.toString());
+            },
+          },
+        );
+      } catch {
+        // A version check must never interrupt admin work when the network is down.
+      }
+    };
+
+    void checkForNewAdminBuild();
+    const intervalId = window.setInterval(checkForNewAdminBuild, 2 * 60 * 1000);
+    window.addEventListener('focus', checkForNewAdminBuild);
+    document.addEventListener('visibilitychange', checkForNewAdminBuild);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', checkForNewAdminBuild);
+      document.removeEventListener('visibilitychange', checkForNewAdminBuild);
+    };
+  }, [isAdminUser]);
 
   useEffect(() => {
     async function init() {
@@ -669,7 +726,11 @@ function App() {
   useEffect(() => {
     if (!isAdminUser || activeTab === 'dashboard') return;
     (ADMIN_TAB_DOMAINS[activeTab] || ['core']).forEach((domain) => {
-      void loadAdminDomain(domain);
+      // Customer records must be current whenever an admin opens either place
+      // where a renter can be selected. Do not trust a session-long domain cache.
+      void loadAdminDomain(domain, {
+        force: domain === 'customer-directory' && ['customers', 'new-booking'].includes(activeTab),
+      });
     });
   }, [activeTab, isAdminUser]);
 
@@ -795,6 +856,13 @@ function App() {
       }
     };
 
+    const scheduleDomainRefresh = (domain) => {
+      const timerKey = `domain:${domain}`;
+      window.clearTimeout(refreshTimers.get(timerKey));
+      refreshTimers.set(timerKey, window.setTimeout(() => {
+        if (document.visibilityState !== 'hidden') void loadAdminDomain(domain, { force: true });
+      }, 250));
+    };
     const calendarChannel = supabase
       .channel('admin-calendar-source-of-truth')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, () => scheduleCalendarDatasetRefresh('rentals'))
@@ -804,15 +872,9 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, () => scheduleCalendarDatasetRefresh('vehicle_maintenance_schedules'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_emergency_exceptions' }, () => scheduleCalendarDatasetRefresh('rental_emergency_exceptions'))
       .subscribe();
-    const scheduleDomainRefresh = (domain) => {
-      const timerKey = `domain:${domain}`;
-      window.clearTimeout(refreshTimers.get(timerKey));
-      refreshTimers.set(timerKey, window.setTimeout(() => {
-        if (document.visibilityState !== 'hidden') void loadAdminDomain(domain, { force: true });
-      }, 250));
-    };
-    const paymentChannel = supabase
+    const operationalChannel = supabase
       .channel('admin-payment-source-of-truth')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => scheduleDomainRefresh('customer-directory'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_extension_requests' }, () => {
         scheduleDomainRefresh('workflow');
         scheduleDomainRefresh('payments');
@@ -838,7 +900,7 @@ function App() {
       window.removeEventListener('focus', recoverOnFocus);
       document.removeEventListener('visibilitychange', recoverOnVisibility);
       supabase.removeChannel(calendarChannel);
-      supabase.removeChannel(paymentChannel);
+      supabase.removeChannel(operationalChannel);
     };
   }, [isAdminUser]);
 
@@ -1001,22 +1063,39 @@ function App() {
     setDataHealth((current) => ({ ...current, refreshing: true }));
     const request = (async () => {
       let results = [];
-      if (domain === 'core') {
-        const [profilesRes, vehiclesRes, rentalsRes, pendingBookingsRes, emergencyExceptionsRes, maintenanceSchedulesRes] = await Promise.all([
-          withRequestDeadline(supabase.from('profiles').select('*').order('created_at', { ascending: false }), 'Customers'),
+      if (domain === 'customer-directory') {
+        setCustomerDirectoryState((current) => ({ ...current, loading: true, error: '' }));
+        const fetchProfiles = () => supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+        let directoryResult = await withRequestDeadline(fetchProfiles(), 'Customer directory');
+        if (directoryResult.error) {
+          directoryResult = await withRequestDeadline(fetchProfiles(), 'Customer directory retry', 12_000);
+        }
+        if (directoryResult.data) setProfiles(directoryResult.data);
+        setCustomerDirectoryState({
+          loading: false,
+          error: directoryResult.error
+            ? userFacingPortalError(directoryResult.error, 'Customer accounts could not refresh.')
+            : '',
+          lastUpdated: directoryResult.error ? null : new Date().toISOString(),
+        });
+        results = [['Customer directory', directoryResult]];
+      } else if (domain === 'core') {
+        const [vehiclesRes, rentalsRes, pendingBookingsRes, emergencyExceptionsRes, maintenanceSchedulesRes] = await Promise.all([
           withRequestDeadline(supabase.from('vehicles').select('*').order('created_at', { ascending: false }), 'Vehicles'),
           withRequestDeadline(supabase.from('rentals').select('*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*)').order('created_at', { ascending: false }), 'Rentals'),
           withRequestDeadline(supabase.from('pending_bookings').select('*').neq('status', 'converted').order('created_at', { ascending: false }), 'Booking holds'),
           withRequestDeadline(supabase.from('rental_emergency_exceptions').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Emergency exceptions'),
           withRequestDeadline(supabase.from('vehicle_maintenance_schedules').select('*').order('service_type'), 'Maintenance schedules'),
         ]);
-        if (profilesRes.data) setProfiles(profilesRes.data);
         if (vehiclesRes.data) setVehicles(vehiclesRes.data);
         if (rentalsRes.data) setRentals(rentalsRes.data);
         if (pendingBookingsRes.data) setPendingBookings(pendingBookingsRes.data);
         if (emergencyExceptionsRes.data) setEmergencyExceptions(emergencyExceptionsRes.data);
         if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
-        results = [['Customers', profilesRes], ['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes]];
+        results = [['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes]];
       } else if (domain === 'workflow') {
         const [documentsRes, messagesRes, reportsRes, extensionsRes, stepCompletionsRes] = await Promise.all([
           withRequestDeadline(supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
@@ -3332,7 +3411,8 @@ function App() {
   function retryAdminSection(label) {
     const domainByLabel = {
       'Dashboard snapshot': 'snapshot',
-      Customers: 'core', Vehicles: 'core', Rentals: 'core', 'Booking holds': 'core',
+      'Customer directory': 'customer-directory',
+      Customers: 'customer-directory', Vehicles: 'core', Rentals: 'core', 'Booking holds': 'core',
       'Emergency exceptions': 'core', 'Maintenance schedules': 'core',
       Documents: 'workflow', Messages: 'workflow', Reports: 'workflow', Extensions: 'workflow',
       Deposits: 'payments', Payments: 'payments', Refunds: 'payments', 'Additional charges': 'payments',
@@ -3400,7 +3480,10 @@ function App() {
       )}
 
       <main className="admin-main">
-        {notice && <div className="notice-viewport"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
+        {notice && <div className="notice-viewport"><Notice notice={notice} onDismiss={() => {
+          if (notice.type === 'update') updateNoticeShownRef.current = false;
+          setNotice(null);
+        }} /></div>}
         <header className="admin-header">
           {isMobileAdminNav && navCollapsed && (
             <button
@@ -3433,9 +3516,9 @@ function App() {
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
-        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />}
-        {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
+        {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
@@ -4413,7 +4496,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
   </>;
 }
 
-function Customers({ profiles, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify }) {
+function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [contactCustomerId, setContactCustomerId] = useState('');
@@ -4458,10 +4541,17 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
     <Panel title="Client Accounts" eyebrow="Customers">
       <div className="list-search-toolbar">
         <div className="search-row"><Search size={18}/><input value={customerSearch} maxLength="140" onChange={(event)=>setCustomerSearch(limitText(event.target.value, 140))} placeholder="Search name, email, phone, vehicle, status..." /></div>
-        <span>{visibleCustomers.length} of {customerProfiles.length} customers</span>
+        <div className="customer-directory-summary">
+          <span>{visibleCustomers.length} of {customerProfiles.length} accounts • clients and administrators included</span>
+          <button type="button" className="secondary-btn" onClick={refreshCustomerDirectory} disabled={customerDirectoryState.loading}>
+            {customerDirectoryState.loading ? 'Refreshing customers…' : 'Refresh customers'}
+          </button>
+        </div>
       </div>
       <div className="table-list customer-summary-list">
-        {visibleCustomers.length === 0 && <p className="muted list-empty-state">No customers match “{customerSearch.trim()}”.</p>}
+        {customerDirectoryState.loading && customerProfiles.length === 0 && <p className="muted list-empty-state">Loading customer and administrator accounts…</p>}
+        {customerDirectoryState.error && <p className="form-error customer-directory-error" role="alert">Customer accounts could not refresh: {customerDirectoryState.error} <button type="button" onClick={refreshCustomerDirectory}>Try again</button></p>}
+        {!customerDirectoryState.loading && !customerDirectoryState.error && visibleCustomers.length === 0 && <p className="muted list-empty-state">No customers match “{customerSearch.trim()}”.</p>}
         {visibleCustomers.map((profile) => {
           const customerRentals = rentals.filter((rental) => rental.user_id === profile.id);
           const customerDocuments = documentsByUserId[profile.id] || [];
@@ -4475,6 +4565,7 @@ function Customers({ profiles, rentals, documentsByUserId, documents, reports, o
                 <strong>{profile.full_name || 'Unnamed Client'}</strong>
                 <span>{profile.email || 'No email saved'}</span>
                 <small>{profile.phone || 'No phone saved'} • {profile.phone_verified ? 'Phone verified' : 'Phone unverified'}</small>
+                {String(profile.role || '').toLowerCase() === 'admin' && <em className="customer-admin-account-badge">Administrator account • available for assisted rentals</em>}
               </div>
             </div>
             <div className="customer-summary-activity">
@@ -5843,7 +5934,7 @@ function CommunicationsInbox({ rentals, messages, selectedRental, onSelectThread
   </section>;
 }
 
-function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, serviceFees = [], bookingPolicy = DEFAULT_BOOKING_POLICY, createManualBooking, submitting }) {
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, customerDirectoryState, refreshCustomerDirectory, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, serviceFees = [], bookingPolicy = DEFAULT_BOOKING_POLICY, createManualBooking, submitting }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
@@ -5882,13 +5973,14 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
     .sort((a, b) => String(a.full_name || a.email || '').localeCompare(String(b.full_name || b.email || '')));
   const normalizedCustomerSearch = customerSearch.trim().toLowerCase();
   const customerSearchDigits = normalizedCustomerSearch.replace(/\D/g, '');
-  const matchingCustomers = customers.filter((profile) => {
+  const allMatchingCustomers = customers.filter((profile) => {
     if (!normalizedCustomerSearch) return true;
     const name = String(profile.full_name || '').toLowerCase();
     const email = String(profile.email || '').toLowerCase();
     const phone = String(profile.phone || '');
     return name.includes(normalizedCustomerSearch) || email.includes(normalizedCustomerSearch) || (customerSearchDigits && phone.replace(/\D/g, '').includes(customerSearchDigits));
-  }).slice(0, 12);
+  });
+  const matchingCustomers = allMatchingCustomers.slice(0, 50);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === manualBookingForm.vehicleId);
   const selectedCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
   const bookingWindow = getBookingWindow(manualBookingForm, bookingPolicy);
@@ -5936,6 +6028,11 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
         </div>
 
         {manualBookingForm.customerMode === 'existing' ? <div className="customer-combobox full-field">
+          <div className="customer-directory-status">
+            <span>{customerDirectoryState.loading ? 'Refreshing customer and administrator accounts…' : `${profiles.length} customer and administrator accounts loaded`}</span>
+            <button type="button" onClick={refreshCustomerDirectory} disabled={customerDirectoryState.loading}>{customerDirectoryState.loading ? 'Refreshing…' : 'Refresh list'}</button>
+          </div>
+          {customerDirectoryState.error && <p className="form-error customer-directory-error" role="alert">Customer accounts could not refresh: {customerDirectoryState.error}</p>}
           <label htmlFor="manual-customer-search"><span>Customer</span></label>
           <div className="customer-search-input">
             <Search size={18}/>
@@ -5961,7 +6058,8 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, vehi
               insuranceProvider: customer?.insurance_provider || '',
               insurancePolicyNumber: customer?.insurance_policy_number || '',
             }));
-            }}><strong>{customer.full_name || 'Unnamed customer'}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>No customers match that search.</p>}
+            }}><strong>{customer.full_name || 'Unnamed customer'}{String(customer.role || '').toLowerCase() === 'admin' ? ' • Administrator' : ''}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>{customerDirectoryState.loading ? 'Loading customer accounts…' : 'No customers match that search.'}</p>}
+            {allMatchingCustomers.length > matchingCustomers.length && <p>Showing the first 50 matches. Type more of the name, email, or phone number to narrow the list.</p>}
           </div>}
           {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}<small>{selectedCustomer.email || 'Email missing'} • {selectedCustomer.phone || 'Phone missing'} • {selectedCustomer.phone_verified ? 'Phone verified' : 'Phone verification needed'} • {String(selectedCustomer.identity_verification_status || '').toLowerCase() === 'verified' ? 'Identity verified' : 'Identity verification needed'}</small></span></div>}
           {selectedCustomer && !selectedCustomer.full_name?.trim() && <div className="existing-customer-legal-name full-field">
@@ -8186,11 +8284,15 @@ function NotAdmin({ email, signOut }) {
 }
 function Notice({ notice, onDismiss }) {
   const isError = notice.type === 'error';
-  const Icon = isError ? AlertTriangle : CheckCircle2;
+  const isUpdate = notice.type === 'update';
+  const Icon = isError || isUpdate ? AlertTriangle : CheckCircle2;
   return <div className={`notice-banner ${notice.type || 'info'}`} role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'} aria-atomic="true">
     <Icon className="notice-icon" size={21} aria-hidden="true" />
     <span>{notice.text}</span>
-    <button type="button" className="notice-dismiss admin-close-button" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
+    <div className="notice-controls">
+      {notice.action && <button type="button" className="notice-action" onClick={notice.action.onClick}>{notice.action.label}</button>}
+      <button type="button" className="notice-dismiss admin-close-button" onClick={onDismiss} aria-label="Dismiss notification"><X size={17}/></button>
+    </div>
   </div>;
 }
 
