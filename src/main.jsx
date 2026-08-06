@@ -728,6 +728,14 @@ function App() {
         if (!result.error) setMaintenanceSchedules(result.data || []);
         return result.error;
       },
+      rental_emergency_exceptions: async () => {
+        const result = await supabase
+          .from('rental_emergency_exceptions')
+          .select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))')
+          .order('created_at', { ascending: false });
+        if (!result.error) setEmergencyExceptions(result.data || []);
+        return result.error;
+      },
     };
 
     const recordCalendarRefresh = (table, error) => {
@@ -738,6 +746,7 @@ function App() {
           vehicle_availability_blocks: 'Calendar blocks',
           vehicles: 'Vehicles',
           vehicle_maintenance_schedules: 'Maintenance schedules',
+          rental_emergency_exceptions: 'Emergency exceptions',
         };
         const label = calendarLabels[table];
         const otherErrors = (current.errors || []).filter((item) => item.label !== label);
@@ -788,6 +797,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, () => scheduleCalendarDatasetRefresh('vehicle_availability_blocks'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => scheduleCalendarDatasetRefresh('vehicles'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_maintenance_schedules' }, () => scheduleCalendarDatasetRefresh('vehicle_maintenance_schedules'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_emergency_exceptions' }, () => scheduleCalendarDatasetRefresh('rental_emergency_exceptions'))
       .subscribe();
     const scheduleDomainRefresh = (domain) => {
       const timerKey = `domain:${domain}`;
@@ -1457,6 +1467,31 @@ function App() {
     if (data) setEmergencyExceptions((current) => [data, ...current.filter((item) => item.id !== data.id)]);
     await loadAllData({ silent: true });
     notify('Emergency exception recorded. The rental is active, every incomplete procedure remains visible, and the owner alert was queued.', 'success');
+    return true;
+  }
+
+  async function addEmergencyExceptionScope(rental, form) {
+    const { data, error } = await supabase.rpc('admin_add_rental_emergency_exception_scope', {
+      p_rental_id: rental.id,
+      p_scope: form.scope,
+      p_reason: form.reason.trim(),
+      p_evidence_note: form.evidenceNote.trim() || null,
+      p_expires_at: new Date(form.expiresAt).toISOString(),
+      p_confirmation: form.confirmation.trim(),
+    });
+    if (error) {
+      notify(error.message);
+      return false;
+    }
+    if (data) {
+      setEmergencyExceptions((current) => [
+        data,
+        ...current.filter((item) =>
+          item.id !== data.id && !(item.rental_id === rental.id && item.status === 'active')
+        ),
+      ]);
+    }
+    notify(`${EMERGENCY_SCOPE_LABELS[form.scope] || prettyStatus(form.scope)} bypass recorded. No other step was bypassed and the vehicle was not released.`, 'success');
     return true;
   }
 
@@ -3389,7 +3424,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />}
         {activeTab === 'customers' && <Customers profiles={profiles} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -4349,7 +4384,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const displayedRentals = focusRentalId ? rentals.filter((rental) => rental.id === focusRentalId) : rentals;
   const filterCounts = Object.fromEntries(rentalFilterOptions().map((filter) => [
     filter.key,
@@ -4370,7 +4405,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} updateRentalStatus={updateRentalStatus} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} />)}</div>
     </Panel>
   </>;
 }
@@ -6562,11 +6597,12 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
+function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink }) {
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
+  const [emergencyStepScope, setEmergencyStepScope] = useState('');
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
@@ -6586,18 +6622,20 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
   const activeEmergencyException = ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase())
     ? undefined
-    : emergencyExceptions.find((item) => item.status === 'active');
-  const canRecordExternalPayment = releaseChecklist.phone && releaseChecklist.identity && releaseChecklist.agreement && releaseChecklist.license && releaseChecklist.insurance;
-  const canMarkActive = releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
+    : emergencyExceptions.find((item) => item.status === 'active' && new Date(item.expires_at).getTime() > Date.now());
+  const emergencyScopeSet = getActiveEmergencyScopeSet(activeEmergencyException);
+  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, emergencyScopeSet);
+  const canRecordExternalPayment = effectiveReleaseChecklist.phone && effectiveReleaseChecklist.identity && effectiveReleaseChecklist.agreement && effectiveReleaseChecklist.license && effectiveReleaseChecklist.insurance;
+  const canMarkActive = effectiveReleaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const canCreateEmergencyException = Boolean(emergencyAuthorized)
     && !activeEmergencyException
     && !releaseChecklist.ready
     && ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(rental.status);
-  const progressSteps = getRentalProgressSteps(rental, documentsForProgress);
+  const progressSteps = getRentalProgressSteps(rental, documentsForProgress, emergencyScopeSet);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
-  const adminState = getAdminRentalState(rental, releaseChecklist);
+  const adminState = getAdminRentalState(rental, effectiveReleaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
   const outstandingRentalCharges = rentalCharges
     .filter((charge) => !charge.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(charge.status))
@@ -6671,7 +6709,11 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       {detailed && <DepositReleaseStatus rental={rental} />}
       {detailed && <MileageSummary rental={rental} />}
       {activeEmergencyException && <EmergencyExceptionBanner exception={activeEmergencyException} checklist={releaseChecklist} onResolve={(scope) => resolveEmergencyExceptionScope?.(activeEmergencyException.id, scope)} />}
-      <RentalProgressTracker steps={progressSteps} />
+      <RentalProgressTracker
+        steps={progressSteps}
+        onStepClick={emergencyAuthorized ? (step) => setEmergencyStepScope(step.key) : undefined}
+      />
+      {emergencyAuthorized && progressSteps.some((step) => step.bypassable) && <small className="emergency-step-hint"><AlertTriangle size={13}/> Click one incomplete step to record an emergency bypass for only that step.</small>}
       {detailed && <div className="rental-doc-summary">
         <DocumentStatusBadge label="License" document={license} />
         <DocumentStatusBadge label="Insurance" document={insurance} />
@@ -6679,7 +6721,8 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
       {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
       {detailed && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status) && !rental.customer_auth_deleted_at && <AdminBookingProcedure
         rental={rental}
-        checklist={releaseChecklist}
+        checklist={effectiveReleaseChecklist}
+        bypassedScopes={emergencyScopeSet}
         documents={documentsForProgress}
         sendBookingCompletionLink={sendBookingCompletionLink}
         uploadAdminBookingDocument={uploadAdminBookingDocument}
@@ -6717,6 +6760,16 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         onConfirm={async (form) => {
           const saved = await activateRentalWithEmergencyException?.(rental, form);
           if (saved) setEmergencyModalOpen(false);
+          return saved;
+        }}
+      />}
+      {emergencyStepScope && <EmergencyStepBypassModal
+        rental={rental}
+        scope={emergencyStepScope}
+        onCancel={() => setEmergencyStepScope('')}
+        onConfirm={async (form) => {
+          const saved = await addEmergencyExceptionScope?.(rental, form);
+          if (saved) setEmergencyStepScope('');
           return saved;
         }}
       />}
@@ -6946,7 +6999,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
   </div>;
 }
 
-function AdminBookingProcedure({ rental, checklist, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, recordExternalPayment }) {
+function AdminBookingProcedure({ rental, checklist, bypassedScopes = new Set(), sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, recordExternalPayment }) {
   const [busy, setBusy] = useState('');
   const prerequisitesForPayment = checklist.phone && checklist.identity && checklist.agreement && checklist.license && checklist.insurance;
   const paymentPreference = rental.admin_payment_collection_preference || 'customer_link';
@@ -6974,10 +7027,13 @@ function AdminBookingProcedure({ rental, checklist, sendBookingCompletionLink, u
   return <details className="admin-booking-procedure" open>
     <summary><ClipboardList size={16}/><span>Booking procedure console</span><em>{steps.filter(([, complete]) => complete).length}/{steps.length} complete</em></summary>
     <div className="procedure-step-grid">
-      {steps.map(([label, complete, detail]) => <div className={complete ? 'complete' : ''} key={label}>
-        {complete ? <CheckCircle2 size={16}/> : <Clock size={16}/>}
-        <span><strong>{label}</strong><small>{complete ? 'Complete' : detail}</small></span>
-      </div>)}
+      {steps.map(([label, complete, detail]) => {
+        const bypassed = bypassedScopes.has(label.toLowerCase());
+        return <div className={bypassed ? 'bypassed' : complete ? 'complete' : ''} key={label}>
+          {bypassed ? <AlertTriangle size={16}/> : complete ? <CheckCircle2 size={16}/> : <Clock size={16}/>}
+          <span><strong>{label}</strong><small>{bypassed ? 'Emergency bypass active' : complete ? 'Complete' : detail}</small></span>
+        </div>;
+      })}
     </div>
     {nextStep && <div className="procedure-next"><ArrowRight size={15}/><span><strong>Next required step: {nextStep[0]}</strong> — {nextStep[2]}</span></div>}
     {!checklist.payment && <div className="procedure-payment-plan"><CreditCard size={16}/><span><strong>Payment plan:</strong> {manualPaymentPreferenceLabel(paymentPreference)}</span></div>}
@@ -7064,6 +7120,46 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
       <div className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
         <button type="submit" className="danger-confirm-btn" disabled={saving || form.scopes.length !== missingScopes.length || form.confirmation !== 'RELEASE WITH EXCEPTION'}>{saving ? 'Recording exception…' : 'Record Exception & Release Vehicle'}</button>
+      </div>
+    </form>
+  </div>;
+}
+
+function EmergencyStepBypassModal({ rental, scope, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const [form, setForm] = useState({
+    scope,
+    reason: '',
+    evidenceNote: '',
+    expiresAt: emergencyDateTimeValue(new Date(Date.now() + 4 * 60 * 60 * 1000)),
+    confirmation: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    await onConfirm(form);
+    setSaving(false);
+  }
+
+  return <div className="admin-modal-backdrop" role="presentation">
+    <form ref={dialogRef} className="admin-modal emergency-step-modal" role="dialog" aria-modal="true" aria-label={`Bypass ${EMERGENCY_SCOPE_LABELS[scope] || prettyStatus(scope)}`} onSubmit={submit}>
+      <div className="admin-modal-header danger">
+        <AlertTriangle size={20}/>
+        <div><p className="eyebrow">One Step Only</p><h3>Bypass {EMERGENCY_SCOPE_LABELS[scope] || prettyStatus(scope)}</h3></div>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close"><XCircle size={20}/></button>
+      </div>
+      <div className="emergency-truth-warning"><ShieldCheck size={20}/><span>Only this step receives a temporary exception. Every other incomplete step remains required, and this action does not release the vehicle.</span></div>
+      <div className="emergency-rental-summary"><strong>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'}</strong><span>The vehicle can be released only after every other requirement is complete or separately bypassed.</span></div>
+      <label><span>Emergency reason</span><textarea required minLength="20" maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain exactly why this one requirement must be bypassed and who authorized it."/></label>
+      <label><span>Evidence or follow-up note</span><textarea maxLength="1000" value={form.evidenceNote} onChange={(event) => update('evidenceNote', event.target.value)} placeholder="Insurer callback, paper document location, payment arrangement, verification reference…"/></label>
+      <label><span>Exception expires</span><input type="datetime-local" required min={emergencyDateTimeValue(new Date(Date.now() + 15 * 60 * 1000))} max={emergencyDateTimeValue(new Date(Date.now() + 24 * 60 * 60 * 1000))} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)}/></label>
+      <label><span>Type BYPASS STEP</span><input required autoComplete="off" value={form.confirmation} onChange={(event) => update('confirmation', event.target.value)} placeholder="BYPASS STEP"/></label>
+      <div className="modal-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="danger-confirm-btn" disabled={saving || form.reason.trim().length < 20 || form.confirmation !== 'BYPASS STEP'}>{saving ? 'Recording bypass…' : 'Bypass Only This Step'}</button>
       </div>
     </form>
   </div>;
@@ -7904,7 +8000,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
   </div>, document.body);
 }
 
-function RentalProgressTracker({ steps }) {
+function RentalProgressTracker({ steps, onStepClick }) {
   const icons = {
     phone: ShieldCheck,
     vehicle: Car,
@@ -7919,9 +8015,13 @@ function RentalProgressTracker({ steps }) {
     {steps.map((step) => {
       const Icon = icons[step.key] || CheckCircle2;
       return <div className="progress-step-wrap" key={step.key}>
-          <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
-            {step.complete ? <CheckCircle2 size={16} /> : <Icon size={16} />}
-          </div>
+          {step.bypassable && onStepClick
+            ? <button type="button" className={`progress-step ${step.state} interactive`} title={`${step.label}: ${step.detail}. Click to bypass only this step.`} aria-label={`Bypass ${step.label} requirement`} onClick={() => onStepClick(step)}>
+                <Icon size={16}/>
+              </button>
+            : <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
+                {step.complete ? <CheckCircle2 size={16}/> : step.bypassed ? <AlertTriangle size={16}/> : <Icon size={16}/>}
+              </div>}
           <span>{step.label}</span>
         </div>;
     })}
@@ -8612,7 +8712,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
   return items.sort((a, b) => rank[a.severity] - rank[b.severity]);
 }
 
-function getRentalProgressSteps(rental, rentalDocuments = []) {
+function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet = new Set()) {
   const license = latestDocument(rentalDocuments, 'license');
   const insurance = latestDocument(rentalDocuments, 'insurance');
   const hasLicense = license?.status === 'approved';
@@ -8622,32 +8722,64 @@ function getRentalProgressSteps(rental, rentalDocuments = []) {
   const hasDatesAndVehicle = Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date);
   const agreementSigned = Boolean(rental.agreement_signed);
   const paymentPaid = (rental.payment_status || 'pending') === 'paid';
+  const effectivePhone = phoneVerified || emergencyScopeSet.has('phone');
+  const effectiveIdentity = identityVerified || emergencyScopeSet.has('identity');
+  const effectiveLicense = hasLicense || emergencyScopeSet.has('license');
+  const effectiveInsurance = hasInsurance || emergencyScopeSet.has('insurance');
+  const effectiveAgreement = agreementSigned || emergencyScopeSet.has('agreement');
+  const effectivePayment = paymentPaid || emergencyScopeSet.has('payment');
   const readyForPickup = rental.status === 'ready_for_pickup' || (
-    phoneVerified &&
-    identityVerified &&
+    effectivePhone &&
+    effectiveIdentity &&
     hasDatesAndVehicle &&
-    agreementSigned &&
-    paymentPaid &&
-    hasLicense &&
-    hasInsurance
+    effectiveAgreement &&
+    effectivePayment &&
+    effectiveLicense &&
+    effectiveInsurance
   );
 
   const steps = [
     { key: 'phone', label: 'Phone', complete: phoneVerified, detail: phoneVerified ? 'Phone verified' : 'Phone verification needed' },
     { key: 'identity', label: 'Identity', complete: identityVerified, detail: identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
     { key: 'vehicle', label: 'Vehicle', complete: hasDatesAndVehicle, detail: hasDatesAndVehicle ? 'Dates and vehicle selected' : 'Dates or vehicle missing' },
-    { key: 'license', label: 'License', complete: hasLicense, detail: hasLicense ? `Driver license ${prettyStatus(license.status)}` : 'Driver license missing' },
-    { key: 'insurance', label: 'Insurance', complete: hasInsurance, detail: hasInsurance ? `Insurance ${prettyStatus(insurance.status)}` : 'Insurance missing' },
+    { key: 'license', label: 'License', complete: hasLicense, detail: hasLicense ? `Driver license ${prettyStatus(license.status)}` : license?.status === 'rejected' ? 'Driver license rejected — replacement required' : 'Driver license missing' },
+    { key: 'insurance', label: 'Insurance', complete: hasInsurance, detail: hasInsurance ? `Insurance ${prettyStatus(insurance.status)}` : insurance?.status === 'rejected' ? 'Insurance rejected — replacement required' : 'Insurance missing' },
     { key: 'agreement', label: 'Agreement', complete: agreementSigned, detail: agreementSigned ? 'Agreement signed' : 'Agreement not signed' },
     { key: 'payment', label: 'Payment', complete: paymentPaid, detail: paymentPaid ? 'Payment complete' : `Payment ${prettyStatus(rental.payment_status || 'pending')}` },
     { key: 'ready', label: 'Ready', complete: readyForPickup, detail: readyForPickup ? 'Ready for pickup' : 'Not ready for pickup' },
   ];
 
-  const firstMissingIndex = steps.findIndex((step) => !step.complete);
+  const eligibleForBypass = ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(String(rental.status || '').toLowerCase());
+  const firstMissingIndex = steps.findIndex((step) => !step.complete && !emergencyScopeSet.has(step.key));
   return steps.map((step, index) => ({
     ...step,
-    state: step.complete ? 'complete' : index === firstMissingIndex ? 'current' : 'missing',
+    bypassed: emergencyScopeSet.has(step.key),
+    bypassable: eligibleForBypass && !step.complete && !emergencyScopeSet.has(step.key) && Object.hasOwn(EMERGENCY_SCOPE_LABELS, step.key),
+    state: step.complete ? 'complete' : emergencyScopeSet.has(step.key) ? 'bypassed' : index === firstMissingIndex ? 'current' : 'missing',
   }));
+}
+
+function getActiveEmergencyScopeSet(exception) {
+  if (!exception || exception.status !== 'active' || new Date(exception.expires_at).getTime() <= Date.now()) return new Set();
+  const resolved = new Set(exception.resolved_scopes || []);
+  return new Set((exception.exception_scopes || []).filter((scope) => !resolved.has(scope)));
+}
+
+function getEffectiveReleaseChecklist(checklist, emergencyScopeSet = new Set()) {
+  const effective = {
+    ...checklist,
+    phone: checklist.phone || emergencyScopeSet.has('phone'),
+    identity: checklist.identity || emergencyScopeSet.has('identity'),
+    license: checklist.license || emergencyScopeSet.has('license'),
+    insurance: checklist.insurance || emergencyScopeSet.has('insurance'),
+    agreement: checklist.agreement || emergencyScopeSet.has('agreement'),
+    payment: checklist.payment || emergencyScopeSet.has('payment'),
+  };
+  effective.ready = Boolean(
+    effective.phone && effective.identity && effective.vehicle && effective.license &&
+    effective.insurance && effective.agreement && effective.payment
+  );
+  return effective;
 }
 
 function getReleaseChecklist(rental, rentalDocuments = []) {
