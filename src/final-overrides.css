@@ -6764,23 +6764,6 @@ input[type="radio"] {
   padding: 0 !important;
 }
 
-.agreement-open-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--ui-ink-soft);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.agreement-open-fallback a {
-  flex: 0 0 auto;
-  color: #0d6b49;
-  font-weight: 900;
-  text-decoration: underline;
-}
-
 @media (max-width: 680px) {
   .agreement-step-backdrop.admin-modal-backdrop {
     padding: 8px !important;
@@ -6792,8 +6775,8 @@ input[type="radio"] {
     max-height: calc(100dvh - 16px) !important;
   }
 
-  .agreement-open-fallback {
-    align-items: flex-start;
-    flex-direction: column;
+  .admin-agreement-scroll-box {
+    height: min(42dvh, 440px);
+    min-height: 220px;
   }
 }

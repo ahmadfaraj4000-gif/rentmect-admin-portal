@@ -50,6 +50,7 @@ import { withRequestDeadline } from './requestDeadline';
 import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInput';
 import { optimizeVehicleImage } from './lib/imageOptimizer';
 import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
+import { AGREEMENT_TEXT, AGREEMENT_VERSION } from './rentalAgreement';
 import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
@@ -60,9 +61,9 @@ import './final-overrides.css';
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CLIENT_PORTAL_URL = (import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com').replace(/\/$/, '');
-const ADMIN_AGREEMENT_VERSION = 'rentmect-master-v2026-07-30-final-r2';
-const PUBLIC_AGREEMENT_URL = 'https://rentmect.com/agreement.html';
 const CT_TAX_RATE = 0.0635;
+const MILEAGE_POLICY = '200 miles/day included; excess mileage $0.35/mile';
+const CANCELLATION_TERMS = 'Contact Rent Me CT before pickup for cancellation or schedule changes.';
 const DEFAULT_NEW_VEHICLE_DEPOSIT = 300;
 const DEFAULT_UNDER_25_PRICING = {
   id: true,
@@ -3206,7 +3207,7 @@ function App() {
     const { data, error } = await supabase.rpc('admin_sign_rental_agreement_in_office', {
       p_rental_id: rental.id,
       p_signature_name: signature.name,
-      p_agreement_version: ADMIN_AGREEMENT_VERSION,
+      p_agreement_version: AGREEMENT_VERSION,
       p_agreement_snapshot: snapshot,
       p_agreement_hash: agreementHash,
       p_signature_data: signature.image,
@@ -7191,6 +7192,7 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
 
 function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, canBypass, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal, onBypass }) {
   const dialogRef = useDialogFocus(onCancel);
+  const agreementScrollRef = useRef(null);
   const [note, setNote] = useState('');
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -7201,6 +7203,27 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [signatureImage, setSignatureImage] = useState('');
   const label = prettyStatus(scope);
   const isDocument = ['license', 'insurance'].includes(scope);
+  const alreadySigned = scope === 'agreement' && Boolean(rental.agreement_snapshot);
+  const [agreementReviewed, setAgreementReviewed] = useState(alreadySigned);
+  const displayedAgreement = alreadySigned ? rental.agreement_snapshot : AGREEMENT_TEXT;
+  const displayedSignatureImage = alreadySigned ? extractSignatureImage(displayedAgreement) : '';
+  const printableAgreement = String(displayedAgreement || '').replace(
+    /Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,
+    'Drawn Signature Image: embedded below',
+  );
+
+  function trackAgreementReview() {
+    const reviewBox = agreementScrollRef.current;
+    if (!reviewBox || agreementReviewed) return;
+    const reachedEnd = reviewBox.scrollTop + reviewBox.clientHeight >= reviewBox.scrollHeight - 24;
+    if (reachedEnd) setAgreementReviewed(true);
+  }
+
+  useEffect(() => {
+    const reviewBox = agreementScrollRef.current;
+    if (scope !== 'agreement' || !reviewBox || alreadySigned) return;
+    if (reviewBox.scrollHeight <= reviewBox.clientHeight + 24) setAgreementReviewed(true);
+  }, [scope, alreadySigned, displayedAgreement]);
 
   async function completeStep(event) {
     event.preventDefault();
@@ -7208,7 +7231,8 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       setError('Add a completion note of at least 5 characters so staff can see what was verified.');
       return;
     }
-    if (scope === 'agreement') {
+    if (scope === 'agreement' && !alreadySigned) {
+      if (!agreementReviewed) return setError('Scroll through the complete rental agreement before signing.');
       if (!agreementChecked) return setError('The customer must check “I Agree to the Terms.”');
       if (signatureName.trim().length < 2) return setError('Enter the customer’s full legal signature name.');
       if (!signatureImage) return setError('The customer must draw an e-signature.');
@@ -7256,24 +7280,35 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       {scope === 'phone' && <p className="muted">Confirm the phone number with the customer in person, then record that verification below.</p>}
       {scope === 'deposit' && <label><span>Deposit decision</span><select value={depositDisposition} onChange={(event) => setDepositDisposition(event.target.value)}>{rental.payment_status === 'paid' && <option value="collected">Collected with completed payment</option>}<option value="waived">Waived by management</option></select><small>{rental.payment_status === 'paid' ? 'A captured Stripe deposit cannot be waived here; use the refund workflow instead.' : 'Record a full phone/external payment or Stripe payment to collect the deposit. The standalone pre-payment action is a documented waiver.'}</small></label>}
       {scope === 'agreement' && <>
-        <div className="agreement-open-fallback"><span>Review the complete rental agreement below.</span><a href={PUBLIC_AGREEMENT_URL} target="_blank" rel="noreferrer">Open agreement in a new tab</a></div>
-        <div className="agreement-embed"><iframe title="Rent Me CT rental agreement" src={PUBLIC_AGREEMENT_URL} loading="eager"/></div>
-        <label className="checkbox-row"><input type="checkbox" checked={agreementChecked} onChange={(event) => setAgreementChecked(event.target.checked)}/> I Agree to the Terms</label>
-        <label><span>Customer’s full legal signature</span><input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} placeholder="Full legal name" autoComplete="name"/></label>
-        <AdminSignaturePad value={signatureImage} onChange={setSignatureImage}/>
+        <div className={`admin-agreement-review-status ${agreementReviewed ? 'complete' : ''}`} role="status" aria-live="polite">
+          {alreadySigned
+            ? 'This is the exact signed agreement stored with this rental.'
+            : agreementReviewed
+              ? 'Full agreement reviewed. The acknowledgment and signature fields are unlocked below.'
+              : 'Review the complete agreement and scroll to the bottom to unlock signing.'}
+        </div>
+        <div ref={agreementScrollRef} className="admin-agreement-scroll-box" onScroll={trackAgreementReview} tabIndex="0" aria-label="Complete rental agreement">
+          <pre>{printableAgreement}</pre>
+          {alreadySigned && displayedSignatureImage && <div className="admin-agreement-stored-signature"><strong>Stored electronic signature</strong><img src={displayedSignatureImage} alt={`Electronic signature for ${rental.agreement_signature_name || 'customer'}`}/></div>}
+        </div>
+        {!alreadySigned && <div className="admin-agreement-sign-box">
+          <label className="checkbox-row"><input type="checkbox" checked={agreementChecked} onChange={(event) => setAgreementChecked(event.target.checked)} disabled={!agreementReviewed}/> I have read and agree to the rental agreement.</label>
+          <label><span>Customer’s full legal signature</span><input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} placeholder="Full legal name" autoComplete="name" disabled={!agreementReviewed}/></label>
+          <AdminSignaturePad value={signatureImage} onChange={setSignatureImage} disabled={!agreementReviewed}/>
+        </div>}
       </>}
-      <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/><small>{Math.min(note.trim().length, 5)}/5 minimum characters</small></label>
+      {(!alreadySigned || scope !== 'agreement') && <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/><small>{Math.min(note.trim().length, 5)}/5 minimum characters</small></label>}
       {error && <p className="form-error" role="alert">{error}</p>}
       {canBypass && !complete && <div className="document-step-bypass-option">
         <span><strong>Emergency only</strong> This bypasses only {label.toLowerCase()}, remains auditable, and does not release the vehicle by itself.</span>
         <button type="button" className="emergency-exception-action" disabled={busy} onClick={onBypass}><AlertTriangle size={15}/> Bypass only {label}</button>
       </div>}
-      <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button><button type="submit" className="approve" disabled={busy}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button></div>
+      <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>{alreadySigned ? 'Close' : 'Cancel'}</button>{alreadySigned && <button type="button" className="secondary-btn" onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Download Agreement</button>}{!alreadySigned && <button type="submit" className="approve" disabled={busy || (scope === 'agreement' && (!agreementReviewed || !agreementChecked || signatureName.trim().length < 2 || !signatureImage))}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button>}</div>
     </form>
   </div>, globalThis.document.body);
 }
 
-function AdminSignaturePad({ value, onChange }) {
+function AdminSignaturePad({ value, onChange, disabled = false }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
 
@@ -7284,6 +7319,7 @@ function AdminSignaturePad({ value, onChange }) {
     return { x: (source.clientX - rect.left) * (canvas.width / rect.width), y: (source.clientY - rect.top) * (canvas.height / rect.height) };
   }
   function start(event) {
+    if (disabled) return;
     event.preventDefault();
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
@@ -7317,7 +7353,7 @@ function AdminSignaturePad({ value, onChange }) {
   useEffect(() => {
     if (!value) clear();
   }, []);
-  return <div className="admin-signature-pad"><span>Customer e-signature</span><canvas ref={canvasRef} width="900" height="240" onMouseDown={start} onMouseMove={draw} onMouseUp={finish} onMouseLeave={finish} onTouchStart={start} onTouchMove={draw} onTouchEnd={finish}/><button type="button" onClick={clear}>Clear signature</button></div>;
+  return <div className={`admin-signature-pad ${disabled ? 'disabled' : ''}`}><span>Customer e-signature</span><canvas ref={canvasRef} width="900" height="240" aria-disabled={disabled} onMouseDown={start} onMouseMove={draw} onMouseUp={finish} onMouseLeave={finish} onTouchStart={start} onTouchMove={draw} onTouchEnd={finish}/><button type="button" onClick={clear} disabled={disabled}>Clear signature</button></div>;
 }
 
 function DocumentStepActionModal({ rental, scope, canBypass, onCancel, onUpload, onBypass }) {
@@ -8938,28 +8974,46 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
 }
 
 function buildAdminAgreementSnapshot(rental, signatureName, signatureImage) {
-  return `RENT ME CT — SIGNED RENTAL AGREEMENT RECORD
+  const profile = rental.profiles || {};
+  const vehicle = rental.vehicles || {};
+  const details = `
+AUTO-FILLED RENTAL DETAILS
 
-Agreement Version: ${ADMIN_AGREEMENT_VERSION}
-Agreement URL: ${PUBLIC_AGREEMENT_URL}
-Signed in Office: ${new Date().toISOString()}
-Customer Present: Yes
+Agreement Version: ${AGREEMENT_VERSION}
+Signed Snapshot Generated: ${new Date().toISOString()}
 
-Renter: ${rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}
-Email: ${rental.profiles?.email || rental.customer_email_snapshot || ''}
-Phone: ${rental.profiles?.phone || rental.customer_phone_snapshot || ''}
-Vehicle: ${rental.vehicles?.name || 'Vehicle'}
-Pickup: ${formatRentalDate(rental.pickup_date, rental.pickup_time)}
-Return: ${formatRentalDate(rental.return_date, rental.return_time)}
-Rental Total: ${money(rental.rental_total)}
-Tax: ${money(rental.tax_amount)}
-Security Deposit: ${money(rental.security_deposit)}
+Renter Name: ${profile.full_name || rental.customer_name_snapshot || 'Pending'}
+Address: ${profile.address || 'Pending'}
+Intended Vehicle Use: ${profile.intended_vehicle_use || 'Pending'}
+Phone: ${profile.phone || rental.customer_phone_snapshot || 'Pending'}
+Email: ${profile.email || rental.customer_email_snapshot || 'Pending'}
 
-CONSENT
-The renter reviewed the Rent Me CT Master Vehicle Rental Agreement identified above, checked “I Agree to the Terms,” and electronically signed while physically present with an authorized administrator.
+Vehicle: ${vehicle.name || 'Pending'}
+Make: ${vehicle.brand || vehicle.make || 'Pending'}
+Model: ${vehicle.model || 'Pending'}
+Year: ${vehicle.year || 'Pending'}
+VIN: ${vehicle.vin || 'Pending'}
+License Plate: ${vehicle.plate_number || vehicle.license_plate || 'Pending'}
 
-Typed Signature: ${signatureName}
-Drawn Signature Image: ${signatureImage}`;
+Pickup Date/Time: ${formatRentalDate(rental.pickup_date, rental.pickup_time)}
+Return Date/Time: ${formatRentalDate(rental.return_date, rental.return_time)}
+Return Location: ${RENTMECT_ADDRESS}
+
+Daily Rate: ${vehicle.daily_rate ? money(vehicle.daily_rate) : 'Pending'}
+Base Rental Total: ${rental.base_rental_total ? money(rental.base_rental_total) : rental.rental_total ? money(rental.rental_total) : 'Pending'}
+Under-25 Rental Markup: ${Number(rental.under_25_markup_amount || 0) > 0 ? `${money(rental.under_25_markup_amount)} (${Number(rental.under_25_markup_percentage || 0)}%)` : 'Not applied'}
+Rental Total: ${rental.rental_total ? money(rental.rental_total) : 'Pending'}
+Tax Amount: ${rental.tax_amount ? money(rental.tax_amount) : 'Pending'}
+Security Deposit: ${rental.security_deposit ? money(rental.security_deposit) : vehicle.security_deposit ? money(vehicle.security_deposit) : 'Pending'}
+Mileage Policy: ${MILEAGE_POLICY}
+Cancellation Terms: ${CANCELLATION_TERMS}
+Typed Signature: ${signatureName || rental.agreement_signature_name || 'Pending'}
+Drawn Signature Image: ${signatureImage || extractSignatureImage(rental.agreement_snapshot) || 'Pending'}
+
+------------------------------------------------------------
+`;
+
+  return `${details}\n${AGREEMENT_TEXT}`;
 }
 
 function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet = new Set(), completionScopeSet = new Set()) {
