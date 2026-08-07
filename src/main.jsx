@@ -6653,6 +6653,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
+  const [emergencyStepScope, setEmergencyStepScope] = useState('');
   const [adminStepScope, setAdminStepScope] = useState('');
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [editRentalOpen, setEditRentalOpen] = useState(false);
@@ -6812,13 +6813,29 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         rental={rental}
         scope={adminStepScope}
         complete={progressSteps.find((step) => step.key === adminStepScope)?.complete}
-        document={adminStepScope === 'license' ? license : adminStepScope === 'insurance' ? insurance : null}
+        rentalDocument={adminStepScope === 'license' ? license : adminStepScope === 'insurance' ? insurance : null}
+        canBypass={Boolean(emergencyAuthorized) && Boolean(progressSteps.find((step) => step.key === adminStepScope)?.bypassable)}
         onCancel={() => setAdminStepScope('')}
         onUpload={(file) => uploadAdminBookingDocument?.(rental, adminStepScope, file)}
         onComplete={(note, metadata) => completeAdminRentalStep?.(rental, adminStepScope, note, metadata)}
         onSignAgreement={(signature) => signAdminRentalAgreement?.(rental, signature)}
         onOpenStripe={() => createAdminPaymentLink?.(rental, 'open')}
         onRecordExternal={() => { setAdminStepScope(''); setExternalPaymentModalOpen(true); }}
+        onBypass={() => {
+          const scope = adminStepScope;
+          setAdminStepScope('');
+          setEmergencyStepScope(scope);
+        }}
+      />}
+      {emergencyStepScope && <EmergencyStepBypassModal
+        rental={rental}
+        scope={emergencyStepScope}
+        onCancel={() => setEmergencyStepScope('')}
+        onConfirm={async (form) => {
+          const saved = await addEmergencyExceptionScope?.(rental, form);
+          if (saved) setEmergencyStepScope('');
+          return saved;
+        }}
       />}
       {cancelModalOpen && <CancelRentalModal
         rental={rental}
@@ -6853,6 +6870,7 @@ function RentalRow({ rental, updateRentalStatus, completeRentalReturn, releaseSe
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
         {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button className="approve" onClick={() => setExternalPaymentModalOpen(true)}><CreditCard size={15}/> Record External Payment</button>}
         {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
+        {canCreateEmergencyException && <button className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={15}/> Global Emergency Override</button>}
         {canCompleteReturn && <button className="approve primary-action" onClick={openReturnPanel}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
         {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund Payment</button>}
         {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
@@ -7171,7 +7189,7 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
   </div>;
 }
 
-function AdminStepCompletionModal({ rental, scope, complete, document, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal }) {
+function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, canBypass, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal, onBypass }) {
   const dialogRef = useDialogFocus(onCancel);
   const [note, setNote] = useState('');
   const [file, setFile] = useState(null);
@@ -7218,11 +7236,12 @@ function AdminStepCompletionModal({ rental, scope, complete, document, onCancel,
         {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
           <button type="button" className="primary-btn" onClick={async () => { setBusy(true); await onOpenStripe?.(); setBusy(false); }} disabled={busy}><CreditCard size={16}/> Open secure Stripe checkout on this device</button>
           <button type="button" className="secondary-btn" onClick={onRecordExternal}><Banknote size={16}/> Record phone / external payment as completed</button>
+          {canBypass && <button type="button" className="emergency-exception-action" onClick={onBypass}><AlertTriangle size={16}/> Emergency: bypass only Payment</button>}
           <small>Stripe payments reconcile automatically. External payments require the exact amount and payment method before they are marked paid.</small>
         </div>}
         <div className="modal-actions"><button type="button" onClick={onCancel}>Close</button></div>
       </div>
-    </div>, document.body);
+    </div>, globalThis.document.body);
   }
 
   return createPortal(<div className="admin-modal-backdrop" role="presentation">
@@ -7230,7 +7249,7 @@ function AdminStepCompletionModal({ rental, scope, complete, document, onCancel,
       <header className="admin-modal-header"><CheckCircle2 size={21}/><div><small>Admin-assisted booking</small><strong id="admin-step-title">{complete ? `Review ${label}` : `Complete ${label}`}</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • every action is added to activity history</span></div></header>
       {complete && scope !== 'agreement' ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>This step is complete.</strong> Re-completing it will update the audit note and verification time.</span></div> : null}
       {isDocument && <div className="admin-document-completion">
-        <p>{document ? `${docLabel(scope)} is currently ${prettyStatus(document.status)}.` : `No ${docLabel(scope).toLowerCase()} file is saved yet.`}</p>
+        <p>{rentalDocument ? `${docLabel(scope)} is currently ${prettyStatus(rentalDocument.status)}.` : `No ${docLabel(scope).toLowerCase()} file is saved yet.`}</p>
         <label className="procedure-upload"><Upload size={15}/> {file ? file.name : `Upload ${docLabel(scope)} (optional when inspected in person)`}<input type="file" accept="image/*,.pdf" onChange={(event) => setFile(event.target.files?.[0] || null)}/></label>
       </div>}
       {scope === 'identity' && <div className="assisted-identity-note"><UserRound size={18}/><span><strong>Physical identity check</strong><small>Inspect the customer and their government-issued driver’s license. Completing this step records “Admin verified in person”; Stripe Identity will no longer block this booking.</small></span></div>}
@@ -7244,9 +7263,13 @@ function AdminStepCompletionModal({ rental, scope, complete, document, onCancel,
       </>}
       <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/><small>{Math.min(note.trim().length, 5)}/5 minimum characters</small></label>
       {error && <p className="form-error" role="alert">{error}</p>}
+      {canBypass && !complete && <div className="document-step-bypass-option">
+        <span><strong>Emergency only</strong> This bypasses only {label.toLowerCase()}, remains auditable, and does not release the vehicle by itself.</span>
+        <button type="button" className="emergency-exception-action" disabled={busy} onClick={onBypass}><AlertTriangle size={15}/> Bypass only {label}</button>
+      </div>}
       <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button><button type="submit" className="approve" disabled={busy}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button></div>
     </form>
-  </div>, document.body);
+  </div>, globalThis.document.body);
 }
 
 function AdminSignaturePad({ value, onChange }) {
