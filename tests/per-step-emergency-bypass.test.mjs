@@ -28,6 +28,22 @@ test('license and insurance circles support upload or in-person completion', () 
   assert.doesNotMatch(source, /onDocumentStepClick=\{\(step\) => setDocumentStepScope/);
 });
 
+test('booking-circle modal mounts safely and keeps both completion and bypass actions', () => {
+  assert.match(source, /rentalDocument=\{adminStepScope === 'license'/);
+  assert.match(source, /function AdminStepCompletionModal\(\{ rental, scope, complete, rentalDocument, canBypass/);
+  assert.match(source, /globalThis\.document\.body/);
+  assert.doesNotMatch(source, /function AdminStepCompletionModal\(\{[^\n]*\bdocument\b/);
+  assert.match(source, /Bypass only \{label\}/);
+  assert.match(source, /setEmergencyStepScope\(scope\)/);
+  assert.match(source, /function EmergencyStepBypassModal/);
+});
+
+test('eligible rentals expose the global emergency override', () => {
+  assert.match(source, /canCreateEmergencyException && <button className="emergency-exception-action"/);
+  assert.match(source, /> Global Emergency Override<\/button>/);
+  assert.match(source, /function EmergencyExceptionModal/);
+});
+
 test('durable admin completions count as effective requirements', () => {
   assert.match(source, /completionScopeSet/);
   assert.match(source, /function getEffectiveReleaseChecklist/);
