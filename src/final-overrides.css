@@ -3818,6 +3818,124 @@ input[type="radio"] {
   color: #a12626;
 }
 
+.adjust-payment-deadline-button {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid #b8cfc3;
+  border-radius: 9px;
+  background: #f5faf7;
+  color: #124b32;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.adjust-payment-deadline-button:hover,
+.adjust-payment-deadline-button:focus-visible {
+  border-color: #197444;
+  background: #eaf6ef;
+}
+
+.rental-deadline-modal {
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(780px, calc(100vh - 24px));
+  overflow: auto;
+}
+
+.rental-deadline-body {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.deadline-current-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.deadline-current-summary > span {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #d9e5de;
+  border-radius: 10px;
+  background: #f8fbf9;
+  color: #243d31;
+}
+
+.deadline-current-summary strong {
+  color: #66786f;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.deadline-policy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #d8c681;
+  border-radius: 10px;
+  background: #fff9e8;
+  color: #604c16;
+}
+
+.deadline-policy-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.deadline-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deadline-quick-actions button {
+  padding: 8px 11px;
+  border: 1px solid #c8d8cf;
+  border-radius: 999px;
+  background: #fff;
+  color: #124b32;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.deadline-quick-actions button:hover,
+.deadline-quick-actions button:focus-visible {
+  border-color: #197444;
+  background: #eaf6ef;
+}
+
+.rental-deadline-body label {
+  display: grid;
+  gap: 7px;
+  color: #34483e;
+  font-weight: 800;
+}
+
+.rental-deadline-body input,
+.rental-deadline-body textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rental-deadline-body textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+@media (max-width: 620px) {
+  .deadline-current-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .late-return-warning,
 .late-return-critical {
   display: inline-flex;
