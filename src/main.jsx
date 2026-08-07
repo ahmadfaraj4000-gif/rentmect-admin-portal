@@ -7219,6 +7219,13 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
     if (reachedEnd) setAgreementReviewed(true);
   }
 
+  function skipAgreementToEnd() {
+    const reviewBox = agreementScrollRef.current;
+    if (!reviewBox) return;
+    reviewBox.scrollTop = reviewBox.scrollHeight;
+    setAgreementReviewed(true);
+  }
+
   useEffect(() => {
     const reviewBox = agreementScrollRef.current;
     if (scope !== 'agreement' || !reviewBox || alreadySigned) return;
@@ -7285,7 +7292,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
             ? 'This is the exact signed agreement stored with this rental.'
             : agreementReviewed
               ? 'Full agreement reviewed. The acknowledgment and signature fields are unlocked below.'
-              : 'Review the complete agreement and scroll to the bottom to unlock signing.'}
+              : <><span>“I Agree to the Terms” remains disabled until you scroll through the agreement to the bottom.</span><button type="button" className="agreement-skip-button" onClick={skipAgreementToEnd}>Skip to bottom and unlock “I Agree”</button></>}
         </div>
         <div ref={agreementScrollRef} className="admin-agreement-scroll-box" onScroll={trackAgreementReview} tabIndex="0" aria-label="Complete rental agreement">
           <pre>{printableAgreement}</pre>

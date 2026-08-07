@@ -6779,4 +6779,13 @@ input[type="radio"] {
     height: min(42dvh, 440px);
     min-height: 220px;
   }
+
+  .admin-agreement-review-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agreement-skip-button {
+    width: 100%;
+  }
 }

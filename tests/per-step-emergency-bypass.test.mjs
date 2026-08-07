@@ -56,7 +56,10 @@ test('the in-office agreement uses the same canonical signed document as the cus
   assert.match(source, /return `\$\{details\}\\n\$\{AGREEMENT_TEXT\}`/);
   assert.match(source, /AUTO-FILLED RENTAL DETAILS/);
   assert.match(source, /admin-agreement-scroll-box/);
-  assert.match(source, /scroll to the bottom to unlock signing/);
+  assert.match(source, /I Agree to the Terms” remains disabled until you scroll through the agreement to the bottom/);
+  assert.match(source, /Skip to bottom and unlock “I Agree”/);
+  assert.match(source, /function skipAgreementToEnd/);
+  assert.match(source, /reviewBox\.scrollTop = reviewBox\.scrollHeight/);
   assert.match(source, /This is the exact signed agreement stored with this rental/);
   assert.match(source, /Download Agreement/);
   assert.doesNotMatch(source, /<iframe[^>]*rental agreement/);

@@ -2589,8 +2589,10 @@ button{
 .step-complete-summary small,.assisted-identity-note small{color:#4e6b5c}
 .admin-payment-choice,.admin-document-completion{display:grid;gap:12px}
 .admin-payment-choice button{justify-content:center}
-.admin-agreement-review-status{padding:11px 13px;border:1px solid #e2c376;border-radius:10px;background:#fff8e5;color:#6b4b00;font-size:13px;font-weight:800;line-height:1.45}
+.admin-agreement-review-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid #e2c376;border-radius:10px;background:#fff8e5;color:#6b4b00;font-size:13px;font-weight:800;line-height:1.45}
 .admin-agreement-review-status.complete{border-color:#abd0b9;background:#edf8f1;color:#145f35}
+.agreement-skip-button{flex:0 0 auto;min-height:42px;padding:9px 14px;border:1px solid #6b4b00;border-radius:9px;background:#6b4b00;color:#fff;font-size:13px;font-weight:900;cursor:pointer}
+.agreement-skip-button:hover{background:#4d3700}
 .admin-agreement-scroll-box{height:min(46vh,520px);min-height:260px;border:1px solid #cfdbd4;border-radius:12px;overflow:auto;background:#f8faf9;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .admin-agreement-scroll-box pre{margin:0;padding:20px;white-space:pre-wrap;color:#17231c;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.65}
 .admin-agreement-sign-box{display:grid;gap:14px;padding-top:4px}
