@@ -7244,9 +7244,9 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
     </div>, globalThis.document.body);
   }
 
-  return createPortal(<div className="admin-modal-backdrop" role="presentation">
+  return createPortal(<div className={`admin-modal-backdrop ${scope === 'agreement' ? 'agreement-step-backdrop' : ''}`} role="presentation">
     <form ref={dialogRef} className={`admin-modal admin-step-modal ${scope === 'agreement' ? 'agreement-step-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="admin-step-title" onSubmit={completeStep}>
-      <header className="admin-modal-header"><CheckCircle2 size={21}/><div><small>Admin-assisted booking</small><strong id="admin-step-title">{complete ? `Review ${label}` : `Complete ${label}`}</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • every action is added to activity history</span></div></header>
+      <header className="admin-modal-header"><CheckCircle2 size={21}/><div><small>Admin-assisted booking</small><strong id="admin-step-title">{complete ? `Review ${label}` : `Complete ${label}`}</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • every action is added to activity history</span></div><button type="button" className="admin-close-button" onClick={onCancel} aria-label={`Close ${label} step`}><XCircle size={20}/></button></header>
       {complete && scope !== 'agreement' ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>This step is complete.</strong> Re-completing it will update the audit note and verification time.</span></div> : null}
       {isDocument && <div className="admin-document-completion">
         <p>{rentalDocument ? `${docLabel(scope)} is currently ${prettyStatus(rentalDocument.status)}.` : `No ${docLabel(scope).toLowerCase()} file is saved yet.`}</p>
@@ -7256,7 +7256,8 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       {scope === 'phone' && <p className="muted">Confirm the phone number with the customer in person, then record that verification below.</p>}
       {scope === 'deposit' && <label><span>Deposit decision</span><select value={depositDisposition} onChange={(event) => setDepositDisposition(event.target.value)}>{rental.payment_status === 'paid' && <option value="collected">Collected with completed payment</option>}<option value="waived">Waived by management</option></select><small>{rental.payment_status === 'paid' ? 'A captured Stripe deposit cannot be waived here; use the refund workflow instead.' : 'Record a full phone/external payment or Stripe payment to collect the deposit. The standalone pre-payment action is a documented waiver.'}</small></label>}
       {scope === 'agreement' && <>
-        <div className="agreement-embed"><iframe title="Rent Me CT rental agreement" src={PUBLIC_AGREEMENT_URL}/></div>
+        <div className="agreement-open-fallback"><span>Review the complete rental agreement below.</span><a href={PUBLIC_AGREEMENT_URL} target="_blank" rel="noreferrer">Open agreement in a new tab</a></div>
+        <div className="agreement-embed"><iframe title="Rent Me CT rental agreement" src={PUBLIC_AGREEMENT_URL} loading="eager"/></div>
         <label className="checkbox-row"><input type="checkbox" checked={agreementChecked} onChange={(event) => setAgreementChecked(event.target.checked)}/> I Agree to the Terms</label>
         <label><span>Customer’s full legal signature</span><input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} placeholder="Full legal name" autoComplete="name"/></label>
         <AdminSignaturePad value={signatureImage} onChange={setSignatureImage}/>

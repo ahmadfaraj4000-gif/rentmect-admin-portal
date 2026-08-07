@@ -6726,3 +6726,74 @@ input[type="radio"] {
     flex-direction: column;
   }
 }
+
+/* The in-office agreement must remain readable and scrollable inside the
+   viewport even while the page behind the modal is locked. */
+.agreement-step-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 16px !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.admin-modal.agreement-step-modal {
+  width: min(920px, calc(100vw - 32px)) !important;
+  max-height: calc(100vh - 32px) !important;
+  max-height: calc(100dvh - 32px) !important;
+  margin: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+}
+
+.agreement-step-modal .admin-modal-header > div {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.agreement-step-modal .admin-modal-header > .admin-close-button {
+  flex: 0 0 40px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  margin-left: auto !important;
+  padding: 0 !important;
+}
+
+.agreement-open-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ui-ink-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.agreement-open-fallback a {
+  flex: 0 0 auto;
+  color: #0d6b49;
+  font-weight: 900;
+  text-decoration: underline;
+}
+
+@media (max-width: 680px) {
+  .agreement-step-backdrop.admin-modal-backdrop {
+    padding: 8px !important;
+  }
+
+  .admin-modal.agreement-step-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+
+  .agreement-open-fallback {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

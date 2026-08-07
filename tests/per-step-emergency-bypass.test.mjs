@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+const finalOverrides = readFileSync(new URL('../src/final-overrides.css', import.meta.url), 'utf8');
+const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
 test('each actionable domino opens an audited admin completion flow', () => {
   assert.match(source, /function AdminStepCompletionModal/);
@@ -42,6 +44,16 @@ test('eligible rentals expose the global emergency override', () => {
   assert.match(source, /canCreateEmergencyException && <button className="emergency-exception-action"/);
   assert.match(source, /> Global Emergency Override<\/button>/);
   assert.match(source, /function EmergencyExceptionModal/);
+});
+
+test('the in-office agreement loads and scrolls inside the viewport', () => {
+  assert.match(page, /frame-src[^;]*https:\/\/rentmect\.com/);
+  assert.match(source, /agreement-step-backdrop/);
+  assert.match(source, /Open agreement in a new tab/);
+  assert.match(source, /loading="eager"/);
+  assert.match(finalOverrides, /\.admin-modal\.agreement-step-modal[\s\S]*overflow-y: auto !important/);
+  assert.match(finalOverrides, /max-height: calc\(100dvh - 32px\) !important/);
+  assert.match(finalOverrides, /-webkit-overflow-scrolling: touch !important/);
 });
 
 test('durable admin completions count as effective requirements', () => {
