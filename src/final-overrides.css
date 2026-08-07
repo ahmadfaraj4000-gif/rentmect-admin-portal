@@ -1577,6 +1577,12 @@ summary:focus-visible {
   justify-content: space-between !important;
 }
 
+.rental-archive-load-more {
+  display: flex !important;
+  width: fit-content !important;
+  margin: 18px auto 0 !important;
+}
+
 @media (max-width: 700px) {
   .customer-edit-name-grid,
   .customer-edit-grid {
