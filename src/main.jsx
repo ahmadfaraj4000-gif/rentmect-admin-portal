@@ -1069,6 +1069,7 @@ function App() {
         const fetchProfiles = () => supabase
           .from('profiles')
           .select('*')
+          .is('customer_deleted_at', null)
           .order('created_at', { ascending: false });
         let directoryResult = await withRequestDeadline(fetchProfiles(), 'Customer directory');
         if (directoryResult.error) {
@@ -1193,6 +1194,7 @@ function App() {
       supabase
         .from('profiles')
         .select('*')
+        .is('customer_deleted_at', null)
         .order('created_at', { ascending: false }),
 
       supabase
@@ -2165,6 +2167,36 @@ function App() {
       report.user_id === userId ? { ...report, profiles: { ...(report.profiles || {}), ...data } } : report
     ));
     notify(customerStatus === 'blocked' ? 'Customer blocked.' : customerStatus === 'good' ? 'Customer unblocked.' : 'Customer marked for review.', 'success');
+  }
+
+  async function updateCustomerProfile(userId, updates) {
+    const { data, error } = await supabase.functions.invoke('admin-customers', {
+      body: { action: 'update', customerId: userId, ...updates },
+    });
+    if (error || data?.error || !data?.profile) {
+      throw new Error(data?.error || error?.message || 'Customer changes could not be saved.');
+    }
+    const updatedProfile = data.profile;
+    setProfiles((current) => current.map((profile) => profile.id === userId ? updatedProfile : profile));
+    setRentals((current) => current.map((rental) =>
+      rental.user_id === userId ? { ...rental, profiles: { ...(rental.profiles || {}), ...updatedProfile } } : rental
+    ));
+    setReports((current) => current.map((report) =>
+      report.user_id === userId ? { ...report, profiles: { ...(report.profiles || {}), ...updatedProfile } } : report
+    ));
+    notify('Customer details updated.', 'success');
+    return updatedProfile;
+  }
+
+  async function deleteCustomerProfile(userId, confirmation) {
+    const { data, error } = await supabase.functions.invoke('admin-customers', {
+      body: { action: 'delete', customerId: userId, confirmation },
+    });
+    if (error || data?.error || !data?.deleted) {
+      throw new Error(data?.error || error?.message || 'Customer could not be deleted.');
+    }
+    setProfiles((current) => current.filter((profile) => profile.id !== userId));
+    notify('Customer deleted. Historical rental and payment records were retained.', 'success');
   }
 
   function startEditVehicle(vehicle) {
@@ -3538,7 +3570,7 @@ function App() {
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} serviceFees={serviceFees.filter((fee) => fee.active)} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={paidRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />}
-        {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} />}
+        {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
@@ -4516,7 +4548,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
   </>;
 }
 
-function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify }) {
+function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify, updateCustomerProfile, deleteCustomerProfile }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [contactCustomerId, setContactCustomerId] = useState('');
@@ -4611,6 +4643,8 @@ function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory,
       documents={documentsByUserId[selectedCustomer.id] || []}
       reports={reports.filter((report) => report.user_id === selectedCustomer.id)}
       openDocument={openDocument}
+      onUpdate={updateCustomerProfile}
+      onDelete={deleteCustomerProfile}
       onClose={() => setSelectedCustomerId('')}
     />}
     {contactCustomer && <CustomerContactModal
@@ -4738,14 +4772,101 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
   </div>;
 }
 
-function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onClose }) {
+function splitCustomerName(value) {
+  const parts = String(value || '').trim().split(/\s+/).filter(Boolean);
+  return {
+    firstAndMiddleName: parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '',
+    lastName: parts.length > 1 ? parts.at(-1) : '',
+  };
+}
+
+function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onUpdate, onDelete, onClose }) {
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const [openAgreementId, setOpenAgreementId] = useState('');
+  const [mode, setMode] = useState('details');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const nameParts = splitCustomerName(profile.full_name);
+  const [editForm, setEditForm] = useState({
+    firstAndMiddleName: nameParts.firstAndMiddleName,
+    lastName: nameParts.lastName,
+    email: profile.email || '',
+    phone: profile.phone || '',
+    dateOfBirth: profile.date_of_birth || '',
+    address: profile.address || '',
+    intendedVehicleUse: profile.intended_vehicle_use || '',
+    adminNotes: profile.admin_notes || '',
+  });
   const risk = customerRiskProfile(profile, rentals, documents, reports);
   const age = adminCustomerAge(profile.date_of_birth);
   const identityResults = identityMatchResults(profile);
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
   const signedAgreements = sortedRentals.filter((rental) => Boolean(rental.agreement_snapshot));
+  const isAdministrator = String(profile.role || '').toLowerCase() === 'admin';
+
+  function updateEditField(field, value, maxLength = 500) {
+    setEditForm((current) => ({ ...current, [field]: limitText(value, maxLength) }));
+    setFormError('');
+  }
+
+  function cancelCustomerAction() {
+    const currentName = splitCustomerName(profile.full_name);
+    setEditForm({
+      firstAndMiddleName: currentName.firstAndMiddleName,
+      lastName: currentName.lastName,
+      email: profile.email || '',
+      phone: profile.phone || '',
+      dateOfBirth: profile.date_of_birth || '',
+      address: profile.address || '',
+      intendedVehicleUse: profile.intended_vehicle_use || '',
+      adminNotes: profile.admin_notes || '',
+    });
+    setDeleteConfirmation('');
+    setFormError('');
+    setMode('details');
+  }
+
+  async function saveCustomer(event) {
+    event.preventDefault();
+    const firstAndMiddleName = editForm.firstAndMiddleName.trim().replace(/\s+/g, ' ');
+    const lastName = editForm.lastName.trim().replace(/\s+/g, ' ');
+    if (!firstAndMiddleName || !lastName) {
+      setFormError('Enter the customer’s first name and last name. Put any middle name or initial in the first-name field.');
+      return;
+    }
+    setSaving(true);
+    setFormError('');
+    try {
+      await onUpdate(profile.id, {
+        fullName: `${firstAndMiddleName} ${lastName}`,
+        email: editForm.email,
+        phone: editForm.phone,
+        dateOfBirth: editForm.dateOfBirth || null,
+        address: editForm.address || null,
+        intendedVehicleUse: editForm.intendedVehicleUse || null,
+        adminNotes: editForm.adminNotes || null,
+      });
+      setMode('details');
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Customer changes could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmCustomerDeletion(event) {
+    event.preventDefault();
+    setSaving(true);
+    setFormError('');
+    try {
+      await onDelete(profile.id, deleteConfirmation);
+      onClose();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Customer could not be deleted.');
+      setSaving(false);
+    }
+  }
 
   return <div className="admin-modal-backdrop customer-details-backdrop" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
@@ -4779,16 +4900,43 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
         </section>
 
         <section className="customer-details-section">
-          <h3>Contact and profile</h3>
-          <dl className="customer-detail-grid">
+          <div className="customer-section-heading">
+            <h3>Contact and profile</h3>
+            {mode === 'details' && <button className="customer-edit-button" type="button" onClick={() => setMode('edit')}><Pencil size={15}/> Edit customer</button>}
+          </div>
+          {mode !== 'edit' ? <dl className="customer-detail-grid">
             <div><dt>Email</dt><dd>{profile.email || 'Not provided'}</dd></div>
             <div><dt>Phone</dt><dd>{profile.phone || 'Not provided'}</dd></div>
             <div><dt>Date of birth</dt><dd>{profile.date_of_birth ? new Date(`${profile.date_of_birth}T12:00:00`).toLocaleDateString() : 'Not provided'}</dd></div>
             <div><dt>Deposit tier</dt><dd>{age === null ? 'Age not confirmed' : age < 25 ? '$500 — under 25' : '$300 — age 25+'}</dd></div>
+            <div className="wide"><dt>Home address</dt><dd>{profile.address || 'Not provided'}</dd></div>
             <div className="wide"><dt>Intended vehicle use</dt><dd>{profile.intended_vehicle_use || 'Not provided'}</dd></div>
             <div className="wide"><dt>Admin notes</dt><dd>{profile.admin_notes || 'No admin notes'}</dd></div>
-          </dl>
+          </dl> : <form className="customer-edit-form" id="customer-edit-form" onSubmit={saveCustomer}>
+            <div className="customer-edit-name-grid">
+              <label><span>First name + middle name or initial</span><input value={editForm.firstAndMiddleName} maxLength="120" onChange={(event) => updateEditField('firstAndMiddleName', event.target.value, 120)} required/><small>Enter any middle name or initial here exactly as shown on the customer’s ID.</small></label>
+              <label><span>Last name</span><input value={editForm.lastName} maxLength="80" onChange={(event) => updateEditField('lastName', event.target.value, 80)} required/></label>
+            </div>
+            <div className="customer-edit-grid">
+              <label><span>Email</span><input type="email" value={editForm.email} maxLength="254" onChange={(event) => updateEditField('email', event.target.value, 254)} required/></label>
+              <label><span>Mobile number</span><input type="tel" inputMode="tel" value={editForm.phone} maxLength="24" onChange={(event) => updateEditField('phone', event.target.value, 24)}/><small>Changing this number resets phone verification for the new number.</small></label>
+              <label><span>Date of birth</span><input type="date" value={editForm.dateOfBirth} onChange={(event) => updateEditField('dateOfBirth', event.target.value, 10)}/></label>
+              <label><span>Home address</span><input value={editForm.address} maxLength="500" onChange={(event) => updateEditField('address', event.target.value)}/></label>
+              <label className="wide"><span>Intended vehicle use</span><textarea value={editForm.intendedVehicleUse} maxLength="500" onChange={(event) => updateEditField('intendedVehicleUse', event.target.value)}/></label>
+              <label className="wide"><span>Admin notes</span><textarea value={editForm.adminNotes} maxLength="2000" onChange={(event) => updateEditField('adminNotes', event.target.value, 2000)}/></label>
+            </div>
+            {formError && <p className="form-error" role="alert">{formError}</p>}
+          </form>}
         </section>
+
+        {mode === 'delete' && <section className="customer-details-section customer-delete-confirmation">
+          <div><AlertTriangle size={20}/><div><h3>Delete this customer?</h3><p>The customer will lose portal access and disappear from the active customer directory. Completed rentals, payments, refunds, agreements, and audit records will remain available.</p></div></div>
+          <p>Customers with active, upcoming, unpaid, or unresolved rental activity cannot be deleted.</p>
+          <form id="customer-delete-form" onSubmit={confirmCustomerDeletion}>
+            <label><span>Type <strong>DELETE CUSTOMER</strong> to confirm</span><input value={deleteConfirmation} onChange={(event) => { setDeleteConfirmation(event.target.value); setFormError(''); }} autoComplete="off"/></label>
+            {formError && <p className="form-error" role="alert">{formError}</p>}
+          </form>
+        </section>}
 
         <section className="customer-details-section">
           <div className="customer-section-heading"><h3>Rental history</h3><span>{sortedRentals.length} total</span></div>
@@ -4854,7 +5002,14 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
           <div><span>Deposits released</span><strong>{money(risk.depositsReleased)}</strong></div>
         </section>
       </div>
-      <footer className="modal-actions customer-details-actions"><button className="primary-btn" type="button" onClick={onClose}>Done</button></footer>
+      <footer className="modal-actions customer-details-actions">
+        {mode === 'details' && <>
+          {!isAdministrator && <button className="customer-delete-button" type="button" onClick={() => { setMode('delete'); setFormError(''); }}>Delete customer</button>}
+          <button className="primary-btn" type="button" onClick={onClose}>Done</button>
+        </>}
+        {mode === 'edit' && <><button type="button" onClick={cancelCustomerAction} disabled={saving}>Cancel</button><button className="primary-btn" type="submit" form="customer-edit-form" disabled={saving}>{saving ? 'Saving…' : 'Save customer'}</button></>}
+        {mode === 'delete' && <><button type="button" onClick={cancelCustomerAction} disabled={saving}>Cancel</button><button className="customer-delete-button" type="submit" form="customer-delete-form" disabled={saving || deleteConfirmation !== 'DELETE CUSTOMER'}>{saving ? 'Deleting…' : 'Delete customer'}</button></>}
+      </footer>
     </section>
   </div>;
 }
