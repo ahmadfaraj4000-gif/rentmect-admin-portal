@@ -2728,6 +2728,37 @@ button{
     opacity:0;
     pointer-events:none
 }
+.admin-insurance-packet-picker,
+.admin-insurance-packet-files{
+    display:grid;
+    gap:8px
+}
+.admin-insurance-packet-files{
+    padding:10px;
+    border:1px solid #cfe0d7;
+    border-radius:8px;
+    background:#f8fbf9
+}
+.admin-insurance-packet-files label{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(190px,.8fr);
+    gap:8px;
+    align-items:center
+}
+.admin-insurance-packet-files label>span{
+    overflow:hidden;
+    font-size:11px;
+    font-weight:800;
+    text-overflow:ellipsis;
+    white-space:nowrap
+}
+.admin-insurance-packet-files select{
+    width:100%;
+    min-height:34px
+}
+@media(max-width:640px){
+    .admin-insurance-packet-files label{grid-template-columns:1fr}
+}
 .procedure-safety-note{
     display:block;
     padding:0 12px 11px;
