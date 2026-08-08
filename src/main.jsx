@@ -5136,7 +5136,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
     const [templatesRes, textTemplatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
       withRequestDeadline(supabase.from('email_templates').select('*').order('category').order('name'), 'Email templates'),
       withRequestDeadline(supabase.from('sms_templates').select('*').order('category').order('name'), 'Text templates'),
-      withRequestDeadline(supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100), 'Campaigns'),
+      withRequestDeadline(supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100), 'Sent emails'),
       withRequestDeadline(supabase.from('email_outbox').select('*').order('created_at', { ascending: false }).limit(100), 'Email outbox'),
       withRequestDeadline(supabase.from('email_delivery_events').select('*').order('event_at', { ascending: false }).limit(200), 'Delivery events'),
     ]);
@@ -5262,7 +5262,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
   }
 
   async function sendCampaign(schedule = false) {
-    if (!composer.name.trim() || !composer.subject.trim() || !composer.htmlBody.trim()) return notify('Campaign name, subject, and body are required.');
+    if (!composer.name.trim() || !composer.subject.trim() || !composer.htmlBody.trim()) return notify('Email name, subject, and body are required.');
     if (schedule && !composer.scheduledFor) return notify('Choose a scheduled date and time.');
     const audienceCount = composer.audienceType === 'selected' ? composer.selectedUserIds.length : optedInProfiles.length;
     if (!audienceCount) return notify('No opted-in customers match this audience.');
@@ -5283,8 +5283,8 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       });
       setComposer({ name: '', templateId: '', subject: '', preheader: '', htmlBody: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', textBody: '', audienceType: 'marketing_opted_in', selectedUserIds: [], scheduledFor: '' });
       await loadEmailData(true);
-      setSection('campaigns');
-      notify(schedule ? 'Campaign scheduled.' : 'Campaign started.', 'success');
+      setSection('emails');
+      notify(schedule ? 'Email scheduled.' : 'Email sending started.', 'success');
     } catch (error) {
       notify(error.message);
     } finally {
@@ -5307,23 +5307,30 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       <div className="email-admin-health"><MessageCircle size={19}/><strong>{messages.filter((message) => !message.read_by_admin && message.sender_role !== 'admin').length}</strong><span>unread messages</span></div>
     </div>
     <div className="email-admin-tabs" role="tablist">
-      {[['inbox', 'Inbox'], ['campaigns', 'Campaigns'], ['setup', 'Messaging Setup']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
+      {[['inbox', 'Inbox'], ['emails', 'Emails'], ['setup', 'Messaging Setup']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
     </div>
 
     {section === 'inbox' && <CommunicationsInbox rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={onSelectThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
 
-    {section === 'setup' && <div className="email-card-grid">
+    {section === 'emails' && <>
+      <div className="email-section-heading"><div><p className="eyebrow">Customer Lifecycle</p><h3>Automated Rental Emails</h3><span>Booking confirmations, payment notices, document updates, reminders, refunds, and cancellations.</span></div><span className="email-template-count">{automated.length} emails</span></div>
+      <div className="email-card-grid">
       {automated.map((template) => <article className="email-setting-card" key={template.id}>
         <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Email • Trigger: {prettyStatus(template.trigger_key || 'manual')}</small></div></div>
         <p>{template.subject}</p>
         <div className="email-card-actions"><button className="secondary-btn" onClick={() => setEditingTemplate({ ...template })}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
       </article>)}
+      {!automated.length && <p className="muted">No automated rental emails are installed.</p>}
+      </div>
+    </>}
+
+    {section === 'setup' && <div className="email-card-grid">
       {automatedTexts.map((template) => <article className="email-setting-card" key={template.id}>
         <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Text message • {prettyStatus(template.template_key)}</small></div></div>
         <p>{template.body}</p>
         <div className="email-card-actions"><button className="secondary-btn" onClick={() => setEditingTextTemplate({ ...template })}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleTextAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
       </article>)}
-      {!automated.length && !automatedTexts.length && <p className="muted">Run the communications migrations to install automated email and text templates.</p>}
+      {!automatedTexts.length && <p className="muted">No automated text templates are installed. SMS remains separate from rental email automation.</p>}
     </div>}
 
     {section === 'setup' && <Panel title="Reusable Templates" eyebrow="Email & Text Library">
@@ -5341,10 +5348,10 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       </div></>}
     </Panel>}
 
-    {section === 'campaigns' && <div className="email-compose-layout">
-      <Panel title="Create Custom Email" eyebrow="Broadcast">
+    {section === 'emails' && <div className="email-compose-layout">
+      <Panel title="Send Custom Email" eyebrow="Optional Bulk Email">
         <div className="portal-form email-compose-form">
-          <input placeholder="Campaign name (internal only)" value={composer.name} onChange={(event) => setComposer({ ...composer, name: limitText(event.target.value, 120) })}/>
+          <input placeholder="Email name (internal only)" value={composer.name} onChange={(event) => setComposer({ ...composer, name: limitText(event.target.value, 120) })}/>
           <label className="field-label">Start from template<select value={composer.templateId} onChange={(event) => useTemplate(event.target.value)}><option value="">Blank/custom</option>{manual.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
           <input placeholder="Email subject" value={composer.subject} onChange={(event) => setComposer({ ...composer, subject: limitText(event.target.value, 200) })}/>
           <input placeholder="Preview text" value={composer.preheader} onChange={(event) => setComposer({ ...composer, preheader: limitText(event.target.value, 240) })}/>
@@ -5358,8 +5365,8 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       <Panel title="Preview" eyebrow="Customer View"><iframe className="email-preview-frame" title="Email preview" sandbox="" srcDoc={composerPreview}/></Panel>
     </div>}
 
-    {section === 'campaigns' && <div className="email-history-grid">
-      <Panel title="Campaigns" eyebrow="Custom Emails"><div className="email-history-list">{campaigns.map((campaign) => <article key={campaign.id}><span className={`email-history-status ${campaign.status}`}>{prettyStatus(campaign.status)}</span><div><strong>{campaign.name}</strong><small>{campaign.subject}</small></div><em>{campaign.sent_count || 0}/{campaign.recipient_count || 0} sent</em></article>)}{!campaigns.length && <p className="muted">No custom campaigns yet.</p>}</div></Panel>
+    {section === 'emails' && <div className="email-history-grid">
+      <Panel title="Sent & Scheduled Emails" eyebrow="Custom Emails"><div className="email-history-list">{campaigns.map((campaign) => <article key={campaign.id}><span className={`email-history-status ${campaign.status}`}>{prettyStatus(campaign.status)}</span><div><strong>{campaign.name}</strong><small>{campaign.subject}</small></div><em>{campaign.sent_count || 0}/{campaign.recipient_count || 0} sent</em></article>)}{!campaigns.length && <p className="muted">No custom emails yet.</p>}</div></Panel>
       <Panel title="Automated Queue" eyebrow="Transactional"><div className="email-history-list">{outbox.map((job) => <article key={job.id}><span className={`email-history-status ${job.status}`}>{prettyStatus(job.status)}</span><div><strong>{prettyStatus(job.email_type)}</strong><small>{job.recipient_email}</small></div><em>{job.sent_at ? new Date(job.sent_at).toLocaleString() : job.last_error || 'Queued'}</em></article>)}{!outbox.length && <p className="muted">No automated emails queued yet.</p>}</div></Panel>
       <Panel title="Recent Provider Events" eyebrow="SendGrid"><div className="email-history-list">{events.slice(0, 50).map((event) => <article key={event.id}><span className={`email-history-status ${event.event_type}`}>{prettyStatus(event.event_type)}</span><div><strong>{event.email || 'Recipient unavailable'}</strong><small>{event.provider_message_id || 'SendGrid event'}</small></div><em>{new Date(event.event_at).toLocaleString()}</em></article>)}{!events.length && <p className="muted">Delivery events will appear after the SendGrid webhook is connected.</p>}</div></Panel>
     </div>}

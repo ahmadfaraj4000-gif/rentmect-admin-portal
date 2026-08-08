@@ -3600,6 +3600,39 @@ input[type="radio"] {
   color: #fff !important;
 }
 
+.email-section-heading {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+  margin: 18px 0 12px !important;
+  padding: 18px 20px !important;
+  border: 1px solid #dce7df !important;
+  border-left: 5px solid #d71920 !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #fff 0%, #f3faf5 100%) !important;
+}
+
+.email-section-heading h3 {
+  margin: 2px 0 4px !important;
+  color: #123d2b !important;
+  font-size: 20px !important;
+}
+
+.email-section-heading span {
+  color: var(--ui-ink-soft) !important;
+  font-size: 13px !important;
+}
+
+.email-template-count {
+  flex: 0 0 auto !important;
+  padding: 7px 11px !important;
+  border-radius: 999px !important;
+  background: #0b6b3a !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+
 .admin-modal-backdrop {
   padding: 20px !important;
   background: rgba(10, 17, 13, .62) !important;
