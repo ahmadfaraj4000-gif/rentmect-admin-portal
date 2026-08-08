@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-07-30-final-r2';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-08-08-late-mileage-r1';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -21,7 +21,7 @@ Only drivers listed in the Rental Addendum and approved by Company may operate t
 Operation by an unauthorized driver constitutes a material breach.
 
 PAYMENT TERMS AND MILEAGE
-Mileage: Two hundred (200) miles per day are included.
+Mileage: Two hundred fifty (250) miles per day are included.
 Excess mileage shall be charged at $0.35 per mile.
 Unlimited mileage may be purchased for an additional fee depending upon vehicle class.
 Security deposits and post-rental charges may range from $200 to $2,000 depending upon vehicle class, extent of damage, policy violations, cleaning requirements, and other contractual breaches.
@@ -44,7 +44,8 @@ Failure to maintain proper fuel levels may result in additional administrative o
 
 LATE RETURN, VEHICLE DISABLING, AND REACTIVATION POLICY
 Renter agrees to return the Vehicle on or before the agreed return date and time listed in the Rental Addendum.
-If the Vehicle is not returned within four (4) hours of the scheduled return time without prior approval from Company, Renter shall automatically be charged for one (1) additional full rental day at the applicable daily rental rate in addition to a twenty-five dollar ($25) late return fee.
+At thirty (30) minutes after the scheduled return time, if the Vehicle has not been returned and Company has not approved the delay, Renter shall be assessed a twenty-five dollar ($25) late return fee.
+If the Vehicle remains unreturned for more than two (2) hours after the scheduled return time without prior approval from Company, Renter shall also be assessed one (1) additional full rental day at the applicable daily rental rate, in addition to the twenty-five dollar ($25) late return fee.
 Company may send courtesy return reminders approximately twenty-four (24) hours and three (3) hours before the scheduled return time, with timing adjusted when necessary to keep delivery between 8:00 a.m. and 9:00 p.m. Eastern Time. Failure to receive, open, or read a reminder does not change Renter's scheduled return obligation or waive any automatic late-return charge.
 Company further reserves the right to remotely disable or shut down the Vehicle where legally permitted and reasonably safe to do so, in compliance with all applicable federal, state, and local laws and regulations.
 Renter acknowledges and agrees that a fifty-dollar ($50) vehicle reactivation fee shall apply before the Vehicle may be re-enabled or returned to active rental status.
@@ -166,7 +167,7 @@ Daily Rate: $_________
 Young Driver Fee: $_________
 Unlimited Mileage: [ ] YES [ ] NO
 Unlimited Mileage Fee: $_________
-Mileage Included: 200 miles/day
+Mileage Included: 250 miles/day
 Excess Mileage: $0.35 per mile
 Security Deposit: $_________
 Pick-Up / Drop-Off Fee (if applicable): $_________

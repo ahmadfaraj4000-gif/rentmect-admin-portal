@@ -62,7 +62,7 @@ import './final-overrides.css';
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CLIENT_PORTAL_URL = (import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com').replace(/\/$/, '');
 const CT_TAX_RATE = 0.0635;
-const MILEAGE_POLICY = '200 miles/day included; excess mileage $0.35/mile';
+const MILEAGE_POLICY = '250 miles/day included; excess mileage $0.35/mile';
 const CANCELLATION_TERMS = 'Contact Rent Me CT before pickup for cancellation or schedule changes.';
 const DEFAULT_NEW_VEHICLE_DEPOSIT = 300;
 const DEFAULT_UNDER_25_PRICING = {
@@ -7994,7 +7994,7 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
   }
 
   return <div className={`rental-charge-manager ${compact ? 'compact' : ''}`}>
-    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Automatic late fees and tolls, plus manual damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add manual charge</button></div>
+    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Automatic late-return charges and tolls, plus manual damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add manual charge</button></div>
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
       <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small>
@@ -8007,7 +8007,7 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
       <div className="automatic-charge-heading">
         <div><CheckCircle2 size={17}/><span><strong>Automatically added</strong><small>No amount entry or duplicate Add charge step is needed.</small></span></div>
         {automaticCollectible.length > 0 && <div className="automatic-charge-totals">
-          {automaticLateTotal > 0 && <span>Late fees <strong>{money(automaticLateTotal)}</strong></span>}
+          {automaticLateTotal > 0 && <span>Late return <strong>{money(automaticLateTotal)}</strong></span>}
           {automaticTollTotal > 0 && <span>Tolls <strong>{money(automaticTollTotal)}</strong></span>}
           <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
         </div>}
@@ -8016,7 +8016,7 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
         {automaticCharges.map((charge) => <article className="automatic-charge-card" key={charge.id}>
           <div className="automatic-charge-fields">
             <label><span>Charge</span><input value={charge.name || ''} readOnly /></label>
-            <label><span>Type</span><input value={charge.source_type === 'tollspot' ? 'Toll • TollSpot' : 'Late fee • calculated'} readOnly /></label>
+            <label><span>Type</span><input value={charge.source_type === 'tollspot' ? 'Toll • TollSpot' : 'Late return • calculated'} readOnly /></label>
             <label><span>Amount</span><input value={Number(charge.amount || 0).toFixed(2)} readOnly /></label>
             <label><span>Total</span><input value={Number(charge.total_amount || 0).toFixed(2)} readOnly /></label>
           </div>
