@@ -7747,3 +7747,60 @@ input[type="radio"] {
     width: 100%;
   }
 }
+
+/* Communication is a routine workflow, not a destructive warning. Keep its
+   hierarchy bright and make these final selectors win over generic modal rules. */
+.customer-contact-backdrop.admin-modal-backdrop {
+  background: rgba(15, 28, 21, .46) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
+.customer-contact-modal.admin-modal {
+  border-color: #cbdad2 !important;
+  box-shadow: 0 26px 72px rgba(14, 48, 31, .24) !important;
+}
+
+.customer-contact-modal > .customer-contact-header {
+  border-bottom: 1px solid #cfe2d6 !important;
+  background: linear-gradient(135deg, #f7fbf8 0%, #e8f4ed 100%) !important;
+}
+
+.customer-contact-modal > .customer-contact-header .customer-contact-icon {
+  border-color: #b9dbc7 !important;
+  background: #dff2e6 !important;
+  color: #0b6b3a !important;
+}
+
+.customer-contact-modal > .customer-contact-header small {
+  color: #587066 !important;
+}
+
+.customer-contact-modal > .customer-contact-header strong {
+  color: #123d2b !important;
+}
+
+.customer-contact-modal > .customer-contact-header div > span {
+  color: #5d6f67 !important;
+}
+
+.customer-contact-modal > .customer-contact-header .customer-details-close {
+  border-color: #ebc3c1 !important;
+  background: #fff1f0 !important;
+  color: #a82925 !important;
+}
+
+.customer-contact-modal .contact-channel-toggle button.active,
+.customer-contact-modal .customer-contact-actions .contact-send {
+  border-color: #0b6b3a !important;
+  background: #0b6b3a !important;
+  color: #fff !important;
+}
+
+.customer-contact-modal .contact-channel-toggle button.active {
+  box-shadow: 0 1px 4px rgba(11, 107, 58, .22) !important;
+}
+
+.customer-contact-modal .customer-contact-actions .contact-send:hover:not(:disabled) {
+  border-color: #08552f !important;
+  background: #08552f !important;
+}

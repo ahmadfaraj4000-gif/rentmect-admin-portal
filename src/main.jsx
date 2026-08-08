@@ -7021,7 +7021,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
         </div>
         <div className="rental-card-secondary-actions">
           {detailed && rental.status !== 'cancelled' && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
-          <button type="button" onClick={() => rental.agreement_snapshot ? downloadAgreement(rental) : setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
+          <button type="button" onClick={() => setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => setContactModal({ charge: null })}><MessageCircle size={14}/> Contact</button>
           <details className="rental-overflow-menu">
             <summary aria-label="More rental actions">•••</summary>
