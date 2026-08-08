@@ -1881,14 +1881,9 @@ function App() {
 
   async function decideExtension(id, approve) {
     const request = extensionRequests.find((item) => item.id === id);
-    const extensionInsurance = documents
-      .filter((document) =>
-        document.extension_request_id === id &&
-        document.document_type === 'insurance'
-      )
-      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+    const extensionInsurance = latestInsurancePacket(documents.filter((document) => document.rental_id === request?.rental_id), id);
     if (approve && extensionInsurance?.status !== 'approved') {
-      notify('Open and approve the new extension insurance before approving this request.');
+      notify('Open and approve the complete new extension insurance packet before approving this request.');
       return;
     }
     const customer = request?.rentals?.profiles?.full_name || 'this customer';
@@ -1909,14 +1904,9 @@ function App() {
 
   async function recordExtensionPayment(id) {
     const request = extensionRequests.find((item) => item.id === id);
-    const extensionInsurance = documents
-      .filter((document) =>
-        document.extension_request_id === id &&
-        document.document_type === 'insurance'
-      )
-      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+    const extensionInsurance = latestInsurancePacket(documents.filter((document) => document.rental_id === request?.rental_id), id);
     if (extensionInsurance?.status !== 'approved') {
-      notify('Approve the new extension insurance before recording payment.');
+      notify('Approve the complete new extension insurance packet before recording payment.');
       return;
     }
     if (!window.confirm(`Record ${money(request?.extension_total_amount || 0)} as received outside Stripe and activate this extension?`)) return;
@@ -2921,19 +2911,32 @@ function App() {
   }
 
   async function markDocument(id, status) {
-    const { error } = await supabase.from('rental_documents').update({ status }).eq('id', id);
-    if (error) return notify(error.message);
     const changedDocument = documents.find((document) => document.id === id);
+    const packetId = changedDocument?.document_type === 'insurance'
+      ? (changedDocument.insurance_packet_id || changedDocument.id)
+      : null;
+    const packetDocumentIds = packetId
+      ? documents.filter((document) => (document.insurance_packet_id || document.id) === packetId).map((document) => document.id)
+      : [id];
+    if (packetId && status === 'approved' && !insuranceDocumentsComplete(documents.filter((document) => packetDocumentIds.includes(document.id)))) {
+      notify('This packet needs one combined file or both liability and collision files before approval.');
+      return;
+    }
+    const query = supabase.from('rental_documents').update({ status });
+    const { error } = packetId ? await query.in('id', packetDocumentIds) : await query.eq('id', id);
+    if (error) return notify(error.message);
     const updatedDocuments = documents.map((document) =>
-      document.id === id ? { ...document, status } : document
+      packetDocumentIds.includes(document.id) ? { ...document, status } : document
     );
     setDocuments((current) => current.map((document) =>
-      document.id === id ? { ...document, status } : document
+      packetDocumentIds.includes(document.id) ? { ...document, status } : document
     ));
     const movedRentals = status === 'approved' && changedDocument
       ? await autoMarkReadyForPickup(changedDocument, updatedDocuments)
       : [];
-    const documentMessage = `${prettyStatus(status)} ${docLabel(documents.find((document) => document.id === id)?.document_type || 'document')}.`;
+    const documentMessage = packetId
+      ? `${prettyStatus(status)} insurance packet (${packetDocumentIds.length} ${packetDocumentIds.length === 1 ? 'file' : 'files'}).`
+      : `${prettyStatus(status)} ${docLabel(documents.find((document) => document.id === id)?.document_type || 'document')}.`;
     const transitionMessage = movedRentals.length
       ? ` ${movedRentals.map((rental) => rentalDisplayName(rental)).join(', ')} moved to Ready For Pickup.`
       : '';
@@ -3210,26 +3213,49 @@ function App() {
     return data.onboardingUrl;
   }
 
-  async function uploadAdminBookingDocument(rental, documentType, file) {
-    if (!rental?.id || !rental?.user_id || !file) return false;
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-    const path = `${rental.user_id}/${documentType}/admin-${rental.id}-${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage.from(DOCUMENT_BUCKET).upload(path, file, { upsert: false });
-    if (uploadError) return notify(uploadError.message);
-    const { data, error } = await supabase.from('rental_documents').insert({
-      user_id: rental.user_id,
-      rental_id: rental.id,
-      document_type: documentType,
-      file_path: path,
-      status: 'pending_review',
-    }).select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').single();
-    if (error) {
-      await supabase.storage.from(DOCUMENT_BUCKET).remove([path]);
-      return notify(error.message);
+  async function uploadAdminBookingDocument(rental, documentType, fileOrItems, { extensionRequestId = null } = {}) {
+    if (!rental?.id || !rental?.user_id || !fileOrItems) return false;
+    const items = documentType === 'insurance'
+      ? (Array.isArray(fileOrItems) ? fileOrItems : [{ file: fileOrItems, coverageType: 'combined' }])
+      : [{ file: fileOrItems, coverageType: null }];
+    if (documentType === 'insurance' && !insurancePacketItemsComplete(items)) {
+      notify('Choose one combined policy file or include both liability and collision files.');
+      return false;
     }
-    setDocuments((current) => [data, ...current]);
-    notify(`${docLabel(documentType)} uploaded for review. Approve it only after checking the image and expiration details.`, 'success');
-    return true;
+    const packetId = documentType === 'insurance' ? crypto.randomUUID() : null;
+    const uploadedPaths = [];
+    try {
+      const rows = [];
+      for (const [index, item] of items.entries()) {
+        const safeName = item.file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+        const path = `${rental.user_id}/${documentType}/${packetId || 'license'}/admin-${rental.id}-${Date.now()}-${index}-${safeName}`;
+        const { error: uploadError } = await supabase.storage.from(DOCUMENT_BUCKET).upload(path, item.file, { upsert: false });
+        if (uploadError) throw uploadError;
+        uploadedPaths.push(path);
+        rows.push({
+          user_id: rental.user_id,
+          rental_id: rental.id,
+          document_type: documentType,
+          file_path: path,
+          status: 'pending_review',
+          extension_request_id: extensionRequestId,
+          insurance_packet_id: packetId,
+          insurance_coverage_type: item.coverageType,
+        });
+      }
+      const { data, error } = await supabase.from('rental_documents').insert(rows)
+        .select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))');
+      if (error) throw error;
+      setDocuments((current) => [...(data || []), ...current]);
+      notify(documentType === 'insurance'
+        ? `Insurance packet uploaded with ${rows.length} ${rows.length === 1 ? 'file' : 'files'}. Approve the packet once after review.`
+        : 'Driver License uploaded for review.', 'success');
+      return true;
+    } catch (error) {
+      if (uploadedPaths.length) await supabase.storage.from(DOCUMENT_BUCKET).remove(uploadedPaths);
+      notify(error?.message || 'The document upload failed.');
+      return false;
+    }
   }
 
   async function completeAdminRentalStep(rental, stepKey, note, metadata = {}) {
@@ -6071,15 +6097,15 @@ function Documents({ documents, markDocument, openDocument, deleteDocument }) {
       {documents.length === 0 && <p className="muted">No document uploads yet.</p>}
       {documents.map((d) => <div className="data-row" key={d.id}>
         <div>
-          <strong>{d.extension_request_id ? 'Extension Insurance' : docLabel(d.document_type)}</strong>
+          <strong>{d.extension_request_id ? 'Extension Insurance' : docLabel(d.document_type)}{d.document_type === 'insurance' ? ` — ${insuranceCoverageLabel(d.insurance_coverage_type)}` : ''}</strong>
           <span>{d.profiles?.full_name || d.user_id}</span>
           <small>{d.rentals?.vehicles?.name || 'No vehicle'} • {new Date(d.created_at).toLocaleString()}</small>
         </div>
         <div className="row-actions">
           <em>{d.status}</em>
           <button onClick={()=>openDocument(d)}><FileText size={16}/> Open</button>
-          <button onClick={()=>markDocument(d.id, 'approved')} className="approve"><CheckCircle2 size={16}/> Approve</button>
-          <button onClick={()=>markDocument(d.id, 'rejected')} className="reject"><XCircle size={16}/> Reject</button>
+          <button onClick={()=>markDocument(d.id, 'approved')} className="approve"><CheckCircle2 size={16}/> {d.document_type === 'insurance' ? 'Approve Packet' : 'Approve'}</button>
+          <button onClick={()=>markDocument(d.id, 'rejected')} className="reject"><XCircle size={16}/> {d.document_type === 'insurance' ? 'Reject Packet' : 'Reject'}</button>
           <button onClick={()=>deleteDocument(d)} className="reject"><XCircle size={16}/> Delete</button>
         </div>
       </div>)}
@@ -6859,7 +6885,10 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
-  const insurance = rentalDocuments.find((d) => d.document_type === 'insurance');
+  const insurancePacket = latestInsurancePacket(rentalDocuments);
+  const insurance = insurancePacket?.representative
+    ? { ...insurancePacket.representative, status: insurancePacket.status }
+    : null;
   const documentsForProgress = license && !rentalDocuments.some((document) => document.id === license.id)
     ? [license, ...rentalDocuments]
     : rentalDocuments;
@@ -6874,7 +6903,8 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     : emergencyExceptions.find((item) => item.status === 'active' && new Date(item.expires_at).getTime() > Date.now());
   const emergencyScopeSet = getActiveEmergencyScopeSet(activeEmergencyException);
   const completionScopeSet = new Set(stepCompletions.map((item) => item.step_key));
-  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, new Set([...emergencyScopeSet, ...completionScopeSet]));
+  const nonInsuranceCompletionScopes = [...completionScopeSet].filter((scope) => scope !== 'insurance');
+  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, new Set([...emergencyScopeSet, ...nonInsuranceCompletionScopes]));
   const canRecordExternalPayment = rental.payment_status !== 'paid';
   const canMarkActive = effectiveReleaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
@@ -7372,6 +7402,16 @@ function AdminBookingProcedure({ rental, checklist, bypassedScopes = new Set(), 
     event.target.value = '';
   }
 
+  function uploadInsurance(event) {
+    const files = Array.from(event.target.files || []);
+    const items = files.map((file, index) => ({
+      file,
+      coverageType: files.length === 1 ? 'combined' : index === 0 ? 'liability' : index === 1 ? 'collision' : 'other',
+    }));
+    if (items.length) run('upload-insurance', () => uploadAdminBookingDocument?.(rental, 'insurance', items));
+    event.target.value = '';
+  }
+
   return <details className="admin-booking-procedure" open>
     <summary><ClipboardList size={16}/><span>Booking procedure console</span><em>{steps.filter(([, complete]) => complete).length}/{steps.length} complete</em></summary>
     <div className="procedure-step-grid">
@@ -7391,7 +7431,7 @@ function AdminBookingProcedure({ rental, checklist, bypassedScopes = new Set(), 
       <button type="button" disabled={Boolean(busy)} onClick={() => run('email', () => sendBookingCompletionLink?.(rental, 'email'))}><Mail size={15}/>{busy === 'email' ? ' Sending…' : ' Email only'}</button>
       <button type="button" disabled={Boolean(busy)} onClick={() => run('copy', () => sendBookingCompletionLink?.(rental, 'copy'))}><ExternalLink size={15}/> Copy secure checklist link</button>
       <label className="procedure-upload"><FileText size={15}/>{busy === 'upload-license' ? ' Uploading…' : ' Upload license'}<input type="file" accept="image/*,.pdf" disabled={Boolean(busy)} onChange={(event) => upload('license', event)}/></label>
-      <label className="procedure-upload"><ShieldCheck size={15}/>{busy === 'upload-insurance' ? ' Uploading…' : ' Upload insurance'}<input type="file" accept="image/*,.pdf" disabled={Boolean(busy)} onChange={(event) => upload('insurance', event)}/></label>
+      <label className="procedure-upload"><ShieldCheck size={15}/>{busy === 'upload-insurance' ? ' Uploading packet…' : ' Upload insurance packet'}<input type="file" multiple accept="image/*,.pdf" disabled={Boolean(busy)} onChange={uploadInsurance}/></label>
       {!checklist.payment && <button type="button" className={paymentPreference === 'admin_stripe' ? 'approve procedure-payment-primary' : 'approve'} disabled={Boolean(busy) || !prerequisitesForPayment} title={!prerequisitesForPayment ? 'Phone, identity, approved documents, and agreement are required first.' : 'Opens PCI-compliant Stripe Checkout; do not enter card data in the admin portal.'} onClick={() => run('payment', () => createAdminPaymentLink?.(rental, 'open'))}><CreditCard size={15}/>{busy === 'payment' ? ' Starting…' : ' Open Stripe Checkout on this device'}</button>}
       {!checklist.payment && <button type="button" className={paymentPreference === 'external' ? 'approve procedure-payment-primary' : ''} disabled={Boolean(busy) || !prerequisitesForPayment} title={!prerequisitesForPayment ? 'Phone, identity, approved documents, and agreement are required first.' : 'Use only after the external payment actually cleared.'} onClick={() => run('external-payment', () => recordExternalPayment?.(rental))}><DollarSign size={15}/>{busy === 'external-payment' ? ' Recording…' : ' Record External Payment'}</button>}
     </div>
@@ -7478,6 +7518,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const agreementScrollRef = useRef(null);
   const [note, setNote] = useState('');
   const [file, setFile] = useState(null);
+  const [insuranceItems, setInsuranceItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [depositDisposition, setDepositDisposition] = useState(rental.payment_status === 'paid' ? 'collected' : 'waived');
@@ -7530,13 +7571,14 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
     setBusy(true);
     setError('');
     try {
-      if (isDocument && file) {
-        const uploaded = await onUpload?.(file);
+      const documentUpload = scope === 'insurance' ? insuranceItems : file;
+      if (isDocument && (scope === 'insurance' ? insuranceItems.length > 0 : file)) {
+        const uploaded = await onUpload?.(documentUpload);
         if (!uploaded) return;
       }
       const saved = scope === 'agreement'
         ? await onSignAgreement?.({ name: signatureName.trim(), image: signatureImage, note: note.trim() })
-        : await onComplete?.(note.trim(), scope === 'deposit' ? { disposition: depositDisposition } : { verified_in_person: true, uploaded_document: Boolean(file) });
+        : await onComplete?.(note.trim(), scope === 'deposit' ? { disposition: depositDisposition } : { verified_in_person: true, uploaded_document: scope === 'insurance' ? insuranceItems.length > 0 : Boolean(file) });
       if (saved) onCancel();
     } finally {
       setBusy(false);
@@ -7564,7 +7606,9 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       {complete && scope !== 'agreement' ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>This step is complete.</strong> Re-completing it will update the audit note and verification time.</span></div> : null}
       {isDocument && <div className="admin-document-completion">
         <p>{rentalDocument ? `${docLabel(scope)} is currently ${prettyStatus(rentalDocument.status)}.` : `No ${docLabel(scope).toLowerCase()} file is saved yet.`}</p>
-        <label className="procedure-upload"><Upload size={15}/> {file ? file.name : `Upload ${docLabel(scope)} (optional when inspected in person)`}<input type="file" accept="image/*,.pdf" onChange={(event) => setFile(event.target.files?.[0] || null)}/></label>
+        {scope === 'insurance'
+          ? <InsurancePacketPicker items={insuranceItems} setItems={setInsuranceItems} disabled={busy}/>
+          : <label className="procedure-upload"><Upload size={15}/> {file ? file.name : `Upload ${docLabel(scope)} (optional when inspected in person)`}<input type="file" accept="image/*,.pdf" onChange={(event) => setFile(event.target.files?.[0] || null)}/></label>}
       </div>}
       {scope === 'identity' && <div className="assisted-identity-note"><UserRound size={18}/><span><strong>Physical identity check</strong><small>Inspect the customer and their government-issued driver’s license. Completing this step records “Admin verified in person”; Stripe Identity will no longer block this booking.</small></span></div>}
       {scope === 'phone' && <p className="muted">Confirm the phone number with the customer in person, then record that verification below.</p>}
@@ -7596,6 +7640,35 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>{alreadySigned ? 'Close' : 'Cancel'}</button>{alreadySigned && <button type="button" className="secondary-btn" onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Download Agreement</button>}{!alreadySigned && <button type="submit" className="approve" disabled={busy || (scope === 'agreement' && (!agreementReviewed || !agreementChecked || signatureName.trim().length < 2 || !signatureImage))}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button>}</div>
     </form>
   </div>, globalThis.document.body);
+}
+
+function InsurancePacketPicker({ items, setItems, disabled = false }) {
+  function chooseFiles(event) {
+    const files = Array.from(event.target.files || []);
+    setItems(files.map((file, index) => ({
+      file,
+      coverageType: files.length === 1 ? 'combined' : index === 0 ? 'liability' : index === 1 ? 'collision' : 'other',
+    })));
+    event.target.value = '';
+  }
+  function updateCoverage(index, coverageType) {
+    setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, coverageType } : item));
+  }
+  return <div className="admin-insurance-packet-picker">
+    <label className="procedure-upload"><Upload size={15}/> {items.length ? 'Choose different insurance files' : 'Choose insurance files'}<input type="file" multiple accept="image/*,.pdf" disabled={disabled} onChange={chooseFiles}/></label>
+    {items.length > 0 && <div className="admin-insurance-packet-files">
+      {items.map((item, index) => <label key={`${item.file.name}-${item.file.lastModified}-${index}`}>
+        <span title={item.file.name}>{item.file.name}</span>
+        <select value={item.coverageType} disabled={disabled} onChange={(event) => updateCoverage(index, event.target.value)}>
+          <option value="combined">Combined liability + collision</option>
+          <option value="liability">Liability</option>
+          <option value="collision">Collision</option>
+          <option value="other">Supporting document</option>
+        </select>
+      </label>)}
+      {!insurancePacketItemsComplete(items) && <small className="form-error">Include one combined file or both liability and collision files.</small>}
+    </div>}
+  </div>;
 }
 
 function AdminSignaturePad({ value, onChange, disabled = false }) {
@@ -8145,12 +8218,7 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
     {activeRequests.map((request) => {
       const replacement = vehicles.find((vehicle) => vehicle.id === request.replacement_vehicle_id);
       const isSwitch = request.request_kind === 'switch_car_continuation';
-      const extensionInsurance = documents
-        .filter((document) =>
-          document.document_type === 'insurance' &&
-          document.extension_request_id === request.id
-        )
-        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+      const extensionInsurance = latestInsurancePacket(documents, request.id);
       const insuranceApproved = extensionInsurance?.status === 'approved';
       return <div className={`extension-action-row ${request.status}`} key={request.id}>
         <div>
@@ -8163,14 +8231,14 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
           {isSwitch && request.status !== 'pending' && <small>{money(request.deposit_carried_amount || 0)} deposit carried{Number(request.deposit_increase_amount || 0) > 0 ? ` • ${money(request.deposit_increase_amount)} increase collected` : ''}{Number(request.deposit_decrease_amount || 0) > 0 ? ` • ${money(request.deposit_decrease_amount)} decrease refunded after original-car inspection` : ''}</small>}
           {request.status === 'approved_pending_payment' && <small>Customer notice: email {request.approval_email_queued_at ? 'queued' : 'not queued'} • SMS {prettyStatus(request.approval_sms_status || 'not due')}</small>}
           <small className={insuranceApproved ? 'extension-insurance-approved' : 'form-error'}>
-            Extension insurance: {prettyStatus(extensionInsurance?.status || 'missing')}
+            Extension insurance packet: {prettyStatus(extensionInsurance?.status || 'missing')}{extensionInsurance ? ` • ${extensionInsurance.documents.length} ${extensionInsurance.documents.length === 1 ? 'file' : 'files'}` : ''}
           </small>
           {request.customer_note && <small>Note: {request.customer_note}</small>}
         </div>
         <div className="mini-actions">
-          {extensionInsurance && openDocument && <button type="button" onClick={() => openDocument(extensionInsurance)}><FileText size={14}/> Open Insurance</button>}
-          {extensionInsurance && extensionInsurance.status !== 'approved' && markDocument && <button type="button" className="approve" onClick={() => markDocument(extensionInsurance.id, 'approved')}><CheckCircle2 size={14}/> Approve Insurance</button>}
-          {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Notify Customer</button>}
+          {extensionInsurance?.documents.map((document) => <button type="button" key={document.id} onClick={() => openDocument?.(document)}><FileText size={14}/> Open {insuranceCoverageLabel(document.insurance_coverage_type)}</button>)}
+          {extensionInsurance && extensionInsurance.status !== 'approved' && markDocument && <button type="button" className="approve" onClick={() => markDocument(extensionInsurance.representative.id, 'approved')}><CheckCircle2 size={14}/> Approve Packet</button>}
+          {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance packet first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Notify Customer</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="reject" onClick={() => decideExtension(request.id, false)}><XCircle size={14}/> Reject</button>}
           {request.status === 'approved_pending_payment' && recordExtensionPayment && <button type="button" className="approve" onClick={() => recordExtensionPayment(request.id)}><CreditCard size={14}/> Record Payment</button>}
           {request.status === 'approved_pending_payment' && sendExtensionPaymentLink && <button type="button" onClick={() => sendExtensionPaymentLink(request)}><Send size={14}/> Send Payment Link</button>}
@@ -9308,9 +9376,10 @@ Drawn Signature Image: ${signatureImage || extractSignatureImage(rental.agreemen
 
 function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet = new Set(), completionScopeSet = new Set()) {
   const license = latestDocument(rentalDocuments, 'license');
-  const insurance = latestDocument(rentalDocuments, 'insurance');
+  const insurancePacket = latestInsurancePacket(rentalDocuments);
+  const insurance = insurancePacket?.representative;
   const hasLicense = license?.status === 'approved';
-  const hasInsurance = insurance?.status === 'approved';
+  const hasInsurance = insurancePacket?.status === 'approved';
   const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at || completionScopeSet.has('phone'));
   const identityVerified = rental.profiles?.identity_verification_status === 'verified' || completionScopeSet.has('identity');
   const hasDatesAndVehicle = Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date);
@@ -9318,7 +9387,7 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
   const paymentPaid = (rental.payment_status || 'pending') === 'paid' || completionScopeSet.has('payment');
   const depositComplete = Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase()) || completionScopeSet.has('deposit');
   const effectiveLicenseNative = hasLicense || completionScopeSet.has('license');
-  const effectiveInsuranceNative = hasInsurance || completionScopeSet.has('insurance');
+  const effectiveInsuranceNative = hasInsurance;
   const effectivePhone = phoneVerified || emergencyScopeSet.has('phone');
   const effectiveIdentity = identityVerified || emergencyScopeSet.has('identity');
   const effectiveLicense = effectiveLicenseNative || emergencyScopeSet.has('license');
@@ -9341,7 +9410,7 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
     { key: 'identity', label: 'Identity', complete: identityVerified, detail: completionScopeSet.has('identity') || rental.profiles?.identity_verification_method === 'admin_in_person' ? 'Verified in person by admin' : identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
     { key: 'vehicle', label: 'Vehicle', complete: hasDatesAndVehicle, detail: hasDatesAndVehicle ? 'Dates and vehicle selected' : 'Dates or vehicle missing' },
     { key: 'license', label: 'License', complete: effectiveLicenseNative, detail: completionScopeSet.has('license') ? 'Verified in person by admin' : hasLicense ? `Driver license ${prettyStatus(license.status)}` : license?.status === 'rejected' ? 'Driver license rejected — replacement required' : 'Driver license missing' },
-    { key: 'insurance', label: 'Insurance', complete: effectiveInsuranceNative, detail: completionScopeSet.has('insurance') ? 'Verified in person by admin' : hasInsurance ? `Insurance ${prettyStatus(insurance.status)}` : insurance?.status === 'rejected' ? 'Insurance rejected — replacement required' : 'Insurance missing' },
+    { key: 'insurance', label: 'Insurance', complete: effectiveInsuranceNative, detail: hasInsurance ? 'Insurance packet approved' : insurancePacket?.status === 'rejected' ? 'Insurance packet rejected — replacement required' : insurancePacket ? 'Insurance packet awaiting approval' : 'Insurance packet missing' },
     { key: 'agreement', label: 'Agreement', complete: agreementSigned, detail: agreementSigned ? 'Agreement signed' : 'Agreement not signed' },
     { key: 'payment', label: 'Payment', complete: paymentPaid, detail: paymentPaid ? 'Payment complete' : `Payment ${prettyStatus(rental.payment_status || 'pending')}` },
     { key: 'deposit', label: 'Deposit', complete: depositComplete, detail: depositComplete ? `Deposit ${prettyStatus(rental.deposit_status || 'complete')}` : 'Deposit collection required' },
@@ -9385,7 +9454,8 @@ function getEffectiveReleaseChecklist(checklist, emergencyScopeSet = new Set()) 
 
 function getReleaseChecklist(rental, rentalDocuments = []) {
   const license = latestDocument(rentalDocuments, 'license');
-  const insurance = latestDocument(rentalDocuments, 'insurance');
+  const insurancePacket = latestInsurancePacket(rentalDocuments);
+  const hasInsurance = insurancePacket?.status === 'approved';
   return {
     phone: Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at),
     identity: rental.profiles?.identity_verification_status === 'verified',
@@ -9394,7 +9464,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
     payment: (rental.payment_status || 'pending') === 'paid',
     deposit: Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase()),
     license: license?.status === 'approved',
-    insurance: insurance?.status === 'approved',
+    insurance: hasInsurance,
     ready: Boolean(
       (rental.profiles?.phone_verified || rental.profiles?.phone_verified_at) &&
       rental.profiles?.identity_verification_status === 'verified' &&
@@ -9405,7 +9475,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
       (rental.payment_status || 'pending') === 'paid' &&
       (Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase())) &&
       license?.status === 'approved' &&
-      insurance?.status === 'approved'
+      hasInsurance
     ),
   };
 }
@@ -9507,6 +9577,39 @@ function latestDocument(documents = [], type) {
   return documents
     .filter((document) => document.document_type === type)
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
+}
+
+function insurancePacketItemsComplete(items = []) {
+  const coverage = new Set(items.map((item) => item.coverageType));
+  return coverage.has('combined') || (coverage.has('liability') && coverage.has('collision'));
+}
+
+function insuranceDocumentsComplete(documents = []) {
+  const coverage = new Set(documents.map((document) => document.insurance_coverage_type || 'combined'));
+  return coverage.has('combined') || (coverage.has('liability') && coverage.has('collision'));
+}
+
+function latestInsurancePacket(documents = [], extensionRequestId = null) {
+  const packetGroups = new Map();
+  documents.filter((document) => document.document_type === 'insurance')
+    .filter((document) => extensionRequestId ? document.extension_request_id === extensionRequestId : !document.extension_request_id)
+    .forEach((document) => {
+      const packetId = document.insurance_packet_id || document.id;
+      if (!packetGroups.has(packetId)) packetGroups.set(packetId, []);
+      packetGroups.get(packetId).push(document);
+    });
+  const latest = [...packetGroups.entries()].sort(([, left], [, right]) => (
+    Math.max(...right.map((document) => new Date(document.created_at || 0).getTime()))
+    - Math.max(...left.map((document) => new Date(document.created_at || 0).getTime()))
+  ))[0];
+  if (!latest) return null;
+  const [id, packetDocuments] = latest;
+  const coverageComplete = insuranceDocumentsComplete(packetDocuments);
+  const rejected = packetDocuments.some((document) => document.status === 'rejected');
+  const approved = coverageComplete && packetDocuments.every((document) => document.status === 'approved');
+  const status = rejected ? 'rejected' : approved ? 'approved' : 'pending_review';
+  const representative = [...packetDocuments].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+  return { id, documents: packetDocuments, representative, coverageComplete, status };
 }
 
 function vehicleStatusForRentalStatus(status) {
@@ -10235,6 +10338,9 @@ function identityMatchResults(profile = {}) {
   ];
 }
 function docLabel(type) { return type === 'license' ? 'Driver License' : type === 'insurance' ? 'Insurance Policy' : prettyStatus(type); }
+function insuranceCoverageLabel(type) {
+  return { combined: 'Combined Coverage', liability: 'Liability', collision: 'Collision', other: 'Supporting File' }[type || 'combined'] || 'Insurance File';
+}
 function prettyVehicleStatus(status) { return prettyStatus(status || 'available'); }
 function operationalVehicleStatus(status) {
   const normalized = String(status || 'available').toLowerCase();
