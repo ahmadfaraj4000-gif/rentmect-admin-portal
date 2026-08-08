@@ -6956,6 +6956,32 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     && rental.payment_provider === 'stripe'
     && rental.payment_status === 'paid'
     && refundableRentalPayment >= 0.5;
+  const customerName = rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable');
+  const rentalReference = rental.reservation_number || rental.booking_number || rental.confirmation_code || String(rental.id || '').slice(0, 6).toUpperCase();
+  const rentalDays = Math.max(1, Math.round(
+    (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
+      / 86_400_000
+  ));
+  const additionalChargeTotal = rentalCharges
+    .filter((charge) => !charge.included_in_initial_payment && charge.status !== 'waived')
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const initialPaymentTotal = Number(rental.rental_total || 0)
+    + Number(rental.service_fee_total || 0)
+    + Number(rental.tax_amount || 0)
+    + Number(rental.security_deposit || 0);
+  const recordedPaymentAmount = Number(rental.payment_amount_cents || 0) > 0
+    ? Number(rental.payment_amount_cents) / 100
+    : rental.payment_status === 'paid' ? initialPaymentTotal : 0;
+  const paidAmount = Math.max(0, recordedPaymentAmount - recordedRentalRefunds);
+  const unpaidInitialBalance = rental.payment_status === 'paid' ? 0 : Math.max(0, initialPaymentTotal - recordedPaymentAmount);
+  const balanceDue = Math.max(0, unpaidInitialBalance + outstandingRentalCharges);
+  const depositHeldAmount = protectedDeposit || 0;
+  const nextAdminStep = progressSteps.find((step) => !step.complete && step.adminAction);
+  const activityNeedsAttention = Boolean(
+    activeEmergencyException
+    || rentalReports.length
+    || rentalExtensions.some((request) => ['pending', 'approved_pending_payment'].includes(String(request.status || '').toLowerCase()))
+  );
 
   function submitPickupOverride(startingMileage) {
     updateRentalStatus(rental.id, 'active', {
@@ -6974,41 +7000,117 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     setReturnPanelOpen(false);
   }
 
-  return <div className="data-row rental-row">
-    <div className="rental-row-main">
-      <strong>{rental.vehicles?.name || 'Vehicle'}</strong>
-      <span>{rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable')} • {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
-      {detailed && rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
-      {detailed && <small>{money(rental.rental_total)} rental • {money(rental.service_fee_total || 0)} booking fees • {money(rental.tax_amount)} tax • {money(rental.security_deposit)} deposit {rental.is_mock ? '• MOCK' : ''}</small>}
-      {detailed && rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}>
-        <Clock size={14}/> Payment due {new Date(rental.payment_due_at).toLocaleString()} • unpaid booking auto-cancels at this deadline
-      </small>}
-      {detailed && canAdjustPaymentDeadline && <button type="button" className="adjust-payment-deadline-button" onClick={() => setDeadlineModalOpen(true)}><CalendarClock size={15}/> Change this reservation deadline</button>}
-      {detailed && returnState.inGrace && <small className="late-return-warning"><Clock size={14}/> Three-hour grace is active. It ends {returnState.graceEnds.toLocaleString()}; the vehicle will then be hard-locked until inspection.</small>}
-      {detailed && returnState.hardLocked && <small className="late-return-critical"><AlertTriangle size={14}/> PHYSICAL RETURN LOCK — this vehicle cannot accept another booking until the return inspection below is completed.</small>}
-      {detailed && Number(rental.under_25_markup_amount || 0) > 0 && <small>Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup • {money(rental.base_security_deposit)} vehicle deposit adjusted to {money(rental.security_deposit)}</small>}
-      {detailed && <small>Intended use: {rental.profiles?.intended_vehicle_use || 'Not provided'}</small>}
-      {detailed && <DepositReleaseStatus rental={rental} />}
-      {detailed && <MileageSummary rental={rental} />}
-      {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
-        {stepCompletions.map((completion) => <span className="admin-completion-badge" key={completion.id}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</span>)}
-        {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
-      </div>}
-      <RentalProgressTracker
-        steps={progressSteps}
-        onStepClick={(step) => setAdminStepScope(step.key)}
-      />
-      {progressSteps.some((step) => step.adminAction) && <small className="document-step-hint"><CheckCircle2 size={13}/> Click any booking circle to review it, upload documents, sign in office, collect payment, or mark that step complete.</small>}
-      {detailed && <div className="rental-doc-summary">
-        <DocumentStatusBadge label="License" document={license} />
-        <DocumentStatusBadge label="Insurance" document={insurance} />
-      </div>}
-      {detailed && <DocumentMiniList documents={documentsForDisplay} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} />}
-      {detailed && <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} />}
-      {detailed && <RentalChargeManager rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />}
-      {detailed && outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong> Use Charge customer below; the refund action unlocks automatically when the balance is clear.</span></div>}
-      {detailed && rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
-      {!canMarkActive && !canCompleteReturn && <small className="next-action-hint">{adminState.next}</small>}
+  return <article className="data-row rental-row rental-operations-card">
+    <header className="rental-card-header">
+      <div className="rental-card-identity">
+        <div className="rental-card-title-line">
+          <strong>{rental.vehicles?.name || 'Vehicle'} <span>#{rentalReference || 'Rental'}</span></strong>
+          {rental.is_mock && <em>MOCK</em>}
+        </div>
+        <span className="rental-card-customer">{customerName}</span>
+        <span className="rental-card-schedule">{formatRentalDate(rental.pickup_date, rental.pickup_time)} <ArrowRight size={14}/> {formatRentalDate(rental.return_date, rental.return_time)} <small>{rentalDays} day{rentalDays === 1 ? '' : 's'}</small></span>
+        <span className="rental-card-price-line">{money(rental.rental_total)} rental <i>•</i> {money(rental.service_fee_total || 0)} booking fee <i>•</i> {money(rental.security_deposit)} deposit</span>
+      </div>
+      <div className="rental-card-command">
+        <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
+        <small>{adminState.next}</small>
+        <div className="rental-card-primary-action">
+          {canMarkActive && <button className="approve primary-action" onClick={() => setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
+          {canCompleteReturn && <button className="approve primary-action" onClick={openReturnPanel}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
+          {!canMarkActive && !canCompleteReturn && nextAdminStep && <button type="button" className="approve primary-action" onClick={() => setAdminStepScope(nextAdminStep.key)}><ArrowRight size={15}/> Manage {nextAdminStep.label}</button>}
+        </div>
+        <div className="rental-card-secondary-actions">
+          {detailed && rental.status !== 'cancelled' && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
+          <button type="button" onClick={() => rental.agreement_snapshot ? downloadAgreement(rental) : setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
+          <button type="button" onClick={() => setContactModal({ charge: null })}><MessageCircle size={14}/> Contact</button>
+          <details className="rental-overflow-menu">
+            <summary aria-label="More rental actions">•••</summary>
+            <div>
+              {canAdjustPaymentDeadline && <button type="button" onClick={() => setDeadlineModalOpen(true)}><CalendarClock size={14}/> Change payment deadline</button>}
+              {canCreateEmergencyException && <button type="button" className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={14}/> Global emergency override</button>}
+              {canCancel && <button type="button" className="reject" onClick={() => setCancelModalOpen(true)}><XCircle size={14}/> Cancel rental</button>}
+              {!canAdjustPaymentDeadline && !canCreateEmergencyException && !canCancel && <span>No additional actions</span>}
+            </div>
+          </details>
+        </div>
+      </div>
+    </header>
+
+    <div className="rental-card-workflow">
+      <RentalProgressTracker steps={progressSteps} onStepClick={(step) => setAdminStepScope(step.key)} />
+    </div>
+
+    {(rental.customer_auth_deleted_at || returnState.inGrace || returnState.hardLocked) && <div className="rental-card-alerts">
+      {rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
+      {returnState.inGrace && <small className="late-return-warning"><Clock size={14}/> Three-hour grace is active until {returnState.graceEnds.toLocaleString()}.</small>}
+      {returnState.hardLocked && <small className="late-return-critical"><AlertTriangle size={14}/> PHYSICAL RETURN LOCK — complete the return inspection before another booking.</small>}
+    </div>}
+
+    <div className="rental-card-workspace">
+      <div className="rental-card-left-column">
+        <section className="rental-card-section rental-card-details" aria-labelledby={`rental-details-${rental.id}`}>
+          <div className="rental-card-section-heading"><div><small>Operations</small><h4 id={`rental-details-${rental.id}`}>Rental Details</h4></div></div>
+          <dl>
+            <dt>Pickup</dt><dd>{rental.starting_mileage != null ? `Recorded · ${formatMiles(rental.starting_mileage)}` : 'Not recorded'}</dd>
+            <dt>Return</dt><dd>{rental.ending_mileage != null ? `Recorded · ${formatMiles(rental.ending_mileage)}` : 'Not recorded'}</dd>
+            <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage)) : 'Not recorded'}</dd>
+            <dt>Intended use</dt><dd>{rental.profiles?.intended_vehicle_use || 'Not provided'}</dd>
+            <dt>Rental status</dt><dd>{prettyStatus(rental.status || 'pending')}</dd>
+            <dt>Payment status</dt><dd>{prettyStatus(rental.payment_status || 'pending')}</dd>
+          </dl>
+          {Number(rental.under_25_markup_amount || 0) > 0 && <small className="rental-card-detail-note">Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup.</small>}
+        </section>
+
+        <section className="rental-card-section rental-card-documents" aria-labelledby={`rental-documents-${rental.id}`}>
+          <div className="rental-card-section-heading"><div><small>Files</small><h4 id={`rental-documents-${rental.id}`}>Documents</h4></div><span>{documentsForDisplay.length} saved</span></div>
+          <DocumentMiniList
+            documents={documentsForDisplay}
+            openDocument={openDocument}
+            markDocument={markDocument}
+            deleteDocument={deleteDocument}
+            onManageDocument={(document) => setAdminStepScope(document.document_type)}
+          />
+        </section>
+      </div>
+
+      <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
+        <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
+        <dl className="rental-payment-lines">
+          <dt>Rental</dt><dd>{money(rental.rental_total)}</dd>
+          <dt>Booking fee</dt><dd>{money(rental.service_fee_total || 0)}</dd>
+          <dt>Tax</dt><dd>{money(rental.tax_amount || 0)}</dd>
+          <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
+          <dt className="total-line">Original payment</dt><dd className="total-line">{money(initialPaymentTotal)}</dd>
+          <dt>Paid after refunds</dt><dd>{money(paidAmount)}</dd>
+          <dt>Deposit held</dt><dd>{money(depositHeldAmount)}</dd>
+          <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
+        </dl>
+        {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
+        <div className="rental-financial-actions">
+          {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
+          {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
+          {canReleaseDeposit && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
+          {canReleaseDeposit && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
+        </div>
+        <RentalChargeManager compact rental={rental} charges={rentalCharges} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />
+        {outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
+      </aside>
+    </div>
+
+    <details className="rental-card-activity" open={activityNeedsAttention || undefined}>
+      <summary><span><History size={15}/> Activity, extensions &amp; rental history</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length} items</em><ChevronDown size={16}/></summary>
+      <div className="rental-card-activity-body">
+        {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
+          {stepCompletions.map((completion) => <button type="button" className="admin-completion-badge" key={completion.id} onClick={() => setAdminStepScope(completion.step_key)}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</button>)}
+          {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
+        </div>}
+        {activeEmergencyException && <EmergencyExceptionBanner exception={activeEmergencyException} checklist={releaseChecklist} onResolve={(scope) => resolveEmergencyExceptionScope?.(activeEmergencyException.id, scope)} />}
+        <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} />
+        {rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
+        {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && <small>No extension, incident, or admin-completion activity is attached to this rental.</small>}
+      </div>
+    </details>
+
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={closeReturnPanel} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
       {externalPaymentModalOpen && <ExternalPaymentModal
         rental={rental}
@@ -7102,28 +7204,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
           return saved;
         }}
       />}
-    </div>
-    <div className="row-actions rental-actions">
-      <div className="rental-actions-primary">
-        <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
-        {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button className="approve" onClick={() => setExternalPaymentModalOpen(true)}><CreditCard size={15}/> Record External Payment</button>}
-        {canMarkActive && <button className="approve primary-action" onClick={()=>setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
-        {canCreateEmergencyException && <button className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={15}/> Global Emergency Override</button>}
-        {canCompleteReturn && <button className="approve primary-action" onClick={openReturnPanel}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
-        {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund Payment</button>}
-        {canReleaseDeposit && hasStripeDepositAllocation && <button className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
-        {canReleaseDeposit && hasLocalDepositAllocation && <button className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
-      </div>
-      <div className="rental-actions-secondary">
-        {detailed && rental.status !== 'cancelled' && <button type="button" className="edit-rental-action" onClick={() => setEditRentalOpen(true)}><Pencil size={15}/> Edit Rental</button>}
-        {rental.agreement_snapshot && <button onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Agreement</button>}
-        {canCancel && <button className="reject" onClick={()=>setCancelModalOpen(true)}><XCircle size={15}/> Cancel</button>}
-        {detailed
-          ? <button type="button" onClick={() => setContactModal({ charge: null })}><MessageCircle size={15}/> Contact Customer</button>
-          : <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />}
-      </div>
-    </div>
-  </div>;
+  </article>;
 }
 
 function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
@@ -7841,7 +7922,7 @@ function EmergencyExceptionBanner({ exception, checklist, onResolve }) {
   </div>;
 }
 
-function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, sendPaymentLink }) {
+function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, sendPaymentLink, compact = false }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [chargingId, setChargingId] = useState('');
@@ -7912,13 +7993,16 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
     </div>;
   }
 
-  return <div className="rental-charge-manager">
+  return <div className={`rental-charge-manager ${compact ? 'compact' : ''}`}>
     <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Automatic late fees and tolls, plus manual damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add manual charge</button></div>
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
       <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small>
     </div>
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
+    {(compact && charges.length > 0) && <details className="rental-charge-history" open={outstandingTotal > 0 || undefined}>
+      <summary><span>Charge history</span><em>{charges.length} charge{charges.length === 1 ? '' : 's'}</em><ChevronDown size={15}/></summary>
+      <div className="rental-charge-history-body">
     {automaticCharges.length > 0 && <section className="automatic-charge-section" aria-label="Automatically calculated charges">
       <div className="automatic-charge-heading">
         <div><CheckCircle2 size={17}/><span><strong>Automatically added</strong><small>No amount entry or duplicate Add charge step is needed.</small></span></div>
@@ -7945,6 +8029,36 @@ function RentalChargeManager({ rental, charges = [], addRentalCharge, waiveRenta
       </div>
     </section>}
     {otherCharges.map(renderChargeRow)}
+      </div>
+    </details>}
+    {!compact && <>
+      {automaticCharges.length > 0 && <section className="automatic-charge-section" aria-label="Automatically calculated charges">
+        <div className="automatic-charge-heading">
+          <div><CheckCircle2 size={17}/><span><strong>Automatically added</strong><small>No amount entry or duplicate Add charge step is needed.</small></span></div>
+          {automaticCollectible.length > 0 && <div className="automatic-charge-totals">
+            {automaticLateTotal > 0 && <span>Late fees <strong>{money(automaticLateTotal)}</strong></span>}
+            {automaticTollTotal > 0 && <span>Tolls <strong>{money(automaticTollTotal)}</strong></span>}
+            <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
+          </div>}
+        </div>
+        <div className="automatic-charge-list">
+          {automaticCharges.map((charge) => <article className="automatic-charge-card" key={charge.id}>
+            <div className="automatic-charge-fields">
+              <label><span>Charge</span><input value={charge.name || ''} readOnly /></label>
+              <label><span>Type</span><input value={charge.source_type === 'tollspot' ? 'Toll • TollSpot' : 'Late fee • calculated'} readOnly /></label>
+              <label><span>Amount</span><input value={Number(charge.amount || 0).toFixed(2)} readOnly /></label>
+              <label><span>Total</span><input value={Number(charge.total_amount || 0).toFixed(2)} readOnly /></label>
+            </div>
+            <div className="automatic-charge-card-footer">
+              <small>{charge.description || (charge.source_type === 'tollspot' ? 'Exact TollSpot match added automatically.' : 'Late-return assessment added automatically.')}</small>
+              <span className={`workflow-badge ${charge.status === 'paid' ? 'success' : charge.status === 'waived' ? '' : 'warning'}`}>{prettyStatus(charge.status)}</span>
+              {renderChargeActions(charge)}
+            </div>
+          </article>)}
+        </div>
+      </section>}
+      {otherCharges.map(renderChargeRow)}
+    </>}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <div className="manual-charge-heading"><strong>Manual charge</strong><small>Use this only for damage, cleaning, add-ons, or another charge that was not generated automatically.</small></div>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
@@ -8625,7 +8739,7 @@ function RentalProgressTracker({ steps, onStepClick }) {
       return <div className="progress-step-wrap" key={step.key}>
           {interactive
             ? <button type="button" className={`progress-step ${step.state} interactive`} title={interactiveLabel} aria-label={`Manage ${step.label}`} onClick={() => onStepClick(step)}>
-                <Icon size={16}/>
+                {step.complete ? <CheckCircle2 size={16}/> : step.bypassed ? <AlertTriangle size={16}/> : <Icon size={16}/>}
               </button>
             : <div className={`progress-step ${step.state}`} title={`${step.label}: ${step.detail}`}>
                 {step.complete ? <CheckCircle2 size={16}/> : step.bypassed ? <AlertTriangle size={16}/> : <Icon size={16}/>}
@@ -8641,17 +8755,26 @@ function DocumentStatusBadge({ label, document }) {
   return <span className={`doc-status-badge ${status}`}>{label}: {prettyStatus(status)}</span>;
 }
 
-function DocumentMiniList({ documents = [], openDocument, markDocument, deleteDocument }) {
+function DocumentMiniList({ documents = [], openDocument, markDocument, deleteDocument, onManageDocument }) {
   if (!documents.length) return <div className="document-mini-list empty">No license or insurance uploads yet.</div>;
 
   return <div className="document-mini-list">
-    {documents.map((document) => <div className="document-mini-row" key={document.id}>
-      <span>{document.extension_request_id ? 'Extension Insurance' : docLabel(document.document_type)} • {prettyStatus(document.status)}</span>
+    {documents.map((document) => <div className={`document-mini-row ${document.status || 'missing'}`} key={document.id}>
+      <div className="document-mini-copy">
+        {document.status === 'approved' ? <CheckCircle2 size={17}/> : document.status === 'rejected' ? <XCircle size={17}/> : <Clock size={17}/>}
+        <span><strong>{document.extension_request_id ? 'Extension Insurance' : docLabel(document.document_type)}{document.document_type === 'insurance' ? ` · ${insuranceCoverageLabel(document.insurance_coverage_type)}` : ''}</strong><small>{prettyStatus(document.status)}</small></span>
+      </div>
       <div className="mini-actions">
-        {openDocument && <button type="button" onClick={() => openDocument(document)}><FileText size={14}/> Open</button>}
-        {markDocument && document.status !== 'approved' && <button type="button" className="approve" onClick={() => markDocument(document.id, 'approved')}><CheckCircle2 size={14}/> Approve</button>}
-        {markDocument && document.status !== 'rejected' && <button type="button" className="reject" onClick={() => markDocument(document.id, 'rejected')}><XCircle size={14}/> Reject</button>}
-        {deleteDocument && <button type="button" className="reject" onClick={() => deleteDocument(document)}><XCircle size={14}/> Delete</button>}
+        {openDocument && <button type="button" onClick={() => openDocument(document)}><Eye size={14}/> View</button>}
+        <details className="document-overflow-menu">
+          <summary aria-label={`More actions for ${docLabel(document.document_type)}`}>•••</summary>
+          <div>
+            {onManageDocument && !document.extension_request_id && <button type="button" onClick={() => onManageDocument(document)}><Upload size={14}/> Replace or manage</button>}
+            {markDocument && document.status !== 'approved' && <button type="button" className="approve" onClick={() => markDocument(document.id, 'approved')}><CheckCircle2 size={14}/> Approve</button>}
+            {markDocument && document.status !== 'rejected' && <button type="button" className="reject" onClick={() => markDocument(document.id, 'rejected')}><XCircle size={14}/> Reject</button>}
+            {deleteDocument && <button type="button" className="reject" onClick={() => deleteDocument(document)}><Trash2 size={14}/> Delete</button>}
+          </div>
+        </details>
       </div>
     </div>)}
   </div>;
