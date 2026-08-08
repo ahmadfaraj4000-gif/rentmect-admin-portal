@@ -12,7 +12,7 @@ const agreementSource = readFileSync(new URL('../src/rentalAgreement.js', import
 test('each actionable domino opens an audited admin completion flow', () => {
   assert.match(source, /function AdminStepCompletionModal/);
   assert.match(source, /admin_complete_rental_step/);
-  assert.match(source, /Click any booking circle to review it/);
+  assert.match(source, /<RentalProgressTracker steps=\{progressSteps\} onStepClick=\{\(step\) => setAdminStepScope\(step\.key\)\} \/>/);
   assert.match(source, /Mark \$\{label\} Complete/);
   assert.match(source, /added to activity history/);
 });
@@ -43,8 +43,8 @@ test('booking-circle modal mounts safely and keeps both completion and bypass ac
 });
 
 test('eligible rentals expose the global emergency override', () => {
-  assert.match(source, /canCreateEmergencyException && <button className="emergency-exception-action"/);
-  assert.match(source, /> Global Emergency Override<\/button>/);
+  assert.match(source, /canCreateEmergencyException && <button[^\n]+className="emergency-exception-action"[^\n]+setEmergencyModalOpen\(true\)/);
+  assert.match(source, /> Global emergency override<\/button>/);
   assert.match(source, /function EmergencyExceptionModal/);
 });
 
