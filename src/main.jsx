@@ -1760,7 +1760,23 @@ function App() {
         reason: 'Released manually from the admin portal.',
       },
     });
-    if (error || data?.error) return notify(data?.error || error.message);
+    if (error || data?.error) {
+      let detail = data?.error || error?.message || 'Could not refund the security deposit.';
+      if (!data?.error && error?.context) {
+        try {
+          const payload = await error.context.clone().json();
+          detail = payload?.error || detail;
+        } catch {
+          try {
+            detail = await error.context.clone().text() || detail;
+          } catch {
+            // Keep the original Supabase error when the response has no body.
+          }
+        }
+      }
+      console.error('Security deposit refund failed', { rentalId: rental.id, error, data, detail });
+      return notify(detail);
+    }
 
     const nextStatus = data?.status === 'succeeded' || data?.status === 'released' ? 'released' : 'release_pending';
     setRentals((current) => current.map((item) => item.id === rental.id ? {
