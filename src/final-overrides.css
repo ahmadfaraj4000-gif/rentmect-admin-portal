@@ -7804,3 +7804,116 @@ input[type="radio"] {
   border-color: #08552f !important;
   background: #08552f !important;
 }
+
+/* Automatic charges live inside the narrower financial column on compact
+   rental cards. Reflow that section to its card width instead of inheriting
+   the full-page four-column minimums. This is layout-only: all billing actions
+   and charge state remain unchanged. */
+.rental-charge-manager.compact {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  container: compact-rental-charges / inline-size;
+}
+
+.rental-charge-manager.compact .rental-charge-history,
+.rental-charge-manager.compact .rental-charge-history-body,
+.rental-charge-manager.compact .automatic-charge-section,
+.rental-charge-manager.compact .automatic-charge-card,
+.rental-charge-manager.compact .automatic-charge-heading > div,
+.rental-charge-manager.compact .automatic-charge-totals,
+.rental-charge-manager.compact .automatic-charge-fields,
+.rental-charge-manager.compact .automatic-charge-card-footer,
+.rental-charge-manager.compact .charge-collection-actions {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-heading {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: start !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-totals {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, max-content)) !important;
+  justify-content: start !important;
+  width: 100% !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-totals > span {
+  min-width: 0 !important;
+  white-space: normal !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-totals .automatic-charge-primary {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-fields label:first-child {
+  grid-column: 1 / -1 !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-fields input {
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-card-footer {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-card-footer > small {
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow-wrap: anywhere !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-card-footer > .workflow-badge {
+  justify-self: start !important;
+}
+
+.rental-charge-manager.compact .charge-collection-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  justify-content: stretch !important;
+  width: 100% !important;
+}
+
+.rental-charge-manager.compact .charge-collection-actions button {
+  width: 100% !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  line-height: 1.2 !important;
+}
+
+@container compact-rental-charges (max-width: 520px) {
+  .rental-charge-manager.compact .automatic-charge-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@container compact-rental-charges (max-width: 390px) {
+  .rental-charge-manager.compact .automatic-charge-totals,
+  .rental-charge-manager.compact .automatic-charge-fields,
+  .rental-charge-manager.compact .charge-collection-actions {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rental-charge-manager.compact .automatic-charge-fields label:first-child,
+  .rental-charge-manager.compact .automatic-charge-totals .automatic-charge-primary {
+    grid-column: auto !important;
+  }
+}
