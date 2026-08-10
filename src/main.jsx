@@ -130,6 +130,8 @@ const VEHICLE_TYPE_OPTIONS = [
   ['minivan', 'Minivan'],
   ['convertible', 'Convertible'],
 ];
+const VEHICLE_YEAR_MIN = 1900;
+const VEHICLE_YEAR_MAX = 2200;
 const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented', 'on_road'];
 const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', 'maintenance'];
 const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
@@ -251,7 +253,7 @@ function vehicleImageKey(value) {
 
 function createEmptyVehicleForm() {
   return {
-    name: '', brand: '', model: '', vehicle_type: '', plate_number: '', vin: '',
+    name: '', brand: '', model: '', model_year: '', vehicle_type: '', plate_number: '', vin: '',
     daily_rate: '', security_deposit: String(DEFAULT_NEW_VEHICLE_DEPOSIT),
     status: 'available', published: false, description: '', features: '', image_urls: '',
     original_mileage: '', current_mileage: '', maintenance_interval_miles: String(DEFAULT_MAINTENANCE_INTERVAL),
@@ -2218,6 +2220,7 @@ function App() {
       name: vehicle.name || '',
       brand: vehicle.brand || '',
       model: vehicle.model || '',
+      model_year: vehicle.model_year ?? '',
       vehicle_type: String(vehicle.vehicle_type || '').trim().toLowerCase(),
       plate_number: vehicle.plate_number || '',
       vin: vehicle.vin || '',
@@ -2257,6 +2260,11 @@ function App() {
     const vehicleType = String(editVehicleForm.vehicle_type || '').trim().toLowerCase();
     if (!vehicleName) return notify('Enter a vehicle name.');
     if (!vehicleType) return notify('Choose a vehicle type.');
+    const modelYearValue = String(editVehicleForm.model_year ?? '').trim();
+    const modelYear = modelYearValue ? Number(modelYearValue) : null;
+    if (modelYearValue && (!Number.isInteger(modelYear) || modelYear < VEHICLE_YEAR_MIN || modelYear > VEHICLE_YEAR_MAX)) {
+      return fail(`Enter a vehicle year between ${VEHICLE_YEAR_MIN} and ${VEHICLE_YEAR_MAX}.`);
+    }
     const previousDailyRate = Number(vehicle?.daily_rate || 0);
     const nextDailyRate = Number(editVehicleForm.daily_rate);
     if (!Number.isFinite(nextDailyRate) || nextDailyRate < 0 || nextDailyRate > MONEY_MAX) {
@@ -2306,6 +2314,7 @@ function App() {
         ...(status ? { status } : {}),
         name: vehicleName,
         vehicle_type: vehicleType,
+        model_year: modelYear,
         daily_rate: nextDailyRate,
         security_deposit: Number(editVehicleForm.security_deposit || 0),
         original_mileage: originalMileage,
@@ -3371,6 +3380,10 @@ function App() {
     if (!OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === vehicleForm.status)) {
       return fail('Choose a valid vehicle condition.');
     }
+    const modelYear = Number(vehicleForm.model_year);
+    if (!Number.isInteger(modelYear) || modelYear < VEHICLE_YEAR_MIN || modelYear > VEHICLE_YEAR_MAX) {
+      return fail(`Enter a vehicle year between ${VEHICLE_YEAR_MIN} and ${VEHICLE_YEAR_MAX}.`);
+    }
     const dailyRate = Number(vehicleForm.daily_rate);
     if (!Number.isFinite(dailyRate) || dailyRate < 0 || dailyRate > MONEY_MAX) {
       return fail(`Enter a daily rate between $0 and ${money(MONEY_MAX)}.`);
@@ -3410,6 +3423,7 @@ function App() {
       ...vehicleForm,
       name: vehicleName,
       vehicle_type: vehicleType,
+      model_year: modelYear,
       daily_rate: dailyRate,
       security_deposit: Number(vehicleForm.security_deposit || 0),
       original_mileage: originalMileage,
@@ -5443,7 +5457,7 @@ function emailAdminPreview(htmlBody, preheader = '') {
   return `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif"><div style="display:none">${preheader || ''}</div><table width="100%" cellpadding="0" cellspacing="0" style="padding:18px"><tr><td align="center"><table width="100%" style="max-width:620px;background:#fff;border:1px solid #ddd"><tr><td style="padding:20px 26px;background:#050505;color:#fff;font-size:22px;font-weight:800">RENT ME CT</td></tr><tr><td style="padding:28px;line-height:1.6">${rendered}<hr style="border:0;border-top:1px solid #ddd;margin-top:26px"><small>Rent Me CT · 12 Holmes Circle, Farmington, CT</small></td></tr></table></td></tr></table></body></html>`;
 }
 
-function VehicleIdentityFields({ form, onChange }) {
+function VehicleIdentityFields({ form, onChange, vehicle = null }) {
   const currentType = String(form.vehicle_type || '').trim().toLowerCase();
   const includesCurrentType = VEHICLE_TYPE_OPTIONS.some(([value]) => value === currentType);
 
@@ -5451,6 +5465,7 @@ function VehicleIdentityFields({ form, onChange }) {
     <label className="field-label">Vehicle name<input placeholder="Audi Q5 #474" maxLength="80" value={form.name} onChange={(event)=>onChange('name', event.target.value)} required /></label>
     <label className="field-label">Brand<input placeholder="Audi" maxLength="40" value={form.brand} onChange={(event)=>onChange('brand', event.target.value)} /></label>
     <label className="field-label">Model<input placeholder="Q5" maxLength="40" value={form.model} onChange={(event)=>onChange('model', event.target.value)} /></label>
+    <label className="field-label">Vehicle year{vehicle && !form.model_year && <span className="field-optional">Optional for existing vehicle</span>}<input type="number" min={VEHICLE_YEAR_MIN} max={VEHICLE_YEAR_MAX} step="1" inputMode="numeric" placeholder="2024" value={form.model_year ?? ''} onChange={(event)=>onChange('model_year', event.target.value)} required={!vehicle} /></label>
     <label className="field-label">Vehicle type<select value={currentType} onChange={(event)=>onChange('vehicle_type', event.target.value)} required>
       <option value="">Choose vehicle type</option>
       {VEHICLE_TYPE_OPTIONS.map(([value, label])=><option key={value} value={value}>{label}</option>)}
@@ -5520,6 +5535,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
       vehicle.name,
       vehicle.brand,
       vehicle.model,
+      vehicle.model_year,
       vehicle.vehicle_type,
       vehicle.plate_number,
       vehicle.vin,
@@ -5674,7 +5690,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
             </div>
             <div className="vehicle-card-details">
               <strong>{v.name}</strong>
-              <span>{v.brand} {v.model} • {v.vehicle_type}</span>
+              <span>{[v.model_year, v.brand, v.model].filter(Boolean).join(' ') || v.name} • {v.vehicle_type}</span>
               <small>Plate: {v.plate_number || 'TBD'} • VIN: {v.vin || 'TBD'} • Mileage: {formatMiles(v.current_mileage)}</small>
               <small className={`maintenance-summary ${maintenance.due ? 'due' : maintenance.soon ? 'soon' : ''}`}>
                 <Wrench size={13}/> {maintenance.label}
@@ -5831,7 +5847,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
           <div className="portal-form vehicle-detail-form">
             <section className="vehicle-form-card">
               <div className="vehicle-form-card-heading"><strong>Vehicle details</strong><span>Customer-facing identity and registration information.</span></div>
-              <VehicleIdentityFields form={editVehicleForm} onChange={updateEdit} />
+              <VehicleIdentityFields form={editVehicleForm} onChange={updateEdit} vehicle={editingVehicle} />
             </section>
             <section className="vehicle-form-card">
               <div className="vehicle-form-card-heading"><strong>Pricing & operations</strong><span>Rental pricing, availability, mileage, and maintenance.</span></div>
