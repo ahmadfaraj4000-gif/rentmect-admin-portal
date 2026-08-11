@@ -25,7 +25,8 @@ test('paid deposits cannot be edited and completed rentals need confirmation', (
 });
 
 test('the review explains payment, credit, and re-signing outcomes', () => {
-  assert.match(mainSource, /will appear under Charge customer/);
+  assert.match(mainSource, /Payment reopens for only the remaining revised-rental balance/);
+  assert.match(mainSource, /original payment is credited/);
   assert.match(mainSource, /customer credit will be recorded without rewriting the original payment/);
   assert.match(mainSource, /The prior signed copy stays preserved/);
 });

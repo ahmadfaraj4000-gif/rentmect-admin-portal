@@ -8050,3 +8050,36 @@ input[type="radio"] {
     grid-column: auto !important;
   }
 }
+
+.rental-balance-callout {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  margin: 0.8rem 0;
+  padding: 0.8rem;
+  border: 1px solid #e5b8b2;
+  border-radius: 12px;
+  background: #fff5f3;
+  color: #8f2119;
+}
+
+.rental-balance-callout > span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.rental-balance-callout small {
+  color: #6f4c48;
+  line-height: 1.35;
+}
+
+.rental-balance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.rental-balance-actions button {
+  min-height: 34px;
+}
