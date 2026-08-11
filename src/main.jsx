@@ -1447,8 +1447,8 @@ function App() {
       p_return_date: endDate,
       p_return_time: returnTime,
     });
-    if (error) {
-      notify(error.message);
+    if (error || data?.error) {
+      notify(data?.error || error.message);
       return false;
     }
     return Boolean((data || []).find((item) => item.vehicle_id === vehicleId)?.available);
@@ -1861,17 +1861,28 @@ function App() {
     if (!id) return false;
     const amount = Number(payment.amount);
     const paymentMethod = String(payment.paymentMethod || '').trim();
-    const { data, error } = await supabase.rpc('record_admin_local_rental_payment', {
-      p_rental_id: id,
-      p_amount: amount,
-      p_payment_method: paymentMethod,
-    });
-    if (error) {
-      notify(error.message);
+    const partialBalance = isPartialPaymentStatus(rental.payment_status);
+    const { data, error } = partialBalance
+      ? await supabase.functions.invoke('stripe-web-hook', {
+          body: {
+            action: 'admin_record_external_balance',
+            rentalId: id,
+            amountCents: Math.round(amount * 100),
+            paymentMethod,
+            paymentReference: payment.reference?.trim() || null,
+          },
+        })
+      : await supabase.rpc('record_admin_local_rental_payment', {
+          p_rental_id: id,
+          p_amount: amount,
+          p_payment_method: paymentMethod,
+        });
+    if (error || data?.error) {
+      notify(data?.error || error.message);
       return false;
     }
 
-    const paidRental = data || rentals.find((rental) => rental.id === id);
+    const paidRental = partialBalance ? null : data || rentals.find((rental) => rental.id === id);
     if (paidRental?.vehicle_id) {
       setRentals((current) => current.map((rental) =>
         rental.id === id
@@ -1885,14 +1896,15 @@ function App() {
       ));
     }
 
+    await loadAllData({ silent: true });
     const { data: alertData, error: alertError } = await supabase.functions.invoke('send-rental-due-reminders', {
       body: { adminApprovalRentalId: id },
     });
 
     if (alertError || alertData?.error) {
-      notify(`External ${externalPaymentMethodLabel(paymentMethod).toLowerCase()} payment of ${money(amount)} was recorded. Admin SMS alert did not send: ${alertError?.message || alertData.error}`);
+      notify(`${partialBalance ? 'Remaining rental balance' : 'External payment'} of ${money(amount)} was recorded. Admin SMS alert did not send: ${alertError?.message || alertData.error}`);
     } else {
-      notify(`${externalPaymentMethodLabel(paymentMethod)} payment of ${money(amount)} recorded. Admin approval SMS sent.`, 'success');
+      notify(`${externalPaymentMethodLabel(paymentMethod)} payment of ${money(amount)} recorded${partialBalance ? ' toward the remaining rental balance' : ''}.`, 'success');
     }
     return true;
   }
@@ -6998,9 +7010,16 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, effectiveReleaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
-  const outstandingRentalCharges = rentalCharges
+  const rentalBalanceCharges = rentalCharges.filter((charge) => charge.charge_type === 'rental_amendment');
+  const openRentalBalance = rentalBalanceCharges.find((charge) =>
+    ['pending', 'checkout_open', 'failed'].includes(String(charge.status || '').toLowerCase())
+  );
+  const trueAdditionalCharges = rentalCharges.filter((charge) => charge.charge_type !== 'rental_amendment');
+  const outstandingAdditionalCharges = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(charge.status))
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const rentalBalanceDue = Number(openRentalBalance?.total_amount || 0);
+  const outstandingRentalCharges = outstandingAdditionalCharges + rentalBalanceDue;
   const canReleaseDeposit = Boolean(releaseSecurityDeposit)
     && rental.status === 'completed'
     && ['held', 'adjustment_refund_due'].includes(rental.deposit_status)
@@ -7013,7 +7032,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     item.payment_provider === 'local' && ['held', 'refund_due_inspection', 'failed'].includes(item.status)
   ) || (depositAllocations.length === 0 && rental.payment_provider === 'local');
   const recordedRentalRefunds = rentalRefunds
-    .filter((refund) => !['failed', 'cancelled'].includes(String(refund.status || '').toLowerCase()))
+    .filter((refund) => !refund.extension_request_id && !['failed', 'cancelled'].includes(String(refund.status || '').toLowerCase()))
     .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
   const releasedDeposit = Number(rental.deposit_released_amount || 0);
   const allocatedProtectedDeposit = depositAllocations
@@ -7042,24 +7061,26 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
       / 86_400_000
   ));
-  const additionalChargeTotal = rentalCharges
+  const additionalChargeTotal = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status !== 'waived')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const initialPaymentTotal = Number(rental.rental_total || 0)
     + Number(rental.service_fee_total || 0)
     + Number(rental.tax_amount || 0)
     + Number(rental.security_deposit || 0);
-  const recordedPaymentAmount = rental.payment_status === 'paid'
+  const hasCapturedRentalPayment = rental.paid_at || rental.payment_status === 'paid' || isPartialPaymentStatus(rental.payment_status);
+  const recordedPaymentAmount = hasCapturedRentalPayment
     ? Number(rental.payment_amount_cents || 0) > 0
       ? Number(rental.payment_amount_cents) / 100
       : initialPaymentTotal
     : 0;
-  const paidAmount = Math.max(0, recordedPaymentAmount - recordedRentalRefunds);
-  const unpaidInitialBalance = rental.payment_status === 'paid' ? 0 : Math.max(0, initialPaymentTotal - recordedPaymentAmount);
-  const balanceDue = Math.max(0, unpaidInitialBalance + outstandingRentalCharges);
-  const customerCreditDue = rental.payment_status === 'paid'
-    ? Math.max(0, recordedPaymentAmount - recordedRentalRefunds - initialPaymentTotal)
-    : 0;
+  const paidRentalBalances = rentalBalanceCharges
+    .filter((charge) => charge.status === 'paid')
+    .reduce((sum, charge) => sum + Number(charge.payment_amount_cents || Math.round(Number(charge.total_amount || 0) * 100)) / 100, 0);
+  const paidAmount = Math.max(0, recordedPaymentAmount + paidRentalBalances - recordedRentalRefunds);
+  const invoiceBalanceDue = Math.max(0, initialPaymentTotal - paidAmount);
+  const balanceDue = Math.max(0, invoiceBalanceDue + outstandingAdditionalCharges);
+  const customerCreditDue = Math.max(0, paidAmount - initialPaymentTotal);
   const depositHeldAmount = protectedDeposit || 0;
   const nextAdminStep = progressSteps.find((step) => !step.complete && step.adminAction);
   const activityNeedsAttention = Boolean(
@@ -7166,13 +7187,14 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
           <dt>Booking fee</dt><dd>{money(rental.service_fee_total || 0)}</dd>
           <dt>Tax</dt><dd>{money(rental.tax_amount || 0)}</dd>
           <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
-          <dt className="total-line">{rental.payment_status === 'paid' ? 'Captured payment' : 'Amount due'}</dt><dd className="total-line">{money(rental.payment_status === 'paid' ? recordedPaymentAmount : initialPaymentTotal)}</dd>
-          <dt>Paid after refunds</dt><dd>{money(paidAmount)}</dd>
+          <dt className="total-line">Revised rental invoice</dt><dd className="total-line">{money(initialPaymentTotal)}</dd>
+          <dt>Net payments received</dt><dd>−{money(paidAmount)}</dd>
           <dt>Deposit held</dt><dd>{money(depositHeldAmount)}</dd>
           {customerCreditDue > 0 && <><dt className="credit-line">Customer credit due</dt><dd className="credit-line">{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
         </dl>
         {Number(rental.manual_discount_amount || 0) > 0 && <small className="manual-discount-note"><Tag size={13}/> Reservation-only adjustment • {money(Number(rental.manual_discount_amount || 0) + Number(rental.manual_discount_tax_savings || 0))} total savings</small>}
+        {rentalBalanceDue > 0 && <div className="rental-balance-callout"><CreditCard size={17}/><span><strong>{money(rentalBalanceDue)} remaining rental balance</strong><small>The original payment is credited. Stripe or an external payment collects only this remainder; no second deposit is added.</small><span className="rental-balance-actions"><button type="button" className="approve" onClick={() => setAdminStepScope('payment')}>Take payment</button><button type="button" onClick={() => setContactModal({ charge: openRentalBalance, rentalBalance: true })}>Send Stripe link</button>{chargeRentalSavedCard && <button type="button" onClick={() => chargeRentalSavedCard(openRentalBalance)}>Charge saved card</button>}</span></span></div>}
         {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
         <div className="rental-financial-actions">
           {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
@@ -7181,7 +7203,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
           {canReleaseDeposit && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
           {canReleaseDeposit && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
         </div>
-        <RentalChargeManager compact rental={rental} charges={rentalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />
+        <RentalChargeManager compact rental={rental} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} sendPaymentLink={(charge) => setContactModal({ charge })} />
         {outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
       </aside>
     </div>
@@ -7203,6 +7225,8 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={closeReturnPanel} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
       {externalPaymentModalOpen && <ExternalPaymentModal
         rental={rental}
+        amountDue={rentalBalanceDue || initialPaymentTotal}
+        balancePayment={rentalBalanceDue > 0}
         onCancel={() => setExternalPaymentModalOpen(false)}
         onConfirm={async (payment) => {
           const recorded = await recordTestPayment?.(rental, payment);
@@ -7231,6 +7255,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
       />}
       {adminStepScope && <AdminStepCompletionModal
         rental={rental}
+        amountDue={rentalBalanceDue || initialPaymentTotal}
         scope={adminStepScope}
         complete={progressSteps.find((step) => step.key === adminStepScope)?.complete}
         rentalDocument={adminStepScope === 'license' ? license : adminStepScope === 'insurance' ? insurance : null}
@@ -7474,7 +7499,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
   }
 
   const settlementCopy = preview?.settlement_status === 'customer_charge_pending'
-    ? `${money(preview.total_delta)} will appear under Charge customer.`
+    ? 'The original payment remains credited. Payment reopens for only the remaining revised-rental balance.'
     : preview?.settlement_status === 'customer_credit_due'
       ? `${money(Math.abs(Number(preview.total_delta || 0)))} customer credit will be recorded without rewriting the original payment.`
       : preview?.settlement_status === 'unpaid_repriced'
@@ -7689,7 +7714,7 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
   </div>;
 }
 
-function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, canBypass, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal, onBypass }) {
+function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, canBypass, amountDue, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal, onBypass }) {
   const dialogRef = useDialogFocus(onCancel);
   const agreementScrollRef = useRef(null);
   const [note, setNote] = useState('');
@@ -7764,7 +7789,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   if (scope === 'payment') {
     return createPortal(<div className="admin-modal-backdrop" role="presentation">
       <div ref={dialogRef} className="admin-modal admin-step-modal" role="dialog" aria-modal="true" aria-labelledby="admin-step-title">
-        <header className="admin-modal-header"><CreditCard size={21}/><div><small>Booking step</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(Number(rental.rental_total || 0) + Number(rental.service_fee_total || 0) + Number(rental.tax_amount || 0) + Number(rental.security_deposit || 0))} due</span></div></header>
+        <header className="admin-modal-header"><CreditCard size={21}/><div><small>Rental payment</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(amountDue)} remaining</span></div></header>
         {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
           <button type="button" className="primary-btn" onClick={async () => { setBusy(true); await onOpenStripe?.(); setBusy(false); }} disabled={busy}><CreditCard size={16}/> Open secure Stripe checkout on this device</button>
           <button type="button" className="secondary-btn" onClick={onRecordExternal}><Banknote size={16}/> Record phone / external payment as completed</button>
@@ -8348,7 +8373,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       </div>
 
       <label className="modal-field">
-        <span>{form.mode === 'percentage' ? 'Percentage to take off the rental total' : 'Dollar amount to take off the rental total'}</span>
+        <span>{form.mode === 'percentage' ? 'Percentage to take off the rental price' : 'Exact dollar amount to take off the rental price'}</span>
         <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><input type="number" min="0.01" max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
       </label>
 
@@ -8356,7 +8381,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       {preview && !previewing && <div className="manual-discount-preview" aria-live="polite">
         <div><span>Entered discount</span><strong>{preview.manual_discount_type === 'percentage' ? `${Number(preview.manual_discount_value || 0)}% off` : `${money(preview.manual_discount_value)} off`}</strong></div>
         <div><span>Rental before manual discount</span><strong>{money(preview.pre_manual_discount_rental_total)}</strong></div>
-        <div className="discount"><span>Rental subtotal adjustment</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
+        <div className="discount"><span>Rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
         <div><span>Recalculated CT tax</span><strong>{money(preview.tax_amount)}</strong></div>
         <div><span>Booking fees</span><strong>{money(preview.service_fee_total)}</strong></div>
         <div><span>Refundable deposit (unchanged)</span><strong>{money(preview.security_deposit)}</strong></div>
@@ -8733,20 +8758,26 @@ function clearReturnDraft(rentalId) {
 function externalPaymentMethodLabel(method) {
   return {
     card: 'Card',
+    terminal: 'Card terminal',
     cash_app: 'Cash App',
     cash: 'Cash',
+    bank_transfer: 'Bank transfer',
+    other: 'Other external',
   }[method] || 'External';
 }
 
-function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
+function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePayment = false, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
-  const amountDue = Number(rental.rental_total || 0)
-    + Number(rental.service_fee_total || 0)
-    + Number(rental.tax_amount || 0)
-    + Number(rental.security_deposit || 0);
+  const amountDue = Number(requestedAmountDue ?? (
+    Number(rental.rental_total || 0)
+      + Number(rental.service_fee_total || 0)
+      + Number(rental.tax_amount || 0)
+      + Number(rental.security_deposit || 0)
+  ));
   const [form, setForm] = useState({
     amount: amountDue.toFixed(2),
     paymentMethod: '',
+    reference: '',
     confirmed: false,
   });
   const [saving, setSaving] = useState(false);
@@ -8764,8 +8795,8 @@ function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
       setError(`The recorded payment must equal the full amount due: ${money(amountDue)}.`);
       return;
     }
-    if (!['card', 'cash_app', 'cash'].includes(form.paymentMethod)) {
-      setError('Choose Card, Cash App, or Cash.');
+    if (!['card', 'terminal', 'cash_app', 'cash', 'bank_transfer', 'other'].includes(form.paymentMethod)) {
+      setError('Choose how the external payment was received.');
       return;
     }
     if (!form.confirmed) {
@@ -8773,7 +8804,7 @@ function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
       return;
     }
     setSaving(true);
-    const recorded = await onConfirm?.({ amount, paymentMethod: form.paymentMethod });
+    const recorded = await onConfirm?.({ amount, paymentMethod: form.paymentMethod, reference: form.reference });
     setSaving(false);
     if (!recorded) setError('The payment was not recorded. Review the message above and try again.');
   }
@@ -8788,7 +8819,7 @@ function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
         </div>
       </header>
       <div className="external-payment-total">
-        <span>Full amount due</span>
+        <span>{balancePayment ? 'Remaining rental balance' : 'Full amount due'}</span>
         <strong>{money(amountDue)}</strong>
       </div>
       <label className="modal-field">
@@ -8800,13 +8831,20 @@ function ExternalPaymentModal({ rental, onCancel, onConfirm }) {
         <select value={form.paymentMethod} onChange={(event) => setForm((current) => ({ ...current, paymentMethod: event.target.value }))} required>
           <option value="">Choose payment type</option>
           <option value="card">Card</option>
+          <option value="terminal">Card terminal</option>
           <option value="cash_app">Cash App</option>
           <option value="cash">Cash</option>
+          <option value="bank_transfer">Bank transfer</option>
+          <option value="other">Other external payment</option>
         </select>
+      </label>
+      <label className="modal-field">
+        <span>Receipt or reference (optional)</span>
+        <input value={form.reference} maxLength="120" onChange={(event) => setForm((current) => ({ ...current, reference: event.target.value }))} placeholder="Receipt number, terminal reference, or note" />
       </label>
       <div className="override-warning">
         <strong>Record only money that actually cleared</strong>
-        <span>This action marks the rental payment and security deposit as received outside Stripe and creates an admin audit record.</span>
+        <span>{balancePayment ? 'This credits only the remaining rental balance. It does not collect or change the security deposit.' : 'This action marks the rental payment and security deposit as received outside Stripe and creates an admin audit record.'}</span>
       </div>
       <label className="external-payment-confirmation">
         <input type="checkbox" checked={form.confirmed} onChange={(event) => setForm((current) => ({ ...current, confirmed: event.target.checked }))} />
@@ -10453,8 +10491,8 @@ function auditActionLabel(action) {
 function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function manualDiscountDescriptor(rental) {
-  if (rental?.manual_discount_type === 'percentage') return `${Number(rental.manual_discount_value || 0)}% off total`;
-  return `${money(rental?.manual_discount_value || rental?.manual_discount_amount || 0)} off total`;
+  if (rental?.manual_discount_type === 'percentage') return `${Number(rental.manual_discount_value || 0)}% off rental`;
+  return `${money(rental?.manual_discount_value || rental?.manual_discount_amount || 0)} off rental`;
 }
 function manualPaymentPreferenceLabel(preference) {
   return ({

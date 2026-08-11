@@ -28,3 +28,18 @@ test('manual discounts appear in payment summary and agreement snapshots', () =>
   assert.match(mainSource, /manual_discount_tax_savings/);
   assert.match(styles, /\.manual-discount-modal\.admin-modal/);
 });
+
+test('paid rental edits reopen only the remaining rental balance', () => {
+  assert.match(mainSource, /remaining rental balance/i);
+  assert.match(mainSource, /Net payments received/);
+  assert.match(mainSource, /record_admin_rental_balance_payment|admin_record_external_balance/);
+  assert.match(mainSource, /Charge saved card/);
+  assert.match(mainSource, /Send Stripe link/);
+  assert.match(mainSource, /no second deposit is added/i);
+});
+
+test('fixed discounts are described as exact rental-price reductions', () => {
+  assert.match(mainSource, /Exact dollar amount to take off the rental price/);
+  assert.match(mainSource, /Rental discount/);
+  assert.match(mainSource, /off rental/);
+});
