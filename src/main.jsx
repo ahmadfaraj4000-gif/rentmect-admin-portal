@@ -9782,7 +9782,10 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
   const identityVerified = rental.profiles?.identity_verification_status === 'verified' || completionScopeSet.has('identity');
   const hasDatesAndVehicle = Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date);
   const agreementSigned = Boolean(rental.agreement_signed || completionScopeSet.has('agreement'));
-  const paymentPaid = (rental.payment_status || 'pending') === 'paid' || completionScopeSet.has('payment');
+  // Payment completion must come from the reconciled financial status. A
+  // durable admin-step marker may describe the original capture, but it must
+  // not hide collection actions after a paid rental is repriced.
+  const paymentPaid = (rental.payment_status || 'pending') === 'paid';
   const depositComplete = Number(rental.security_deposit || 0) === 0 || ['held', 'waived', 'released', 'transferred', 'release_pending', 'adjustment_refund_due'].includes(String(rental.deposit_status || '').toLowerCase()) || completionScopeSet.has('deposit');
   const effectiveLicenseNative = hasLicense || completionScopeSet.has('license');
   const effectiveInsuranceNative = hasInsurance;
