@@ -4,9 +4,9 @@ import { readFile } from 'node:fs/promises';
 
 const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
 
-test('admin rental edits use the guarded preview and apply RPCs', () => {
+test('admin rental edits use the guarded preview and Stripe-safe apply path', () => {
   assert.match(mainSource, /supabase\.rpc\('admin_preview_rental_amendment'/);
-  assert.match(mainSource, /supabase\.rpc\('admin_apply_rental_amendment'/);
+  assert.match(mainSource, /action: 'admin_apply_rental_amendment'/);
   assert.match(mainSource, /Review Changes/);
   assert.match(mainSource, /Apply Rental Changes/);
 });
@@ -18,15 +18,20 @@ test('the fake booking-flow vehicle is excluded from replacement choices', () =>
   );
 });
 
-test('paid deposits cannot be edited and completed rentals need confirmation', () => {
-  assert.match(mainSource, /disabled=\{paid\}/);
+test('captured deposits cannot be edited and completed rentals need confirmation', () => {
+  assert.match(mainSource, /disabled=\{paymentCaptured\}/);
+  assert.match(mainSource, /'partially_paid', 'partial'/);
+  assert.match(mainSource, /this deposit is locked/);
   assert.match(mainSource, /Correct this completed rental/);
   assert.match(mainSource, /minimumReasonLength = completed \? 20 : 10/);
 });
 
 test('the review explains payment, credit, and re-signing outcomes', () => {
-  assert.match(mainSource, /Payment reopens for only the remaining revised-rental balance/);
-  assert.match(mainSource, /original payment is credited/);
+  assert.match(mainSource, /Payments already received stay credited/);
+  assert.match(mainSource, /Remaining amount due/);
+  assert.match(mainSource, /Payments credited/);
+  assert.match(mainSource, /Remaining before edit/);
+  assert.match(mainSource, /Remaining after edit/);
   assert.match(mainSource, /customer credit will be recorded without rewriting the original payment/);
   assert.match(mainSource, /The prior signed copy stays preserved/);
 });

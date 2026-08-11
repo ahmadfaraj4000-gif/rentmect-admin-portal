@@ -1992,30 +1992,43 @@ function App() {
   }
 
   async function applyRentalAmendment(rental, form, idempotencyKey) {
-    const { data, error } = await supabase.rpc('admin_apply_rental_amendment', {
-      p_rental_id: rental.id,
-      p_vehicle_id: form.vehicleId,
-      p_pickup_date: form.pickupDate,
-      p_pickup_time: form.pickupTime,
-      p_return_date: form.returnDate,
-      p_return_time: form.returnTime,
-      p_daily_rate: form.dailyRate === '' ? null : Number(form.dailyRate),
-      p_security_deposit: form.securityDeposit === '' ? null : Number(form.securityDeposit),
-      p_reason: form.reason.trim(),
-      p_admin_notes: form.adminNotes,
-      p_idempotency_key: idempotencyKey,
+    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+      body: {
+        action: 'admin_apply_rental_amendment',
+        rentalId: rental.id,
+        vehicleId: form.vehicleId,
+        pickupDate: form.pickupDate,
+        pickupTime: form.pickupTime,
+        returnDate: form.returnDate,
+        returnTime: form.returnTime,
+        dailyRate: form.dailyRate === '' ? null : Number(form.dailyRate),
+        securityDeposit: form.securityDeposit === '' ? null : Number(form.securityDeposit),
+        reason: form.reason.trim(),
+        adminNotes: form.adminNotes,
+        idempotencyKey,
+      },
     });
-    if (error) throw error;
+    if (error || data?.error) {
+      let detail = data?.error || error?.message || 'The rental changes could not be applied.';
+      try {
+        const payload = await error?.context?.clone?.().json();
+        detail = payload?.error || detail;
+      } catch {
+        // Keep the Edge Function error when no JSON response is available.
+      }
+      throw new Error(detail);
+    }
     await loadAllData({ silent: true });
     const amendment = data?.amendment;
-    if (amendment?.settlement_status === 'customer_charge_pending') {
-      notify(`Rental updated. ${money(amendment.total_delta)} was added to Charge customer.`, 'success');
-    } else if (amendment?.settlement_status === 'customer_credit_due') {
-      notify(`Rental updated. Customer credit due: ${money(amendment.credit_amount)}. The original payment was preserved.`, 'success');
+    const settlement = data?.settlement;
+    if (Number(settlement?.balance_due || 0) > 0) {
+      notify(`Rental updated. ${money(settlement.net_paid)} remains credited and only ${money(settlement.balance_due)} is due. Payment is now partially paid.`, 'success');
+    } else if (Number(settlement?.credit_due || 0) > 0) {
+      notify(`Rental updated. Customer credit due: ${money(settlement.credit_due)}. The original payment was preserved.`, 'success');
     } else if (amendment?.requires_customer_resign) {
-      notify('Rental updated. The customer must sign the revised agreement before pickup.', 'success');
+      notify('Rental updated and fully settled. The customer must sign the revised agreement before pickup.', 'success');
     } else {
-      notify('Rental updated and calendar availability refreshed.', 'success');
+      notify('Rental updated, payment reconciled, and calendar availability refreshed.', 'success');
     }
     return data;
   }
@@ -7429,7 +7442,8 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
   const [saving, setSaving] = useState(false);
   const [closedCorrectionConfirmed, setClosedCorrectionConfirmed] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
-  const paid = String(rental.payment_status || '').toLowerCase() === 'paid';
+  const paymentCaptured = Boolean(rental.paid_at)
+    || ['paid', 'partially_paid', 'partial'].includes(String(rental.payment_status || '').toLowerCase());
   const completed = String(rental.status || '').toLowerCase() === 'completed';
   const availableVehicles = vehicles
     .filter((vehicle) =>
@@ -7454,7 +7468,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
       ...current,
       vehicleId,
       dailyRate: Number(vehicle?.daily_rate || 0).toFixed(2),
-      securityDeposit: paid ? current.securityDeposit : '',
+      securityDeposit: paymentCaptured ? current.securityDeposit : '',
     }));
     setPreview(null);
     setError('');
@@ -7498,13 +7512,13 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
     }
   }
 
-  const settlementCopy = preview?.settlement_status === 'customer_charge_pending'
-    ? 'The original payment remains credited. Payment reopens for only the remaining revised-rental balance.'
-    : preview?.settlement_status === 'customer_credit_due'
-      ? `${money(Math.abs(Number(preview.total_delta || 0)))} customer credit will be recorded without rewriting the original payment.`
-      : preview?.settlement_status === 'unpaid_repriced'
-        ? 'The unpaid booking will use the revised total; an old Stripe checkout is replaced when payment starts again.'
-        : 'No additional customer payment or credit is required.';
+  const settlementCopy = preview?.canonical_settlement_status === 'balance_due'
+    ? `Payments already received stay credited. Payment reopens for exactly ${money(preview.balance_due)}—the remaining revised-rental balance.`
+    : preview?.canonical_settlement_status === 'payment_pending'
+      ? `No payment has been captured. The new checkout total will be ${money(preview.balance_due)}.`
+      : preview?.canonical_settlement_status === 'credit_due'
+        ? `${money(preview.credit_due)} customer credit will be recorded without rewriting the original payment.`
+        : 'The revised invoice is fully settled; no additional customer payment or credit is required.';
 
   return <div className="admin-modal-backdrop rental-amendment-backdrop" role="presentation">
     <form ref={dialogRef} className="admin-modal rental-amendment-modal" role="dialog" aria-modal="true" aria-label="Edit rental" onSubmit={review}>
@@ -7539,7 +7553,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
           <div className="rental-amendment-section-heading"><span>2</span><div><strong>Pricing and deposit</strong><small>Age pricing, the saved discount, fees, and Connecticut tax are recalculated server-side.</small></div></div>
           <div className="rental-amendment-grid">
             <label><span>Daily rental rate</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(event) => update('dailyRate', event.target.value)} required /></div></label>
-            <label><span>Security deposit</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} disabled={paid} /></div>{paid && <small>Already paid: use the protected deposit adjustment workflow instead of rewriting held funds.</small>}</label>
+            <label><span>Security deposit</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} disabled={paymentCaptured} /></div>{paymentCaptured && <small>Payment captured: this deposit is locked. Use the protected deposit refund or adjustment workflow instead.</small>}</label>
             <label className="wide"><span>Admin notes</span><textarea maxLength="2000" value={form.adminNotes} onChange={(event) => update('adminNotes', event.target.value)} placeholder="Operational notes visible to staff."/></label>
           </div>
         </section>
@@ -7557,9 +7571,15 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
             <ArrowRight size={20}/>
             <article><small>Revised</small><strong>{preview.new?.vehicle_name}</strong><span>{formatRentalDate(preview.new?.pickup_date, preview.new?.pickup_time)} → {formatRentalDate(preview.new?.return_date, preview.new?.return_time)}</span><em>{money(preview.new?.total)} total</em></article>
           </div>
-          <div className={`rental-amendment-settlement ${Number(preview.total_delta || 0) > 0 ? 'due' : Number(preview.total_delta || 0) < 0 ? 'credit' : ''}`}>
+          <div className="rental-amendment-ledger">
+            <span><small>Invoice change</small><strong>{Number(preview.total_delta || 0) === 0 ? money(0) : `${Number(preview.total_delta || 0) > 0 ? '+' : '−'}${money(Math.abs(Number(preview.total_delta || 0)))}`}</strong></span>
+            <span><small>Payments credited</small><strong>{money(preview.net_paid)}</strong></span>
+            <span><small>Remaining before edit</small><strong>{money(preview.old_balance_due)}</strong></span>
+            <span><small>Remaining after edit</small><strong>{money(preview.balance_due)}</strong></span>
+          </div>
+          <div className={`rental-amendment-settlement ${Number(preview.balance_due || 0) > 0 ? 'due' : Number(preview.credit_due || 0) > 0 ? 'credit' : ''}`}>
             <ReceiptText size={18}/>
-            <span><strong>{Number(preview.total_delta || 0) === 0 ? 'No balance change' : `${Number(preview.total_delta || 0) > 0 ? 'Additional balance' : 'Customer credit'}: ${money(Math.abs(Number(preview.total_delta || 0)))}`}</strong><small>{settlementCopy}</small></span>
+            <span><strong>{Number(preview.balance_due || 0) > 0 ? `Remaining amount due: ${money(preview.balance_due)}` : Number(preview.credit_due || 0) > 0 ? `Customer credit due: ${money(preview.credit_due)}` : 'Revised invoice is fully settled'}</strong><small>{settlementCopy}</small></span>
           </div>
           {preview.requires_customer_resign && <div className="rental-amendment-resign"><FileSignature size={17}/><span><strong>Revised agreement required</strong><small>The prior signed copy stays preserved; pickup controls remain guarded until the customer signs the revised terms.</small></span></div>}
           {preview.new?.vehicle_published === false && <div className="rental-amendment-warning"><AlertTriangle size={17}/><span>The replacement vehicle is unpublished. Admin assignment is allowed, but customers cannot select it for new bookings.</span></div>}
