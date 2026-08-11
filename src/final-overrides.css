@@ -7498,6 +7498,35 @@ input[type="radio"] {
   font-weight: 850;
 }
 
+.rental-amendment-ledger {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rental-amendment-ledger > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #d5e2d9;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.rental-amendment-ledger small {
+  color: #748078;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.rental-amendment-ledger strong {
+  color: #26332b;
+  font-size: 13px;
+}
+
 .rental-amendment-settlement {
   display: flex;
   align-items: flex-start;
@@ -7583,6 +7612,10 @@ input[type="radio"] {
   .rental-amendment-grid,
   .rental-amendment-comparison {
     grid-template-columns: 1fr;
+  }
+
+  .rental-amendment-ledger {
+    grid-template-columns: 1fr 1fr;
   }
 
   .rental-amendment-comparison > svg {
