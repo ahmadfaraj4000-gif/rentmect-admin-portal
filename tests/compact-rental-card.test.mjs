@@ -19,10 +19,18 @@ test('rental cards start minimized and reveal one complete detail workspace on d
   assert.match(source, /const \[detailsExpanded, setDetailsExpanded\] = useState\(false\)/);
   assert.match(source, /aria-expanded=\{detailsExpanded\}/);
   assert.match(source, /aria-controls=\{`rental-expanded-details-\$\{rental\.id\}`\}/);
-  assert.match(source, /detailsExpanded \? 'Minimize' : 'Maximize'/);
+  assert.match(source, /detailsExpanded \? 'Hide rental details' : 'Show rental details'/);
   assert.match(source, /\{detailsExpanded && <div className="rental-card-expanded-content"/);
   assert.match(source, /rental-card-expanded-content[\s\S]*rental-card-workspace[\s\S]*rental-card-activity/);
   assert.match(styles, /\.rental-card-expanded-content\s*\{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.rental-card-details-toggle\s*\{[\s\S]*width: 100% !important/);
+});
+
+test('rare rental actions use a clearly labelled More Actions menu', () => {
+  assert.match(source, /<summary aria-label="More rental actions"><span>More Actions<\/span><ChevronDown/);
+  assert.match(source, /More Actions[\s\S]*Global emergency override[\s\S]*Cancel rental/);
+  assert.doesNotMatch(source, /aria-label="More rental actions">•••/);
+  assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*display: flex !important/);
 });
 
 test('the card renders exactly one clickable horizontal workflow rail', () => {
