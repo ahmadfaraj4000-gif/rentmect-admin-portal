@@ -40,6 +40,24 @@ test('deposit resolution dialogs scroll in short and mobile viewports', () => {
   assert.match(styles, /\.deposit-action-modal-backdrop\.admin-modal-backdrop[\s\S]*?overflow-y:\s*auto\s*!important/);
 });
 
+test('Employee access remains inside narrow mobile viewports', () => {
+  assert.match(styles, /\.settings-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s*!important/);
+  assert.match(styles, /\.employee-invite-form \.form-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s*!important/);
+  assert.match(styles, /\.employee-invite-form input\s*\{[\s\S]*?min-width:\s*0\s*!important/);
+  assert.match(styles, /\.employee-permission-row > span\s*\{[\s\S]*?overflow-wrap:\s*anywhere/);
+});
+
+test('Employee permission explanations stay left with compact checks on the right', () => {
+  assert.match(styles, /label\.employee-permission-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+18px\s*!important/);
+  assert.match(styles, /label\.employee-permission-row > span\s*\{[\s\S]*?grid-column:\s*1\s*!important/);
+  assert.match(styles, /input\[type="checkbox"\]\[role="switch"\]\s*\{[\s\S]*?grid-column:\s*2\s*!important[\s\S]*?width:\s*18px\s*!important[\s\S]*?height:\s*18px\s*!important/);
+});
+
+test('the audit empty state does not incorrectly report a missing migration', () => {
+  assert.doesNotMatch(source, /after the audit migration is installed/);
+  assert.match(source, /after staff and admin actions are recorded/);
+});
+
 test('unsigned rentals preload the dedicated agreement email', () => {
   assert.match(source, /manual_agreement_signature_required/);
   assert.match(source, /agreement_signing_url/);

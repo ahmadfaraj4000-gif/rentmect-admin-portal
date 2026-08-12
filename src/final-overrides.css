@@ -8139,22 +8139,106 @@ input[type="radio"] {
   border-bottom: 1px solid #dfe5e1;
 }
 
-.employee-permission-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 14px 16px;
+.settings-grid label.employee-permission-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 18px !important;
+  align-items: center !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 14px 16px !important;
   border-bottom: 1px solid #edf1ee;
 }
 
 .employee-permission-row:last-child { border-bottom: 0; }
-.employee-permission-row span { display: grid; gap: 3px; }
-.employee-permission-row small { color: #647067; }
-.employee-permission-row input[role="switch"] { width: 44px; height: 24px; flex: 0 0 auto; }
+
+.settings-grid label.employee-permission-row > span {
+  grid-column: 1 !important;
+  display: grid !important;
+  gap: 3px !important;
+  min-width: 0 !important;
+  color: #27332d !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.35 !important;
+  text-transform: none !important;
+}
+
+.settings-grid label.employee-permission-row strong {
+  color: #17221c !important;
+  font-size: 13px !important;
+  font-weight: 760 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.3 !important;
+  text-transform: none !important;
+}
+
+.settings-grid label.employee-permission-row small {
+  color: #647067 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.4 !important;
+  text-transform: none !important;
+}
+
+.settings-grid label.employee-permission-row input[type="checkbox"][role="switch"] {
+  grid-column: 2 !important;
+  justify-self: end !important;
+  align-self: center !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  accent-color: var(--ui-green) !important;
+}
 
 @media (max-width: 720px) {
-  .employee-permission-row { align-items: flex-start; }
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .settings-grid > .panel,
+  .employee-invite-form,
+  .employee-invite-form .form-row,
+  .employee-invite-form label,
+  .employee-permission-groups,
+  .employee-permission-group {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .employee-invite-form .form-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .employee-invite-form input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .settings-grid label.employee-permission-row {
+    grid-template-columns: minmax(0, 1fr) 18px !important;
+    align-items: start !important;
+  }
+
+  .settings-grid label.employee-permission-row > span {
+    min-width: 0 !important;
+    overflow-wrap: anywhere !important;
+  }
 }
 
 /* Deposit resolution must remain usable in short windows, landscape phones,
