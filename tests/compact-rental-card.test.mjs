@@ -31,6 +31,8 @@ test('rare rental actions use a clearly labelled More Actions menu', () => {
   assert.match(source, /More Actions[\s\S]*Global emergency override[\s\S]*Cancel rental/);
   assert.doesNotMatch(source, /aria-label="More rental actions">•••/);
   assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*display: flex !important/);
+  assert.match(styles, /\.rental-overflow-menu\s*\{[\s\S]*flex: 0 0 auto !important/);
+  assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*white-space: nowrap !important/);
 });
 
 test('the card renders exactly one clickable horizontal workflow rail', () => {
