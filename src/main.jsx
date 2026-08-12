@@ -27,10 +27,8 @@ import {
   KeyRound,
   LogOut,
   Mail,
-  Maximize2,
   Menu,
   MessageCircle,
-  Minimize2,
   Pencil,
   Plus,
   ReceiptText,
@@ -7454,18 +7452,8 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
           {detailed && rental.status !== 'cancelled' && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
           <button type="button" onClick={() => setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' })}><MessageCircle size={14}/> Contact</button>
-          <button
-            type="button"
-            className="rental-card-expand-toggle"
-            aria-expanded={detailsExpanded}
-            aria-controls={`rental-expanded-details-${rental.id}`}
-            onClick={() => setDetailsExpanded((expanded) => !expanded)}
-          >
-            {detailsExpanded ? <Minimize2 size={14}/> : <Maximize2 size={14}/>}
-            {detailsExpanded ? 'Minimize' : 'Maximize'}
-          </button>
           <details className="rental-overflow-menu">
-            <summary aria-label="More rental actions">•••</summary>
+            <summary aria-label="More rental actions"><span>More Actions</span><ChevronDown size={14}/></summary>
             <div>
               {canAdjustPaymentDeadline && <button type="button" onClick={() => setDeadlineModalOpen(true)}><CalendarClock size={14}/> Change payment deadline</button>}
               {canCreateEmergencyException && <button type="button" className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={14}/> Global emergency override</button>}
@@ -7480,6 +7468,17 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     <div className="rental-card-workflow">
       <RentalProgressTracker steps={progressSteps} onStepClick={(step) => setAdminStepScope(step.key)} />
     </div>
+
+    <button
+      type="button"
+      className="rental-card-details-toggle"
+      aria-expanded={detailsExpanded}
+      aria-controls={`rental-expanded-details-${rental.id}`}
+      onClick={() => setDetailsExpanded((expanded) => !expanded)}
+    >
+      <span>{detailsExpanded ? 'Hide rental details' : 'Show rental details'}</span>
+      <ChevronDown className={detailsExpanded ? 'is-expanded' : ''} size={15}/>
+    </button>
 
     {detailsExpanded && <div className="rental-card-expanded-content" id={`rental-expanded-details-${rental.id}`}>
     {(rental.customer_auth_deleted_at || returnState.inGrace || returnState.hardLocked) && <div className="rental-card-alerts">

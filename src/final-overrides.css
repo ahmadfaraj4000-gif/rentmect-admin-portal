@@ -6306,23 +6306,6 @@ input[type="radio"] {
   color: var(--ui-ink) !important;
 }
 
-.rental-card-secondary-actions > .rental-card-expand-toggle {
-  border: 1px solid #b9cec3 !important;
-  background: #edf7f1 !important;
-  color: #176842 !important;
-  font-weight: 850 !important;
-}
-
-.rental-card-secondary-actions > .rental-card-expand-toggle:hover {
-  border-color: #176842 !important;
-  background: #e2f2e9 !important;
-  color: #0f5635 !important;
-}
-
-.rental-card-expand-toggle svg {
-  flex: 0 0 auto !important;
-}
-
 .rental-overflow-menu,
 .document-overflow-menu {
   position: relative !important;
@@ -6342,6 +6325,28 @@ input[type="radio"] {
   cursor: pointer !important;
   list-style: none !important;
   font-weight: 900 !important;
+}
+
+.rental-overflow-menu > summary {
+  display: flex !important;
+  grid-auto-flow: unset !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  width: auto !important;
+  gap: 6px !important;
+  padding: 0 11px !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 12px !important;
+}
+
+.rental-overflow-menu > summary svg {
+  flex: 0 0 auto !important;
+  transition: transform .18s ease !important;
+}
+
+.rental-overflow-menu[open] > summary svg {
+  transform: rotate(180deg) !important;
 }
 
 .rental-overflow-menu > summary::-webkit-details-marker,
@@ -6380,8 +6385,41 @@ input[type="radio"] {
   padding: 12px 16px 10px !important;
   overflow: hidden !important;
   border-top: 1px solid #d7dfdb !important;
-  border-bottom: 1px solid #d7dfdb !important;
+  border-bottom: 0 !important;
   background: #f8faf9 !important;
+}
+
+.rental-card-details-toggle {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-height: 34px !important;
+  gap: 7px !important;
+  padding: 7px 16px !important;
+  border: 0 !important;
+  border-top: 1px solid #e2e8e5 !important;
+  border-bottom: 1px solid #d7dfdb !important;
+  border-radius: 0 !important;
+  background: #f2f6f4 !important;
+  color: #315b47 !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  letter-spacing: .01em !important;
+}
+
+.rental-card-details-toggle:hover {
+  background: #e9f2ed !important;
+  color: #176842 !important;
+}
+
+.rental-card-details-toggle svg {
+  flex: 0 0 auto !important;
+  transition: transform .18s ease !important;
+}
+
+.rental-card-details-toggle svg.is-expanded {
+  transform: rotate(180deg) !important;
 }
 
 .rental-card-workflow .rental-progress-tracker {
