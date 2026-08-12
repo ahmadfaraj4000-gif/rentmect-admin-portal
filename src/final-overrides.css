@@ -8116,3 +8116,43 @@ input[type="radio"] {
 .rental-balance-actions button {
   min-height: 34px;
 }
+.deposit-action-list .queue-row {
+  border-left: 4px solid #d97706;
+}
+
+.employee-permission-groups {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.employee-permission-group {
+  border: 1px solid #dfe5e1;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.employee-permission-group h4 {
+  margin: 0;
+  padding: 12px 16px;
+  background: #f5f8f6;
+  border-bottom: 1px solid #dfe5e1;
+}
+
+.employee-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.employee-permission-row:last-child { border-bottom: 0; }
+.employee-permission-row span { display: grid; gap: 3px; }
+.employee-permission-row small { color: #647067; }
+.employee-permission-row input[role="switch"] { width: 44px; height: 24px; flex: 0 0 auto; }
+
+@media (max-width: 720px) {
+  .employee-permission-row { align-items: flex-start; }
+}
