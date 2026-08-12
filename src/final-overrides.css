@@ -6306,6 +6306,23 @@ input[type="radio"] {
   color: var(--ui-ink) !important;
 }
 
+.rental-card-secondary-actions > .rental-card-expand-toggle {
+  border: 1px solid #b9cec3 !important;
+  background: #edf7f1 !important;
+  color: #176842 !important;
+  font-weight: 850 !important;
+}
+
+.rental-card-secondary-actions > .rental-card-expand-toggle:hover {
+  border-color: #176842 !important;
+  background: #e2f2e9 !important;
+  color: #0f5635 !important;
+}
+
+.rental-card-expand-toggle svg {
+  flex: 0 0 auto !important;
+}
+
 .rental-overflow-menu,
 .document-overflow-menu {
   position: relative !important;
@@ -6413,6 +6430,13 @@ input[type="radio"] {
 .rental-card-alerts > small {
   width: 100% !important;
   margin: 0 !important;
+}
+
+.rental-card-expanded-content {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-width: 0 !important;
+  width: 100% !important;
 }
 
 .rental-card-workspace {
