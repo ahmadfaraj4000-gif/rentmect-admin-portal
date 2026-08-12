@@ -5474,7 +5474,7 @@ function AuditLog({ auditLogs = [] }) {
     </div>
     <div className="audit-summary">Showing {visibleLogs.length} of {auditLogs.length} recorded actions</div>
     <div className="table-list audit-list">
-      {visibleLogs.length === 0 && <p className="muted">No audit entries match this view. New entries appear after the audit migration is installed.</p>}
+      {visibleLogs.length === 0 && <p className="muted">No audit entries match this view. New entries appear after staff and admin actions are recorded.</p>}
       {visibleLogs.map((log) => <article className="data-row audit-row" key={log.id}>
         <div className="audit-row-main">
           <strong>{auditActionLabel(log.action)}</strong>
