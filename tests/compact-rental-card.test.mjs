@@ -15,6 +15,16 @@ test('every Rentals filter uses the same compact operational card', () => {
   assert.match(source, /rental-card-financial/);
 });
 
+test('rental cards start minimized and reveal one complete detail workspace on demand', () => {
+  assert.match(source, /const \[detailsExpanded, setDetailsExpanded\] = useState\(false\)/);
+  assert.match(source, /aria-expanded=\{detailsExpanded\}/);
+  assert.match(source, /aria-controls=\{`rental-expanded-details-\$\{rental\.id\}`\}/);
+  assert.match(source, /detailsExpanded \? 'Minimize' : 'Maximize'/);
+  assert.match(source, /\{detailsExpanded && <div className="rental-card-expanded-content"/);
+  assert.match(source, /rental-card-expanded-content[\s\S]*rental-card-workspace[\s\S]*rental-card-activity/);
+  assert.match(styles, /\.rental-card-expanded-content\s*\{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+});
+
 test('the card renders exactly one clickable horizontal workflow rail', () => {
   assert.equal((source.match(/<RentalProgressTracker/g) || []).length, 1);
   assert.doesNotMatch(source, /<AdminBookingProcedure/);

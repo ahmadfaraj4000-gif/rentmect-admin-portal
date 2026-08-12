@@ -27,8 +27,10 @@ import {
   KeyRound,
   LogOut,
   Mail,
+  Maximize2,
   Menu,
   MessageCircle,
+  Minimize2,
   Pencil,
   Plus,
   ReceiptText,
@@ -7284,6 +7286,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
 }
 
 function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
   const [pickupModal, setPickupModal] = useState(null);
@@ -7428,7 +7431,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     setReturnPanelOpen(false);
   }
 
-  return <article className="data-row rental-row rental-operations-card">
+  return <article className={`data-row rental-row rental-operations-card ${detailsExpanded ? 'is-expanded' : 'is-collapsed'}`}>
     <header className="rental-card-header">
       <div className="rental-card-identity">
         <div className="rental-card-title-line">
@@ -7451,6 +7454,16 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
           {detailed && rental.status !== 'cancelled' && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
           <button type="button" onClick={() => setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' })}><MessageCircle size={14}/> Contact</button>
+          <button
+            type="button"
+            className="rental-card-expand-toggle"
+            aria-expanded={detailsExpanded}
+            aria-controls={`rental-expanded-details-${rental.id}`}
+            onClick={() => setDetailsExpanded((expanded) => !expanded)}
+          >
+            {detailsExpanded ? <Minimize2 size={14}/> : <Maximize2 size={14}/>}
+            {detailsExpanded ? 'Minimize' : 'Maximize'}
+          </button>
           <details className="rental-overflow-menu">
             <summary aria-label="More rental actions">•••</summary>
             <div>
@@ -7468,6 +7481,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
       <RentalProgressTracker steps={progressSteps} onStepClick={(step) => setAdminStepScope(step.key)} />
     </div>
 
+    {detailsExpanded && <div className="rental-card-expanded-content" id={`rental-expanded-details-${rental.id}`}>
     {(rental.customer_auth_deleted_at || returnState.inGrace || returnState.hardLocked) && <div className="rental-card-alerts">
       {rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
       {returnState.inGrace && <small className="late-return-warning"><Clock size={14}/> Three-hour grace is active until {returnState.graceEnds.toLocaleString()}.</small>}
@@ -7543,6 +7557,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
         {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && <small>No extension, incident, or admin-completion activity is attached to this rental.</small>}
       </div>
     </details>
+    </div>}
 
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={closeReturnPanel} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
       {externalPaymentModalOpen && <ExternalPaymentModal
