@@ -65,4 +65,6 @@ test('documents and financial actions remain reachable without permanent button 
 test('the compact card stacks cleanly only at narrow widths', () => {
   assert.match(styles, /\.rental-card-workspace[\s\S]*grid-template-columns: minmax\(0, 1\.55fr\) minmax\(330px, 1fr\)/);
   assert.match(styles, /@media \(max-width: 780px\)[\s\S]*\.rental-card-workspace[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /@media \(max-width: 780px\)[\s\S]*\.rental-card-secondary-actions\s*\{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important/);
+  assert.match(styles, /\.rental-card-secondary-actions > \.rental-overflow-menu > summary\s*\{[\s\S]*width: 100% !important/);
 });
