@@ -6311,6 +6311,10 @@ input[type="radio"] {
   position: relative !important;
 }
 
+.rental-overflow-menu {
+  flex: 0 0 auto !important;
+}
+
 .rental-overflow-menu > summary,
 .document-overflow-menu > summary {
   display: grid !important;
@@ -6338,6 +6342,7 @@ input[type="radio"] {
   padding: 0 11px !important;
   color: var(--ui-ink-soft) !important;
   font-size: 12px !important;
+  white-space: nowrap !important;
 }
 
 .rental-overflow-menu > summary svg {
