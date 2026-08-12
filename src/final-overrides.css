@@ -6867,14 +6867,23 @@ input[type="radio"] {
   }
 
   .rental-card-secondary-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     width: 100% !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
+    overflow: visible !important;
     padding-bottom: 2px !important;
   }
 
-  .rental-card-secondary-actions > button {
-    flex: 0 0 auto !important;
+  .rental-card-secondary-actions > button,
+  .rental-card-secondary-actions > .rental-overflow-menu,
+  .rental-card-secondary-actions > .rental-overflow-menu > summary {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .rental-card-secondary-actions > button,
+  .rental-card-secondary-actions > .rental-overflow-menu > summary {
+    justify-content: center !important;
   }
 
   .rental-card-details dl,
@@ -6909,8 +6918,8 @@ input[type="radio"] {
   }
 
   .rental-overflow-menu > div {
-    right: auto !important;
-    left: 0 !important;
+    right: 0 !important;
+    left: auto !important;
   }
 
   .rental-card-details dl,
