@@ -155,7 +155,12 @@ const ADMIN_TAB_DOMAINS = {
 const ADMIN_TAB_PERMISSION_KEYS = {
   dashboard: 'tab.dashboard', queue: 'tab.queue', payments: 'tab.payments', tolls: 'tab.tolls',
   calendar: 'tab.calendar', 'new-booking': 'booking.create', rentals: 'tab.rentals', vehicles: 'tab.vehicles',
-  customers: 'tab.customers', emails: 'tab.communications', audit: 'tab.audit', settings: 'tab.settings',
+  customers: 'tab.customers', emails: 'tab.communications', documents: 'tab.rentals',
+  audit: 'tab.audit', settings: 'tab.settings',
+};
+const ADMIN_TAB_SECONDARY_PERMISSION_KEYS = {
+  payments: 'reports.financial',
+  audit: 'audit.view',
 };
 const VIN_MAX_LENGTH = 17;
 const PLATE_MAX_LENGTH = 12;
@@ -441,7 +446,8 @@ function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAdminUser, setIsAdminUser] = useState(false);
-  const [staffContext, setStaffContext] = useState({ staff_role: 'customer', can_manage_employee_permissions: false, permissions: {} });
+  const [staffContext, setStaffContext] = useState({ staff_role: 'loading', can_manage_employee_permissions: false, permissions: {} });
+  const [staffContextLoading, setStaffContextLoading] = useState(true);
   const [employeePermissions, setEmployeePermissions] = useState([]);
   const [depositActionTasks, setDepositActionTasks] = useState([]);
   const [adminRoleChecking, setAdminRoleChecking] = useState(true);
@@ -736,16 +742,24 @@ function App() {
 
   useEffect(() => {
     if (!isAdminUser) return;
+    setStaffContextLoading(true);
     void (async () => {
       const { data, error } = await supabase.rpc('get_admin_staff_context');
-      if (!error && data) setStaffContext(data);
+      if (!error && data) {
+        setStaffContext(data);
+      } else {
+        setStaffContext({ staff_role: 'customer', can_manage_employee_permissions: false, permissions: {} });
+      }
+      setStaffContextLoading(false);
     })();
   }, [isAdminUser, session?.user?.id]);
 
   useEffect(() => {
     if (staffContext.staff_role !== 'employee') return;
-    const permissionKey = ADMIN_TAB_PERMISSION_KEYS[activeTab];
-    if (permissionKey && staffContext.permissions?.[permissionKey] !== true) setActiveTab('dashboard');
+    if (!canAccessAdminTab(activeTab)) {
+      const fallbackTab = [...ADMIN_TAB_KEYS].find((key) => canAccessAdminTab(key));
+      if (fallbackTab && fallbackTab !== activeTab) setActiveTab(fallbackTab);
+    }
   }, [activeTab, staffContext]);
 
   useEffect(() => {
@@ -909,6 +923,10 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_allocations' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_action_tasks' }, () => {
+        scheduleDomainRefresh('snapshot');
+        scheduleDomainRefresh('core');
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, () => scheduleDomainRefresh('workflow'))
       .subscribe();
     calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
@@ -1485,6 +1503,11 @@ function App() {
   }
 
   async function updateRentalStatus(id, status, options = {}) {
+    if (status === 'cancelled') {
+      if (!requireStaffPermission('rental.cancel', 'cancel rentals')) return false;
+    } else if (!requireStaffPermission('rental.edit', 'change rental status')) {
+      return false;
+    }
     const rental = rentals.find((item) => item.id === id);
     const nextVehicleStatus = vehicleStatusForRentalStatus(status);
     const applyLocalStatus = (rentalUpdates = {}, vehicleUpdates = {}) => {
@@ -1580,6 +1603,7 @@ function App() {
   }
 
   async function updateRentalPaymentDeadline(rental, paymentDueAt, reason) {
+    if (!requireStaffPermission('rental.edit', 'change rental payment deadlines')) return false;
     const { data, error } = await supabase.rpc('admin_set_rental_payment_deadline', {
       p_rental_id: rental.id,
       p_payment_due_at: paymentDueAt,
@@ -1599,6 +1623,7 @@ function App() {
   }
 
   async function activateRentalWithEmergencyException(rental, form) {
+    if (!requireStaffPermission('override.emergency', 'use emergency overrides')) return false;
     const { data, error } = await supabase.rpc('admin_activate_rental_with_emergency_exception', {
       p_rental_id: rental.id,
       p_exception_scopes: form.scopes,
@@ -1619,6 +1644,7 @@ function App() {
   }
 
   async function addEmergencyExceptionScope(rental, form) {
+    if (!requireStaffPermission('override.emergency', 'use emergency overrides')) return false;
     const { data, error } = await supabase.rpc('admin_add_rental_emergency_exception_scope', {
       p_rental_id: rental.id,
       p_scope: form.scope,
@@ -1644,6 +1670,7 @@ function App() {
   }
 
   async function resolveEmergencyExceptionScope(exceptionId, scope) {
+    if (!requireStaffPermission('override.emergency', 'resolve emergency overrides')) return false;
     const { data, error } = await supabase.rpc('admin_resolve_rental_emergency_exception_scope', {
       p_exception_id: exceptionId,
       p_scope: scope,
@@ -1655,6 +1682,7 @@ function App() {
   }
 
   async function completeRentalReturn(rental, inspection = {}) {
+    if (!requireStaffPermission('rental.return', 'complete rental returns')) return false;
     if (!rental?.id) return;
 
     if (inspection.damageFound) {
@@ -1768,6 +1796,10 @@ function App() {
         }
         : exception
     ));
+    await Promise.all([
+      loadAdminDomain('core', { force: true }),
+      loadDashboardSnapshot({ force: true }),
+    ]);
     notify(
       inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
@@ -1780,6 +1812,7 @@ function App() {
   }
 
   async function releaseSecurityDeposit(rental) {
+    if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
     if (!rental?.id) return;
     const amount = Number(rental.deposit_held_amount || rental.security_deposit || 0);
     const confirmed = window.confirm(`Refund ${money(amount)} of the captured Stripe payment to this customer now?`);
@@ -1823,6 +1856,7 @@ function App() {
   }
 
   async function refundRentalPayment(rental, refund) {
+    if (!requireStaffPermission('payment.refund', 'refund rental payments')) return false;
     if (!rental?.id) return false;
     const amount = Number(refund?.amount || 0);
     const reason = String(refund?.reason || '').trim();
@@ -1872,6 +1906,7 @@ function App() {
   }
 
   async function recordLocalDepositRelease(rental) {
+    if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
     const allocations = depositAllocations.filter((item) =>
       item.holder_rental_id === rental.id &&
       item.payment_provider === 'local' &&
@@ -1887,6 +1922,7 @@ function App() {
   }
 
   async function recordExternalDepositRelease(rental, details) {
+    if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
     const { data, error } = await supabase.rpc('admin_record_external_deposit_release', {
       p_rental_id: rental.id,
       p_method: details.method,
@@ -1901,6 +1937,7 @@ function App() {
   }
 
   async function escalateDepositTask(rental, note) {
+    if (!requireStaffPermission('deposit.resolve', 'escalate deposit tasks')) return false;
     const { error } = await supabase.rpc('admin_escalate_deposit_task', { p_rental_id: rental.id, p_note: note });
     if (error) return notify(error.message);
     await loadAllData({ silent: true, domains: ['core', 'snapshot'] });
@@ -1934,6 +1971,7 @@ function App() {
   }
 
   async function recordTestPayment(rental, payment = {}) {
+    if (!requireStaffPermission('payment.collect', 'record customer payments')) return false;
     const id = rental?.id;
     if (!id) return false;
     const amount = Number(payment.amount);
@@ -1987,6 +2025,7 @@ function App() {
   }
 
   async function decideExtension(id, approve) {
+    if (!requireStaffPermission('rental.edit', 'approve or decline rental extensions')) return false;
     const request = extensionRequests.find((item) => item.id === id);
     const extensionInsurance = latestInsurancePacket(documents.filter((document) => document.rental_id === request?.rental_id), id);
     if (approve && extensionInsurance?.status !== 'approved') {
@@ -2010,6 +2049,7 @@ function App() {
   }
 
   async function recordExtensionPayment(id) {
+    if (!requireStaffPermission('payment.collect', 'record extension payments')) return false;
     const request = extensionRequests.find((item) => item.id === id);
     const extensionInsurance = latestInsurancePacket(documents.filter((document) => document.rental_id === request?.rental_id), id);
     if (extensionInsurance?.status !== 'approved') {
@@ -2026,6 +2066,7 @@ function App() {
   }
 
   async function cancelApprovedExtension(id) {
+    if (!requireStaffPermission('rental.edit', 'cancel rental extensions')) return false;
     const request = extensionRequests.find((item) => item.id === id);
     if (!window.confirm(`Cancel this approved extension${request?.rentals?.profiles?.full_name ? ` for ${request.rentals.profiles.full_name}` : ''} and release its calendar hold?`)) return;
     const { data, error } = await supabase.rpc('cancel_admin_approved_extension', { p_extension_request_id: id });
@@ -2036,6 +2077,7 @@ function App() {
   }
 
   async function addRentalCharge(rentalId, charge) {
+    if (!requireStaffPermission('charge.manage', 'add rental charges')) return false;
     const { data, error } = await supabase.rpc('admin_add_rental_charge', {
       p_rental_id: rentalId,
       p_name: charge.name,
@@ -2054,6 +2096,7 @@ function App() {
   }
 
   async function previewRentalAmendment(rental, form) {
+    if (!requireStaffPermission('rental.edit', 'edit rental details')) return null;
     const { data, error } = await supabase.rpc('admin_preview_rental_amendment', {
       p_rental_id: rental.id,
       p_vehicle_id: form.vehicleId,
@@ -2069,6 +2112,7 @@ function App() {
   }
 
   async function applyRentalAmendment(rental, form, idempotencyKey) {
+    if (!requireStaffPermission('rental.edit', 'edit rental details')) return false;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'admin_apply_rental_amendment',
@@ -2111,6 +2155,7 @@ function App() {
   }
 
   async function previewManualRentalDiscount(rental, form) {
+    if (!requireStaffPermission('rental.discount', 'apply rental discounts')) return null;
     const { data, error } = await supabase.rpc('admin_preview_manual_rental_discount', {
       p_rental_id: rental.id,
       p_mode: form.mode,
@@ -2121,6 +2166,7 @@ function App() {
   }
 
   async function applyManualRentalDiscount(rental, form, idempotencyKey) {
+    if (!requireStaffPermission('rental.discount', 'apply rental discounts')) return false;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'admin_apply_manual_discount',
@@ -2160,6 +2206,7 @@ function App() {
   }
 
   async function waiveRentalCharge(id) {
+    if (!requireStaffPermission('charge.manage', 'waive rental charges')) return false;
     const { data, error } = await supabase.rpc('admin_waive_rental_charge', { p_charge_id: id });
     if (error) return notify(error.message);
     setRentalCharges((current) => current.map((charge) => charge.id === id ? data : charge));
@@ -2167,6 +2214,7 @@ function App() {
   }
 
   async function chargeRentalSavedCard(charge, options = {}) {
+    if (!requireStaffPermission('charge.manage', 'collect rental charges')) return false;
     if (!charge?.id) return false;
     const confirmed = options.skipConfirmation || window.confirm(`Charge the customer's saved card ${money(charge.total_amount)} for “${charge.name}”? This attempts the charge immediately.`);
     if (!confirmed) return false;
@@ -2189,6 +2237,7 @@ function App() {
   }
 
   async function updateVehicleStatus(id, status) {
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle status')) return false;
     const allowedStatus = OPERATIONAL_VEHICLE_STATUS_OPTIONS.some(([key]) => key === status);
     if (!allowedStatus) {
       notify('Reserved and On the Road are controlled by the rental schedule, not the vehicle condition control.', 'error');
@@ -2210,6 +2259,7 @@ function App() {
   }
 
   async function updateVehiclePublished(id, published) {
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle publishing')) return false;
     const vehicle = vehicles.find((item) => item.id === id);
     if (published && linesToList(vehicle?.features).length < 3) {
       return notify('Select at least three customer-facing features before publishing this vehicle.');
@@ -2226,6 +2276,7 @@ function App() {
   }
 
   async function markVehicleServiced(vehicle) {
+    if (!requireStaffPermission('vehicle.manage', 'record vehicle service')) return false;
     const currentMileage = parseMileageInput(vehicle?.current_mileage);
     if (currentMileage === null) return notify('Record the vehicle’s current mileage before completing maintenance.');
     const interval = Number(vehicle?.maintenance_interval_miles || DEFAULT_MAINTENANCE_INTERVAL);
@@ -2248,6 +2299,7 @@ function App() {
   }
 
   async function completeMaintenanceSchedule(schedule, completion) {
+    if (!requireStaffPermission('vehicle.manage', 'complete vehicle maintenance')) return false;
     const mileage = parseMileageInput(completion.mileage);
     if (mileage === null) return notify('Enter the vehicle mileage recorded when this service was completed.');
     if (!completion.completedAt) return notify('Enter the service completion date.');
@@ -2264,6 +2316,7 @@ function App() {
   }
 
   async function saveMaintenanceSchedule(schedule, updates) {
+    if (!requireStaffPermission('vehicle.manage', 'change maintenance schedules')) return false;
     const intervalMiles = parseOptionalPositiveInteger(updates.interval_miles);
     const intervalMonths = parseOptionalPositiveInteger(updates.interval_months);
     const lastServiceMileage = parseMileageInput(updates.last_service_mileage);
@@ -2290,6 +2343,7 @@ function App() {
   }
 
   async function overrideVehicleMaintenance(vehicle, reason, hours) {
+    if (!requireStaffPermission('vehicle.manage', 'override vehicle maintenance')) return false;
     const duration = Number(hours);
     if (String(reason || '').trim().length < 10) return notify('Enter a specific maintenance override reason of at least 10 characters.');
     if (!Number.isInteger(duration) || duration < 1 || duration > 168) return notify('Choose an override between 1 and 168 hours.');
@@ -2305,6 +2359,7 @@ function App() {
   }
 
   async function updateDamageCase(id, updates) {
+    if (!requireStaffPermission('customer.manage', 'update customer damage cases')) return false;
     const payload = { ...updates };
     if (payload.status === 'resolved') payload.resolved_at = new Date().toISOString();
     const { data, error } = await supabase
@@ -2319,6 +2374,7 @@ function App() {
   }
 
   async function setCustomerStatus(userId, customerStatus, reason = '') {
+    if (!requireStaffPermission('customer.manage', 'change customer status')) return false;
     const { data, error } = await supabase.rpc('admin_set_customer_status', {
       p_user_id: userId,
       p_customer_status: customerStatus,
@@ -2336,6 +2392,7 @@ function App() {
   }
 
   async function updateCustomerProfile(userId, updates) {
+    if (!requireStaffPermission('customer.manage', 'edit customer records')) return false;
     const { data, error } = await supabase.functions.invoke('admin-customers', {
       body: { action: 'update', customerId: userId, ...updates },
     });
@@ -2355,6 +2412,7 @@ function App() {
   }
 
   async function deleteCustomerProfile(userId, confirmation) {
+    if (!requireStaffPermission('customer.manage', 'delete customer records')) return false;
     const { data, error } = await supabase.functions.invoke('admin-customers', {
       body: { action: 'delete', customerId: userId, confirmation },
     });
@@ -2399,6 +2457,7 @@ function App() {
   }
 
   async function saveVehicleEdit(id, { priceConfirmed = false, onError = null } = {}) {
+    if (!requireStaffPermission('vehicle.manage', 'edit vehicle details')) return false;
     if (!editVehicleForm) return;
     const fail = (message) => {
       if (onError) onError(message);
@@ -2488,6 +2547,7 @@ function App() {
   }
 
   async function deleteVehicle(id) {
+    if (!requireStaffPermission('vehicle.manage', 'delete vehicles')) return false;
     const attachedRental = rentals.find((r) => r.vehicle_id === id);
 
     if (attachedRental) {
@@ -2524,6 +2584,7 @@ function App() {
 
   async function createDiscountCode(event) {
     event.preventDefault();
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const amount = Number(discountForm.amount);
     if (!discountForm.code.trim()) return notify('Enter or generate a discount code.');
     if (!amount || amount <= 0) return notify('Discount amount must be greater than zero.');
@@ -2558,6 +2619,7 @@ function App() {
   }
 
   async function toggleDiscountCode(id, active) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const { data, error } = await supabase
       .from('discount_codes')
       .update({ active })
@@ -2570,6 +2632,7 @@ function App() {
   }
 
   async function deleteDiscountCode(id) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const confirmed = window.confirm('Delete this discount code?');
     if (!confirmed) return;
     const { error } = await supabase.from('discount_codes').delete().eq('id', id);
@@ -2580,6 +2643,7 @@ function App() {
 
   async function createServiceFee(event) {
     event.preventDefault();
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const amount = Number(serviceFeeForm.amount);
     if (!serviceFeeForm.name.trim()) return notify('Enter a service fee name.');
     if (!serviceFeeForm.service_type.trim()) return notify('Enter a fee type.');
@@ -2607,6 +2671,7 @@ function App() {
   }
 
   async function toggleServiceFee(id, active) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const { data, error } = await supabase
       .from('service_fees')
       .update({ active })
@@ -2619,6 +2684,7 @@ function App() {
   }
 
   async function deleteServiceFee(id) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const confirmed = window.confirm('Delete this service fee?');
     if (!confirmed) return;
     const { error } = await supabase.from('service_fees').delete().eq('id', id);
@@ -2629,6 +2695,7 @@ function App() {
 
   async function saveUnder25Pricing(event) {
     event?.preventDefault();
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const depositValue = Number(under25Pricing.deposit_adjustment_value || 0);
     const markup = Number(under25Pricing.rental_markup_percentage || 0);
     if (depositValue < 0 || (under25Pricing.deposit_adjustment_type === 'percentage' && depositValue > 100)) {
@@ -2658,6 +2725,7 @@ function App() {
   }
 
   async function removeUnder25DepositAdjustment() {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     setUnder25PricingSaving(true);
     const { data, error } = await supabase
       .from('under_25_pricing_settings')
@@ -2678,6 +2746,7 @@ function App() {
 
   async function saveBillingAutomation(event) {
     event?.preventDefault();
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const delayDays = Number(billingAutomation.deposit_release_delay_days || 0);
     if (!Number.isInteger(delayDays) || delayDays < 1 || delayDays > 30) {
       return notify('Automatic deposit release delay must be a whole number from 1 to 30 days.');
@@ -2705,6 +2774,7 @@ function App() {
 
   async function saveBookingPolicy(event) {
     event?.preventDefault();
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const minimumDays = Number(bookingPolicy.minimum_rental_days);
     const advanceMinutes = Number(bookingPolicy.advance_notice_minutes);
     const adminDeadlineMinutes = Number(bookingPolicy.admin_booking_payment_deadline_minutes);
@@ -2754,6 +2824,7 @@ function App() {
 
   async function saveSitePromotion(event) {
     event.preventDefault();
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const couponCode = normalizeCodeInput(promotionForm.coupon_code);
     if (!promotionForm.name.trim()) return notify('Enter an internal campaign name.');
     if (couponCode.length < 2) return notify('Enter a coupon code.');
@@ -2814,6 +2885,7 @@ function App() {
   }
 
   async function toggleSitePromotion(id, active) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const { data, error } = await supabase
       .from('site_promotions')
       .update({ active })
@@ -2826,6 +2898,7 @@ function App() {
   }
 
   async function deleteSitePromotion(id) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
     const confirmed = window.confirm('Delete this promotion permanently?');
     if (!confirmed) return;
     const { error } = await supabase.from('site_promotions').delete().eq('id', id);
@@ -2837,6 +2910,7 @@ function App() {
 
   async function saveAvailabilityBlock(event) {
     event.preventDefault();
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle availability')) return false;
     const vehicleId = availabilityBlockForm.vehicle_id || vehicles[0]?.id;
     if (!vehicleId) return notify('Choose a vehicle to block.');
     if (!availabilityBlockForm.start_date || !availabilityBlockForm.end_date) return notify('Choose start and end dates.');
@@ -2935,6 +3009,8 @@ function App() {
   }
 
   async function createAvailabilityBlock(event) {
+    event.preventDefault();
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle availability')) return false;
     if (availabilitySaving) return;
     setAvailabilitySaving(true);
     try {
@@ -2947,6 +3023,7 @@ function App() {
   }
 
   async function createAvailabilityPaintBlock({ vehicleId, startDate, endDate, blockType, startTime, endTime, label, notes }) {
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle availability')) return false;
     if (!vehicleId || !startDate || !endDate) return;
     const sortedDates = [startDate, endDate].sort();
     const type = blockType || 'unavailable';
@@ -3006,6 +3083,7 @@ function App() {
   }
 
   async function updateAvailabilityBlock(id, updates) {
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle availability')) return false;
     const currentBlock = availabilityBlocks.find((block) => block.id === id);
     if (!currentBlock || !MANUAL_CALENDAR_BLOCK_TYPES.has(String(currentBlock.block_type || '').toLowerCase())) {
       return { ok: false, error: 'System-created calendar holds must be managed from the related rental or extension request.' };
@@ -3056,6 +3134,7 @@ function App() {
   }
 
   async function deleteAvailabilityBlock(id) {
+    if (!requireStaffPermission('vehicle.manage', 'change vehicle availability')) return false;
     const block = availabilityBlocks.find((item) => item.id === id);
     if (!block || !MANUAL_CALENDAR_BLOCK_TYPES.has(String(block.block_type || '').toLowerCase())) {
       notify('System-created calendar holds cannot be removed here. Manage the related rental or extension request.', 'error');
@@ -3077,6 +3156,7 @@ function App() {
   }
 
   function updateAvailabilityType(key, field, value) {
+    if (!requireStaffPermission('settings.operational', 'change operational settings')) return;
     setAvailabilityTypes((current) => ({
       ...current,
       [key]: {
@@ -3087,6 +3167,7 @@ function App() {
   }
 
   async function markDocument(id, status) {
+    if (!requireStaffPermission('rental.edit', 'review rental documents')) return false;
     const changedDocument = documents.find((document) => document.id === id);
     const packetId = changedDocument?.document_type === 'insurance'
       ? (changedDocument.insurance_packet_id || changedDocument.id)
@@ -3168,6 +3249,7 @@ function App() {
     return movedRentals;
   }
   async function deleteDocument(document) {
+  if (!requireStaffPermission('rental.edit', 'delete rental documents')) return false;
   const confirmed = window.confirm(`Delete ${docLabel(document.document_type)} upload?`);
   if (!confirmed) return;
 
@@ -3227,6 +3309,7 @@ function App() {
 
   async function sendReply(event) {
     event.preventDefault();
+    if (!requireStaffPermission('communications.send', 'send customer messages')) return false;
     if (!replyText.trim() || !selectedRental) return;
 
     const { error } = await supabase.from('rental_messages').insert({
@@ -3257,6 +3340,7 @@ function App() {
 
   async function createManualBooking(event) {
     event.preventDefault();
+    if (!requireStaffPermission('booking.create', 'create bookings')) return false;
     const vehicle = vehicles.find((item) => item.id === manualBookingForm.vehicleId);
     if (manualBookingForm.customerMode === 'existing' && !manualBookingForm.customerId) return notify('Choose a customer.');
     const selectedExistingCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
@@ -3360,6 +3444,7 @@ function App() {
   }
 
   async function sendBookingCompletionLink(rental, delivery = 'email') {
+    if (!requireStaffPermission('communications.send', 'send customer messages')) return false;
     const { data, error } = await supabase.functions.invoke('admin-manual-booking', {
       body: { action: 'create_onboarding_link', rentalId: rental.id, delivery },
     });
@@ -3390,6 +3475,7 @@ function App() {
   }
 
   async function uploadAdminBookingDocument(rental, documentType, fileOrItems, { extensionRequestId = null } = {}) {
+    if (!requireStaffPermission('rental.edit', 'upload rental documents')) return false;
     if (!rental?.id || !rental?.user_id || !fileOrItems) return false;
     const items = documentType === 'insurance'
       ? (Array.isArray(fileOrItems) ? fileOrItems : [{ file: fileOrItems, coverageType: 'combined' }])
@@ -3435,6 +3521,7 @@ function App() {
   }
 
   async function completeAdminRentalStep(rental, stepKey, note, metadata = {}) {
+    if (!requireStaffPermission('rental.edit', 'complete rental workflow steps')) return false;
     const { data, error } = await supabase.rpc('admin_complete_rental_step', {
       p_rental_id: rental.id,
       p_step_key: stepKey,
@@ -3461,6 +3548,7 @@ function App() {
   }
 
   async function signAdminRentalAgreement(rental, signature) {
+    if (!requireStaffPermission('rental.edit', 'sign rental agreements')) return false;
     const snapshot = buildAdminAgreementSnapshot(rental, signature.name, signature.image);
     const hashBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(snapshot));
     const agreementHash = [...new Uint8Array(hashBytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -3487,6 +3575,7 @@ function App() {
   }
 
   async function createAdminPaymentLink(rental, mode = 'copy') {
+    if (!requireStaffPermission('payment.collect', 'collect customer payments')) return false;
     const successUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_success`;
     const cancelUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_cancelled`;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
@@ -3515,6 +3604,7 @@ function App() {
 
   async function addVehicle(event, { priceConfirmed = false, onError = null } = {}) {
     event?.preventDefault();
+    if (!requireStaffPermission('vehicle.manage', 'add vehicles')) return false;
     const fail = (message) => {
       if (onError) onError(message);
       else notify(message);
@@ -3612,6 +3702,7 @@ function App() {
   }
 
   async function sendManualReminder(rental, channel) {
+    if (!requireStaffPermission('communications.send', 'send customer messages')) return false;
     const customer = rental.profiles?.full_name || rental.profiles?.phone || rental.user_id;
     if (channel !== 'SMS') {
       notify(`${channel} reminder placeholder for ${customer}. SendGrid delivery is still pending.`);
@@ -3646,8 +3737,25 @@ function App() {
     notify(`Return reminder SMS sent to ${customer}.`, 'success');
   }
 
-  const canUsePermission = (permissionKey) => staffContext.staff_role !== 'employee'
-    || staffContext.permissions?.[permissionKey] === true;
+  function canUsePermission(permissionKey) {
+    if (staffContext.staff_role === 'owner' || staffContext.staff_role === 'operations_manager') return true;
+    return staffContext.staff_role === 'employee' && staffContext.permissions?.[permissionKey] === true;
+  }
+
+  function requireStaffPermission(permissionKey, actionLabel = 'perform this action') {
+    if (canUsePermission(permissionKey)) return true;
+    notify(`Your Employee access does not allow you to ${actionLabel}. Ask an authorized manager to enable it in Settings.`);
+    return false;
+  }
+  function canAccessAdminTab(tabKey) {
+    const permissionKey = ADMIN_TAB_PERMISSION_KEYS[tabKey];
+    const secondaryPermissionKey = ADMIN_TAB_SECONDARY_PERMISSION_KEYS[tabKey];
+    return Boolean(
+      permissionKey
+      && canUsePermission(permissionKey)
+      && (!secondaryPermissionKey || canUsePermission(secondaryPermissionKey))
+    );
+  }
   const adminTabs = [
     { key: 'dashboard', label: 'Dashboard', icon: Gauge },
     { key: 'queue', label: 'Queue', icon: ClipboardList },
@@ -3660,7 +3768,7 @@ function App() {
     { key: 'emails', label: 'Communications', icon: MessageCircle },
     { key: 'audit', label: 'Audit Log', icon: History },
     { key: 'settings', label: 'Settings', icon: Settings },
-  ].filter((tab) => canUsePermission(ADMIN_TAB_PERMISSION_KEYS[tab.key]));
+  ].filter((tab) => canAccessAdminTab(tab.key));
 
   function selectAdminTab(key) {
     setActiveTab(key);
@@ -3698,7 +3806,7 @@ function App() {
     setNavCollapsed((current) => !current);
   }
 
-  if (loading || (session && adminRoleChecking)) return <Loading message={session ? 'Verifying admin access…' : 'Loading admin portal…'} />;
+  if (loading || (session && (adminRoleChecking || (isAdminUser && staffContextLoading)))) return <Loading message={session ? 'Verifying admin access…' : 'Loading admin portal…'} />;
   if (!session) return <Login authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} authMessage={authMessage} showPassword={showAdminPassword} setShowPassword={setShowAdminPassword} handleForgotPassword={handleAdminForgotPassword} />;
   if (!isAdminUser) return <NotAdmin email={session.user.email} signOut={signOut} />;
 
@@ -3779,13 +3887,15 @@ function App() {
           audience="admin"
         />
 
-        {activeTab === 'dashboard' && <Dashboard snapshot={dashboardSnapshot} dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={sendManualReminder} depositTasks={depositActionTasks} depositAllocations={depositAllocations} onStripeRefund={releaseSecurityDeposit} onExternalRefund={recordExternalDepositRelease} onEscalate={escalateDepositTask} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
-        {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={updateRentalStatus} recordTestPayment={recordTestPayment} openDocument={openDocument} markDocument={markDocument} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} depositTasks={depositActionTasks} rentals={rentals} depositAllocations={depositAllocations} onStripeRefund={releaseSecurityDeposit} onExternalRefund={recordExternalDepositRelease} onEscalate={escalateDepositTask} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
+        {!canAccessAdminTab(activeTab) && <Panel title="Access unavailable" eyebrow="Employee Permissions"><p className="muted">Your Employee role does not currently have access to this section. Choose an available tab or ask an authorized manager to enable it in Settings.</p></Panel>}
+        {canAccessAdminTab(activeTab) && <>
+        {activeTab === 'dashboard' && <Dashboard snapshot={dashboardSnapshot} dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} depositTasks={depositActionTasks} depositAllocations={depositAllocations} onStripeRefund={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') ? escalateDepositTask : null} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
+        {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={canUsePermission('rental.edit') ? updateRentalStatus : null} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} depositTasks={depositActionTasks} rentals={rentals} depositAllocations={depositAllocations} onStripeRefund={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') ? escalateDepositTask : null} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'payments' && <PaymentsTab paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} rentalRefunds={rentalRefunds} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -3793,6 +3903,7 @@ function App() {
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
         {activeTab === 'settings' && <SettingsTab employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        </>}
       </main>
       {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
         confirmation={vehiclePriceConfirmation}
@@ -3874,15 +3985,15 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
         <div className="row-actions">
           <em>{item.severity}</em>
           {item.rental && item.localPaymentAction && <small>Complete verification and document review in Rental Manager before recording payment.</small>}
-          {item.rental && item.nextStatus && <button className="approve" onClick={() => updateRentalStatus(item.rental.id, item.nextStatus)}><CheckCircle2 size={16}/> {prettyStatus(item.nextStatus)}</button>}
+          {item.rental && item.nextStatus && updateRentalStatus && <button className="approve" onClick={() => updateRentalStatus(item.rental.id, item.nextStatus)}><CheckCircle2 size={16}/> {prettyStatus(item.nextStatus)}</button>}
           {item.extensionInsurance && <button onClick={() => openDocument(item.extensionInsurance)}><FileText size={16}/> Open Insurance</button>}
-          {item.extensionInsurance && item.extensionInsurance.status !== 'approved' && <button className="approve" onClick={() => markDocument(item.extensionInsurance.id, 'approved')}><CheckCircle2 size={16}/> Approve Insurance</button>}
-          {item.extension && item.extension.status === 'pending' && <button className="approve" disabled={item.extensionInsurance?.status !== 'approved'} title={item.extensionInsurance?.status !== 'approved' ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(item.extension.id, true)}><CheckCircle2 size={16}/> Approve &amp; Notify Customer</button>}
-          {item.extension && item.extension.status === 'pending' && <button className="reject" onClick={() => decideExtension(item.extension.id, false)}><XCircle size={16}/> Decline</button>}
-          {item.extension && item.extension.status === 'approved_pending_payment' && <button className="approve" onClick={() => recordExtensionPayment(item.extension.id)}><CreditCard size={16}/> Record Payment</button>}
+          {item.extensionInsurance && item.extensionInsurance.status !== 'approved' && markDocument && <button className="approve" onClick={() => markDocument(item.extensionInsurance.id, 'approved')}><CheckCircle2 size={16}/> Approve Insurance</button>}
+          {item.extension && item.extension.status === 'pending' && decideExtension && <button className="approve" disabled={item.extensionInsurance?.status !== 'approved'} title={item.extensionInsurance?.status !== 'approved' ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(item.extension.id, true)}><CheckCircle2 size={16}/> Approve &amp; Notify Customer</button>}
+          {item.extension && item.extension.status === 'pending' && decideExtension && <button className="reject" onClick={() => decideExtension(item.extension.id, false)}><XCircle size={16}/> Decline</button>}
+          {item.extension && item.extension.status === 'approved_pending_payment' && recordExtensionPayment && <button className="approve" onClick={() => recordExtensionPayment(item.extension.id)}><CreditCard size={16}/> Record Payment</button>}
           {item.document && <button onClick={() => openDocument(item.document)}><FileText size={16}/> Open</button>}
-          {item.document && <button className="approve" onClick={() => markDocument(item.document.id, 'approved')}><CheckCircle2 size={16}/> Approve</button>}
-          {item.document && <button className="reject" onClick={() => markDocument(item.document.id, 'rejected')}><XCircle size={16}/> Reject</button>}
+          {item.document && markDocument && <button className="approve" onClick={() => markDocument(item.document.id, 'approved')}><CheckCircle2 size={16}/> Approve</button>}
+          {item.document && markDocument && <button className="reject" onClick={() => markDocument(item.document.id, 'rejected')}><XCircle size={16}/> Reject</button>}
         </div>
       </div>)}
           {items.length > visibleItems.length && <p className="muted">Showing 5 of {items.length}. Use Rentals, Payments, or Messages for the full list.</p>}
@@ -3918,10 +4029,10 @@ function DepositActionPanel({ tasks = [], rentals = [], depositAllocations = [],
             </div>
             <div className="row-actions">
               <em>{prettyStatus(task.status)}</em>
-              {!blockers.length && hasStripe && <button type="button" className="approve" onClick={() => onStripeRefund?.(rental)}><DollarSign size={15}/> Quick Refund Deposit</button>}
-              {!blockers.length && hasLocal && <button type="button" className="approve" onClick={() => setExternalRental(rental)}><Banknote size={15}/> Mark Returned Externally</button>}
+              {!blockers.length && hasStripe && onStripeRefund && <button type="button" className="approve" onClick={() => onStripeRefund(rental)}><DollarSign size={15}/> Quick Refund Deposit</button>}
+              {!blockers.length && hasLocal && onExternalRefund && <button type="button" className="approve" onClick={() => setExternalRental(rental)}><Banknote size={15}/> Mark Returned Externally</button>}
               <button type="button" onClick={() => onOpenRental?.(rental.id)}>Open rental</button>
-              {task.status !== 'escalated' && <button type="button" onClick={() => setEscalationRental(rental)}>Escalate</button>}
+              {task.status !== 'escalated' && onEscalate && <button type="button" onClick={() => setEscalationRental(rental)}>Escalate</button>}
             </div>
           </div>;
         })}
@@ -3945,8 +4056,10 @@ function ExternalDepositReleaseModal({ rental, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
   const [form, setForm] = useState({ method: 'cash', reference: '', note: '' });
   const [saving, setSaving] = useState(false);
-  return <div className="admin-modal-backdrop" role="presentation"><form ref={dialogRef} className="admin-modal compact-modal" role="dialog" aria-modal="true" onSubmit={async (event) => {
-    event.preventDefault(); setSaving(true); await onConfirm(form); setSaving(false);
+  return <div className="admin-modal-backdrop deposit-action-modal-backdrop" role="presentation"><form ref={dialogRef} className="admin-modal compact-modal deposit-action-modal" role="dialog" aria-modal="true" onSubmit={async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try { await onConfirm(form); } finally { setSaving(false); }
   }}>
     <header className="admin-modal-header"><div><small>Deposit resolution</small><strong>Record external deposit return</strong><span>{rental.profiles?.full_name || 'Customer'} • {money(rental.deposit_held_amount || rental.security_deposit)}</span></div></header>
     <div className="portal-form">
@@ -3962,8 +4075,11 @@ function DepositEscalationModal({ rental, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
-  return <div className="admin-modal-backdrop" role="presentation"><form ref={dialogRef} className="admin-modal compact-modal" role="dialog" aria-modal="true" onSubmit={async (event) => {
-    event.preventDefault(); if (!note.trim()) return; setSaving(true); await onConfirm(note.trim()); setSaving(false);
+  return <div className="admin-modal-backdrop deposit-action-modal-backdrop" role="presentation"><form ref={dialogRef} className="admin-modal compact-modal deposit-action-modal" role="dialog" aria-modal="true" onSubmit={async (event) => {
+    event.preventDefault();
+    if (!note.trim()) return;
+    setSaving(true);
+    try { await onConfirm(note.trim()); } finally { setSaving(false); }
   }}><header className="admin-modal-header"><div><small>Manager follow-up</small><strong>Escalate deposit task</strong><span>{rental.profiles?.full_name || 'Customer'}</span></div></header><div className="portal-form"><label><span>Reason and next step</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} /></label></div><footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving || !note.trim()}>{saving ? 'Saving…' : 'Escalate'}</button></footer></form></div>;
 }
 

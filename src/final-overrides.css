@@ -8156,3 +8156,35 @@ input[type="radio"] {
 @media (max-width: 720px) {
   .employee-permission-row { align-items: flex-start; }
 }
+
+/* Deposit resolution must remain usable in short windows, landscape phones,
+   and browser zoom even though the global modal shell locks overflow. */
+.deposit-action-modal-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 14px !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.admin-modal.deposit-action-modal {
+  width: min(620px, calc(100vw - 28px)) !important;
+  max-height: calc(100vh - 28px) !important;
+  max-height: calc(100dvh - 28px) !important;
+  margin: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+}
+
+@media (max-width: 680px) {
+  .deposit-action-modal-backdrop.admin-modal-backdrop { padding: 8px !important; }
+  .admin-modal.deposit-action-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+}
