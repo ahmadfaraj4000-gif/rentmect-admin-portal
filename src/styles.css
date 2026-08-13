@@ -390,6 +390,54 @@
     color:var(--brand-olive);
     font-size:24px
 }
+.external-payment-installment-preview{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px 16px;
+    padding:14px 16px;
+    border:1px solid #d6c078;
+    border-radius:12px;
+    background:#fff9e9;
+    color:#5e5132
+}
+.external-payment-installment-preview span,
+.external-payment-installment-preview strong{
+    font-weight:900
+}
+.external-payment-installment-preview strong{
+    color:#72530b;
+    font-size:18px
+}
+.external-payment-installment-preview small{
+    grid-column:1 / -1;
+    color:#6c5d36;
+    line-height:1.45
+}
+.stripe-installment-amount{
+    width:100%;
+    text-align:left
+}
+.stripe-installment-summary{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px 16px;
+    width:100%;
+    padding:12px 14px;
+    border:1px solid #bfd6c4;
+    border-radius:12px;
+    background:#f3faf4;
+    color:#33553a;
+    text-align:left
+}
+.stripe-installment-summary span,
+.stripe-installment-summary strong{
+    font-weight:900
+}
+.stripe-installment-summary small{
+    grid-column:1 / -1;
+    color:#4f6754;
+    line-height:1.45
+}
 .external-payment-modal .modal-field,
 .return-completion-modal .field-label{
     display:grid!important;

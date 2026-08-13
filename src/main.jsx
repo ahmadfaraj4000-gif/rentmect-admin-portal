@@ -1976,7 +1976,12 @@ function App() {
     if (!id) return false;
     const amount = Number(payment.amount);
     const paymentMethod = String(payment.paymentMethod || '').trim();
-    const partialBalance = isPartialPaymentStatus(rental.payment_status);
+    const invoiceTotal = Number(rental.rental_total || 0)
+      + Number(rental.service_fee_total || 0)
+      + Number(rental.tax_amount || 0)
+      + Number(rental.security_deposit || 0);
+    const partialBalance = isPartialPaymentStatus(rental.payment_status)
+      || amount < invoiceTotal - 0.005;
     const { data, error } = partialBalance
       ? await supabase.functions.invoke('stripe-web-hook', {
           body: {
@@ -2012,6 +2017,11 @@ function App() {
     }
 
     await loadAllData({ silent: true });
+    const balanceRemaining = partialBalance ? Number(data?.balance_due || 0) : 0;
+    if (balanceRemaining > 0.005) {
+      notify(`${externalPaymentMethodLabel(paymentMethod)} installment of ${money(amount)} recorded. ${money(balanceRemaining)} remains due; payment and deposit are not complete.`, 'success');
+      return true;
+    }
     const { data: alertData, error: alertError } = await supabase.functions.invoke('send-rental-due-reminders', {
       body: { adminApprovalRentalId: id },
     });
@@ -3574,23 +3584,52 @@ function App() {
     return true;
   }
 
-  async function createAdminPaymentLink(rental, mode = 'copy') {
+  async function createAdminPaymentLink(rental, mode = 'copy', requestedAmount = null) {
     if (!requireStaffPermission('payment.collect', 'collect customer payments')) return false;
+    const checkoutWindow = mode === 'open' ? window.open('about:blank', '_blank') : null;
+    if (mode === 'open' && !checkoutWindow) {
+      notify('The browser blocked the Stripe window. Allow pop-ups for the admin portal and try again.');
+      return null;
+    }
+    if (checkoutWindow) checkoutWindow.opener = null;
     const successUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_success`;
     const cancelUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_cancelled`;
+    const amount = Number(requestedAmount);
+    const selectedAmountCents = Number.isFinite(amount) && amount > 0
+      ? Math.round(amount * 100)
+      : null;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
-      body: { action: 'admin_create_checkout', rentalId: rental.id, successUrl, cancelUrl },
+      body: {
+        action: selectedAmountCents ? 'admin_create_installment_checkout' : 'admin_create_checkout',
+        rentalId: rental.id,
+        amountCents: selectedAmountCents,
+        successUrl,
+        cancelUrl,
+      },
     });
     if (!error && data?.noPaymentRequired) {
+      checkoutWindow?.close();
       notify('The 100% discount completed this booking with the security deposit waived. No Stripe payment link was needed.', 'success');
       loadAllData({ silent: true });
       return 'completed-with-discount';
     }
     if (error || data?.error || !data?.url) {
+      checkoutWindow?.close();
       notify(data?.error || error?.message || 'The secure Stripe payment session could not be created.');
       return null;
     }
-    if (mode === 'open') window.open(data.url, '_blank', 'noopener,noreferrer');
+    if (mode === 'open') {
+      try {
+        checkoutWindow.location.replace(data.url);
+      } catch {
+        checkoutWindow.close();
+        notify('Stripe Checkout was created, but the payment window could not navigate. Try opening the payment again.');
+        return null;
+      }
+      if (selectedAmountCents) {
+        notify(`Stripe checkout opened for ${money(selectedAmountCents / 100)}. The payment will be credited only after Stripe confirms it.`, 'success');
+      }
+    }
     else {
       try {
         await navigator.clipboard.writeText(data.url);
@@ -7337,7 +7376,9 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
   const openRentalBalance = rentalBalanceCharges.find((charge) =>
     ['pending', 'checkout_open', 'failed'].includes(String(charge.status || '').toLowerCase())
   );
-  const trueAdditionalCharges = rentalCharges.filter((charge) => charge.charge_type !== 'rental_amendment');
+  const trueAdditionalCharges = rentalCharges.filter((charge) =>
+    !['rental_amendment', 'rental_installment'].includes(charge.charge_type)
+  );
   const outstandingAdditionalCharges = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(charge.status))
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
@@ -7376,6 +7417,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
   const refundableRentalPayment = Math.max(0, capturedPayment - recordedRentalRefunds - releasedDeposit - protectedDeposit);
   const canRefundRentalPayment = Boolean(refundRentalPayment)
     && rental.payment_provider === 'stripe'
+    && Boolean(rental.stripe_payment_intent_id)
     && rental.payment_status === 'paid'
     && refundableRentalPayment >= 0.5;
   const customerName = rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable');
@@ -7391,7 +7433,10 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     + Number(rental.service_fee_total || 0)
     + Number(rental.tax_amount || 0)
     + Number(rental.security_deposit || 0);
-  const hasCapturedRentalPayment = rental.paid_at || rental.payment_status === 'paid' || isPartialPaymentStatus(rental.payment_status);
+  // payment_amount_cents can also be an unpaid Stripe quote. Only paid_at
+  // proves that the rental-level snapshot itself was captured; installments
+  // recorded in rentalBalanceCharges are counted separately below.
+  const hasCapturedRentalPayment = Boolean(rental.paid_at);
   const recordedPaymentAmount = hasCapturedRentalPayment
     ? Number(rental.payment_amount_cents || 0) > 0
       ? Number(rental.payment_amount_cents) / 100
@@ -7600,7 +7645,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
         onUpload={(file) => uploadAdminBookingDocument?.(rental, adminStepScope, file)}
         onComplete={(note, metadata) => completeAdminRentalStep?.(rental, adminStepScope, note, metadata)}
         onSignAgreement={(signature) => signAdminRentalAgreement?.(rental, signature)}
-        onOpenStripe={() => createAdminPaymentLink?.(rental, 'open')}
+        onOpenStripe={(amount) => createAdminPaymentLink?.(rental, 'open', amount)}
         onRecordExternal={() => { setAdminStepScope(''); setExternalPaymentModalOpen(true); }}
         onBypass={() => {
           const scope = adminStepScope;
@@ -8065,6 +8110,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [insuranceItems, setInsuranceItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [stripeAmount, setStripeAmount] = useState(() => Number(amountDue || 0).toFixed(2));
   const [depositDisposition, setDepositDisposition] = useState(rental.payment_status === 'paid' ? 'collected' : 'waived');
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [signatureName, setSignatureName] = useState(rental.profiles?.full_name || rental.customer_name_snapshot || '');
@@ -8079,6 +8125,40 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
     /Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,
     'Drawn Signature Image: embedded below',
   );
+  const stripeAmountValue = Number(stripeAmount || 0);
+  const stripeBalanceAfter = Number.isFinite(stripeAmountValue)
+    ? Math.max(0, Number(amountDue || 0) - stripeAmountValue)
+    : Number(amountDue || 0);
+  const depositAlreadyHeld = ['held', 'adjustment_refund_due', 'release_pending', 'released', 'transferred']
+    .includes(String(rental.deposit_status || '').toLowerCase());
+  const protectedDeposit = depositAlreadyHeld ? 0 : Number(rental.security_deposit || 0);
+  const largestStripeInstallment = Math.max(0, Number(amountDue || 0) - protectedDeposit);
+  const stripeIsPartial = stripeAmountValue > 0 && stripeBalanceAfter > 0.005;
+
+  async function startStripePayment() {
+    setError('');
+    if (!Number.isFinite(stripeAmountValue) || stripeAmountValue < 0.5) {
+      setError('Stripe payments must be at least $0.50.');
+      return;
+    }
+    if (stripeAmountValue > Number(amountDue || 0) + 0.005) {
+      setError(`The Stripe payment cannot exceed the remaining balance of ${money(amountDue)}.`);
+      return;
+    }
+    if (stripeIsPartial && stripeBalanceAfter < protectedDeposit - 0.005) {
+      setError(largestStripeInstallment >= 0.5
+        ? `Leave the ${money(protectedDeposit)} security deposit for the final Stripe payment. The largest installment available now is ${money(largestStripeInstallment)}.`
+        : `Collect the remaining ${money(amountDue)} as one final Stripe payment so the security deposit stays refundable.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const started = await onOpenStripe?.(stripeAmountValue);
+      if (started) onCancel();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function trackAgreementReview() {
     const reviewBox = agreementScrollRef.current;
@@ -8134,10 +8214,22 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       <div ref={dialogRef} className="admin-modal admin-step-modal" role="dialog" aria-modal="true" aria-labelledby="admin-step-title">
         <header className="admin-modal-header"><CreditCard size={21}/><div><small>Rental payment</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(amountDue)} remaining</span></div></header>
         {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
-          <button type="button" className="primary-btn" onClick={async () => { setBusy(true); await onOpenStripe?.(); setBusy(false); }} disabled={busy}><CreditCard size={16}/> Open secure Stripe checkout on this device</button>
-          <button type="button" className="secondary-btn" onClick={onRecordExternal}><Banknote size={16}/> Record phone / external payment as completed</button>
+          <label className="modal-field stripe-installment-amount">
+            <span>Amount to collect with Stripe</span>
+            <div className="money-input-shell"><span>$</span><input type="number" min="0.50" max={Number(amountDue || 0).toFixed(2)} step="0.01" inputMode="decimal" value={stripeAmount} onFocus={(event) => event.target.select()} onChange={(event) => { setStripeAmount(event.target.value); setError(''); }} /></div>
+          </label>
+          {stripeAmountValue > 0 && <div className="stripe-installment-summary" role="status">
+            <span>{stripeIsPartial ? 'Remaining after Stripe confirms' : 'Balance after Stripe confirms'}</span>
+            <strong>{money(stripeBalanceAfter)}</strong>
+            {stripeIsPartial && <small>{protectedDeposit > 0.005
+              ? `The payment remains incomplete. The ${money(protectedDeposit)} refundable deposit stays in the final Stripe payment.`
+              : 'The payment remains incomplete until the remaining balance is collected.'}</small>}
+          </div>}
+          <button type="button" className="primary-btn" onClick={startStripePayment} disabled={busy}><CreditCard size={16}/> {busy ? 'Opening Stripe…' : stripeIsPartial ? 'Open Stripe Installment Checkout' : 'Open Stripe Checkout for Full Balance'}</button>
+          <button type="button" className="secondary-btn" onClick={onRecordExternal}><Banknote size={16}/> Record external payment or installment</button>
           {canBypass && <button type="button" className="emergency-exception-action" onClick={onBypass}><AlertTriangle size={16}/> Emergency: bypass only Payment</button>}
-          <small>Stripe payments reconcile automatically. External payments require the exact amount and payment method before they are marked paid.</small>
+          <small>Stripe credits this booking only after its webhook confirms payment. Each successful installment stays in the payment history, and the next checkout uses the recalculated remainder.</small>
+          {error && <small className="form-error" role="alert">{error}</small>}
         </div>}
         <div className="modal-actions"><button type="button" onClick={onCancel}>Close</button></div>
       </div>
@@ -9125,6 +9217,10 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const enteredAmount = Number(form.amount || 0);
+  const remainingAfterPayment = Number.isFinite(enteredAmount)
+    ? Math.max(0, amountDue - enteredAmount)
+    : amountDue;
 
   async function submit(event) {
     event.preventDefault();
@@ -9134,8 +9230,8 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
       setError('Enter the actual external payment amount received.');
       return;
     }
-    if (Math.abs(amount - amountDue) > 0.005) {
-      setError(`The recorded payment must equal the full amount due: ${money(amountDue)}.`);
+    if (amount > amountDue + 0.005) {
+      setError(`The recorded payment cannot exceed the balance due: ${money(amountDue)}.`);
       return;
     }
     if (!['card', 'terminal', 'cash_app', 'cash', 'bank_transfer', 'other'].includes(form.paymentMethod)) {
@@ -9167,8 +9263,13 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
       </div>
       <label className="modal-field">
         <span>Actual amount received</span>
-        <div className="money-input-shell"><span>$</span><input type="number" min="0.01" max={MONEY_MAX} step="0.01" inputMode="decimal" value={form.amount} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} required /></div>
+        <div className="money-input-shell"><span>$</span><input type="number" min="0.01" max={amountDue.toFixed(2)} step="0.01" inputMode="decimal" value={form.amount} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} required /></div>
       </label>
+      {enteredAmount > 0 && remainingAfterPayment > 0.005 && <div className="external-payment-installment-preview" role="status">
+        <span>Balance after this installment</span>
+        <strong>{money(remainingAfterPayment)}</strong>
+        <small>The reservation stays partially paid. The security deposit is not marked collected until the complete rental balance is received.</small>
+      </div>}
       <label className="modal-field">
         <span>Payment type</span>
         <select value={form.paymentMethod} onChange={(event) => setForm((current) => ({ ...current, paymentMethod: event.target.value }))} required>
@@ -9187,7 +9288,11 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
       </label>
       <div className="override-warning">
         <strong>Record only money that actually cleared</strong>
-        <span>{balancePayment ? 'This credits only the remaining rental balance. It does not collect or change the security deposit.' : 'This action marks the rental payment and security deposit as received outside Stripe and creates an admin audit record.'}</span>
+        <span>{remainingAfterPayment > 0.005
+          ? 'This records one installment and leaves the remaining balance open. It does not mark the payment or security deposit complete.'
+          : balancePayment
+            ? 'This settles the remaining rental balance. The protected deposit workflow stays attached to this booking.'
+            : 'This action marks the rental payment and security deposit as received outside Stripe and creates an admin audit record.'}</span>
       </div>
       <label className="external-payment-confirmation">
         <input type="checkbox" checked={form.confirmed} onChange={(event) => setForm((current) => ({ ...current, confirmed: event.target.checked }))} />
@@ -9196,7 +9301,7 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
       {error && <small className="form-error" role="alert">{error}</small>}
       <div className="modal-actions">
         <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={16}/>{saving ? ' Recording…' : ' Record Payment'}</button>
+        <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={16}/>{saving ? ' Recording…' : remainingAfterPayment > 0.005 ? ' Record Installment' : ' Record Payment'}</button>
       </div>
     </form>
   </div>, document.body);
@@ -10463,6 +10568,10 @@ function buildPaymentEvents({
   const events = [];
   const rentalsById = new Map(rentals.map((rental) => [rental.id, rental]));
   const ledgerRentalIds = new Set(rentalPayments.map((payment) => payment.rental_id).filter(Boolean));
+  const balanceLedgerRentalIds = new Set(rentalCharges
+    .filter((charge) => charge.charge_type === 'rental_amendment')
+    .map((charge) => charge.rental_id)
+    .filter(Boolean));
   const allocationHolderIds = new Set(depositAllocations.map((allocation) => allocation.holder_rental_id).filter(Boolean));
   const ledgerPaymentIntents = new Set(rentalPayments.map((payment) => payment.stripe_payment_intent_id).filter(Boolean));
   const ledgerCheckoutSessions = new Set(rentalPayments.map((payment) => payment.stripe_checkout_session_id).filter(Boolean));
@@ -10572,7 +10681,9 @@ function buildPaymentEvents({
   });
 
   rentals
-    .filter((rental) => String(rental.status || '').toLowerCase() !== 'cancelled' && !ledgerRentalIds.has(rental.id))
+    .filter((rental) => String(rental.status || '').toLowerCase() !== 'cancelled'
+      && !ledgerRentalIds.has(rental.id)
+      && !balanceLedgerRentalIds.has(rental.id))
     .forEach((rental) => {
       const { customer, vehicle } = contextFor(rental, rental.id);
       const statusGroup = normalizePaymentStatus(rental.payment_status);
@@ -10724,7 +10835,9 @@ function buildPaymentEvents({
     });
 
   rentalCharges
-    .filter((charge) => !charge.included_in_initial_payment)
+    // A pending rental_installment is only a Stripe Checkout attempt. Once
+    // paid, the webhook promotes it to rental_amendment and it belongs here.
+    .filter((charge) => !charge.included_in_initial_payment && charge.charge_type !== 'rental_installment')
     .forEach((charge) => {
       const { customer, vehicle } = contextFor(charge, charge.rental_id);
       const statusGroup = normalizeLedgerStatus(charge.status);
