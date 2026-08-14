@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
+const finalOverridesSource = await readFile(new URL('../src/final-overrides.css', import.meta.url), 'utf8');
 const edgeSource = await readFile(
   new URL('../../supabase/functions/stripe-web-hook/index.ts', import.meta.url),
   'utf8',
@@ -97,4 +98,16 @@ test('the final Stripe capture remains large enough to refund the security depos
   assert.match(stripeInstallmentMigration, /v_is_rental_installment and v_carries_deposit/);
   assert.match(stripeInstallmentMigration, /and stripe_payment_intent_id is null/);
   assert.match(stripeInstallmentMigration, /partially_paid.*partial.*new\.payment_status.*paid/s);
+});
+
+test('rental details show every captured payment with its date, amount, and provider', () => {
+  assert.match(mainSource, /function buildRentalPaymentHistory/);
+  assert.match(mainSource, /String\(charge\.status \|\| ''\)\.toLowerCase\(\) === 'paid'/);
+  assert.match(mainSource, /charge\.paid_at \|\| charge\.updated_at \|\| charge\.created_at/);
+  assert.match(mainSource, /payment\.provider === 'stripe' \? 'Stripe' : 'External'/);
+  assert.match(mainSource, /<RentalPaymentHistory payments=\{paymentHistory\} \/>/);
+  assert.match(mainSource, /No received payments recorded yet\./);
+  assert.match(finalOverridesSource, /\.rental-payment-history li/);
+  assert.match(finalOverridesSource, /\.rental-payment-source\.stripe/);
+  assert.match(finalOverridesSource, /\.rental-payment-source\.external/);
 });
