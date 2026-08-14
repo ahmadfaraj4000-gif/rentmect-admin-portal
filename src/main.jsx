@@ -7446,6 +7446,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
     .filter((charge) => charge.status === 'paid')
     .reduce((sum, charge) => sum + Number(charge.payment_amount_cents || Math.round(Number(charge.total_amount || 0) * 100)) / 100, 0);
   const paidAmount = Math.max(0, recordedPaymentAmount + paidRentalBalances - recordedRentalRefunds);
+  const paymentHistory = buildRentalPaymentHistory(rental, rentalBalanceCharges, initialPaymentTotal);
   const invoiceBalanceDue = Math.max(0, initialPaymentTotal - paidAmount);
   const balanceDue = Math.max(0, invoiceBalanceDue + outstandingAdditionalCharges);
   const customerCreditDue = Math.max(0, paidAmount - initialPaymentTotal);
@@ -7545,6 +7546,7 @@ function RentalRow({ rental, updateRentalStatus, updateRentalPaymentDeadline, co
             <dt>Payment status</dt><dd>{prettyStatus(rental.payment_status || 'pending')}</dd>
           </dl>
           {Number(rental.under_25_markup_amount || 0) > 0 && <small className="rental-card-detail-note">Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup.</small>}
+          <RentalPaymentHistory payments={paymentHistory} />
         </section>
 
         <section className="rental-card-section rental-card-documents" aria-labelledby={`rental-documents-${rental.id}`}>
@@ -9199,6 +9201,57 @@ function externalPaymentMethodLabel(method) {
     bank_transfer: 'Bank transfer',
     other: 'Other external',
   }[method] || 'External';
+}
+
+function buildRentalPaymentHistory(rental, rentalBalanceCharges = [], initialPaymentTotal = 0) {
+  const payments = rentalBalanceCharges
+    .filter((charge) => String(charge.status || '').toLowerCase() === 'paid')
+    .map((charge) => {
+      const provider = String(charge.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
+      return {
+        id: `balance-payment-${charge.id}`,
+        amount: Number(charge.payment_amount_cents || 0) > 0
+          ? Number(charge.payment_amount_cents) / 100
+          : Number(charge.total_amount || 0),
+        date: charge.paid_at || charge.updated_at || charge.created_at,
+        provider,
+        method: provider === 'external' ? externalPaymentMethodLabel(charge.external_payment_method) : '',
+      };
+    });
+
+  if (rental?.paid_at) {
+    const provider = String(rental.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
+    payments.push({
+      id: `initial-payment-${rental.id}`,
+      amount: Number(rental.payment_amount_cents || 0) > 0
+        ? Number(rental.payment_amount_cents) / 100
+        : Number(initialPaymentTotal || 0),
+      date: rental.paid_at || rental.external_payment_recorded_at || rental.updated_at,
+      provider,
+      method: provider === 'external' ? externalPaymentMethodLabel(rental.external_payment_method) : '',
+    });
+  }
+
+  return payments
+    .filter((payment) => payment.amount > 0 && payment.date)
+    .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+}
+
+function RentalPaymentHistory({ payments = [] }) {
+  return <div className="rental-payment-history" aria-label="Rental payment history">
+    <div className="rental-payment-history-heading">
+      <div><small>Payment ledger</small><h5>Payments Received</h5></div>
+      <span>{payments.length} recorded</span>
+    </div>
+    {payments.length > 0
+      ? <ol>{payments.map((payment) => <li key={payment.id}>
+          <time dateTime={payment.date}>{formatEasternDateTime(payment.date)}</time>
+          <strong>{money(payment.amount)}</strong>
+          <span className={`rental-payment-source ${payment.provider}`}>{payment.provider === 'stripe' ? 'Stripe' : 'External'}</span>
+          {payment.method && <small>{payment.method}</small>}
+        </li>)}</ol>
+      : <p>No received payments recorded yet.</p>}
+  </div>;
 }
 
 function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePayment = false, onCancel, onConfirm }) {
