@@ -398,8 +398,8 @@ const EMPTY_PROMOTION_FORM = {
 };
 
 const INSURANCE_RESOURCE_LINKS = [
-  { label: 'Bonzah Insurance', detail: 'Rental insurance options', href: 'https://bonzah.com/', recommended: true },
-  { label: 'RentalCover', detail: 'Rental protection options', href: 'https://rentalcover.com/' },
+  { label: 'Bonzah Insurance', detail: 'Rental insurance options', href: 'https://bonzah.com/' },
+  { label: 'RentalCover', detail: 'Rental protection options', href: 'https://rentalcover.com/', recommended: true },
   { label: 'Faye Insurance', detail: 'Rental car coverage information', href: 'https://www.withfaye.com/info/rental-car-coverage/' },
   { label: 'Capital One', detail: 'Rental car card-benefit information', href: 'https://www.capitalone.com/learn-grow/more-than-money/capital-one-rental-car-insurance/' },
 ];
