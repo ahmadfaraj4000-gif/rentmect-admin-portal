@@ -1622,6 +1622,26 @@ function App() {
     return data;
   }
 
+  async function restoreCancelledRental(rental, paymentDueAt, reason) {
+    if (!requireStaffPermission('rental.edit', 'restore cancelled unpaid reservations')) return false;
+    const { data, error } = await supabase.rpc('admin_restore_cancelled_unpaid_rental', {
+      p_rental_id: rental.id,
+      p_payment_due_at: paymentDueAt,
+      p_reason: reason.trim(),
+    });
+    if (error) {
+      notify(error.message);
+      return null;
+    }
+    if (data) {
+      setRentals((current) => current.map((item) => item.id === rental.id
+        ? { ...item, ...data, vehicles: item.vehicles, profiles: item.profiles }
+        : item));
+    }
+    notify(`Reservation restored. If it remains unpaid, it will cancel ${formatEasternDateTime(data?.payment_due_at || paymentDueAt)}.`, 'success');
+    return data;
+  }
+
   async function activateRentalWithEmergencyException(rental, form) {
     if (!requireStaffPermission('override.emergency', 'use emergency overrides')) return false;
     const { data, error } = await supabase.rpc('admin_activate_rental_with_emergency_exception', {
@@ -3961,7 +3981,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -4127,7 +4147,7 @@ function ExternalDepositReleaseModal({ rental, onCancel, onConfirm }) {
     setSaving(true);
     try { await onConfirm(form); } finally { setSaving(false); }
   }}>
-    <header className="admin-modal-header"><div><small>Deposit resolution</small><strong>Record external deposit return</strong><span>{rental.profiles?.full_name || 'Customer'} • {money(rental.deposit_held_amount || rental.security_deposit)}</span></div></header>
+    <header className="admin-modal-header"><div><small>Deposit resolution</small><strong>Record external deposit return</strong><span>{rental.profiles?.full_name || 'Customer'} • {money(rental.deposit_held_amount || rental.security_deposit)}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close deposit return dialog"><X size={18}/></button></header>
     <div className="portal-form">
       <label><span>Return method</span><select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}><option value="cash">Cash</option><option value="check">Check</option><option value="bank_transfer">Bank transfer</option><option value="other">Other</option></select></label>
       <label><span>Reference or receipt number</span><input value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label>
@@ -4146,7 +4166,7 @@ function DepositEscalationModal({ rental, onCancel, onConfirm }) {
     if (!note.trim()) return;
     setSaving(true);
     try { await onConfirm(note.trim()); } finally { setSaving(false); }
-  }}><header className="admin-modal-header"><div><small>Manager follow-up</small><strong>Escalate deposit task</strong><span>{rental.profiles?.full_name || 'Customer'}</span></div></header><div className="portal-form"><label><span>Reason and next step</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} /></label></div><footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving || !note.trim()}>{saving ? 'Saving…' : 'Escalate'}</button></footer></form></div>;
+  }}><header className="admin-modal-header"><div><small>Manager follow-up</small><strong>Escalate deposit task</strong><span>{rental.profiles?.full_name || 'Customer'}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close deposit escalation dialog"><X size={18}/></button></header><div className="portal-form"><label><span>Reason and next step</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} /></label></div><footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving || !note.trim()}>{saving ? 'Saving…' : 'Escalate'}</button></footer></form></div>;
 }
 
 function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '', onOpenRental }) {
@@ -4977,6 +4997,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
           <strong>{modal.mode === 'edit' ? 'Edit Calendar Block' : isClear ? 'Clear Availability Blocks' : 'Confirm Calendar Block'}</strong>
           <span>{isClear ? 'Only admin-created blocks are cleared. Rentals, extension holds, and turnaround time stay protected.' : 'Adjust the vehicle, dates, and block type before saving.'}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} disabled={modal.saving} aria-label="Close calendar block dialog"><X size={18}/></button>
       </div>
       <div className="availability-modal-grid">
         <label><span>Vehicle</span><select value={modal.vehicleId} onChange={(event) => update('vehicleId', event.target.value)}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label>
@@ -4997,7 +5018,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const ARCHIVE_PAGE_SIZE = 25;
   const [archiveVisibleCount, setArchiveVisibleCount] = useState(ARCHIVE_PAGE_SIZE);
   useEffect(() => setArchiveVisibleCount(ARCHIVE_PAGE_SIZE), [rentalFilter, search]);
@@ -5024,7 +5045,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
       {rentalFilter === 'archive' && displayedRentals.length < matchingRentals.length && <button type="button" className="secondary-btn rental-archive-load-more" onClick={() => setArchiveVisibleCount((count) => count + ARCHIVE_PAGE_SIZE)}>Load 25 more archived rentals</button>}
     </Panel>
   </>;
@@ -7349,7 +7370,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
@@ -7363,6 +7384,7 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [contactModal, setContactModal] = useState(null);
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
+  const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -7390,6 +7412,9 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
   const canMarkActive = effectiveReleaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const canAdjustPaymentDeadline = rental.payment_status !== 'paid' && canCancel;
+  const canRestoreCancelledRental = Boolean(restoreCancelledRental)
+    && rental.status === 'cancelled'
+    && !['paid', 'partially_paid', 'partial'].includes(String(rental.payment_status || 'pending').toLowerCase());
   const canCreateEmergencyException = Boolean(emergencyAuthorized)
     && !activeEmergencyException
     && !releaseChecklist.ready
@@ -7528,10 +7553,12 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
           <details className="rental-overflow-menu">
             <summary aria-label="More rental actions"><span>More Actions</span><ChevronDown size={14}/></summary>
             <div>
+              <span className="rental-overflow-menu-label">Reservation actions</span>
+              {canRestoreCancelledRental && <button type="button" className="restore-rental-action" onClick={() => setRestoreModalOpen(true)}><History size={14}/> Restore rental</button>}
               {canAdjustPaymentDeadline && <button type="button" onClick={() => setDeadlineModalOpen(true)}><CalendarClock size={14}/> Change payment deadline</button>}
               {canCreateEmergencyException && <button type="button" className="emergency-exception-action" onClick={() => setEmergencyModalOpen(true)}><AlertTriangle size={14}/> Global emergency override</button>}
               {canCancel && <button type="button" className="reject" onClick={() => setCancelModalOpen(true)}><XCircle size={14}/> Cancel rental</button>}
-              {!canAdjustPaymentDeadline && !canCreateEmergencyException && !canCancel && <span>No additional actions</span>}
+              {!canRestoreCancelledRental && !canAdjustPaymentDeadline && !canCreateEmergencyException && !canCancel && <span>No additional actions</span>}
             </div>
           </details>
         </div>
@@ -7700,6 +7727,15 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
           setCancelModalOpen(false);
         }}
       />}
+      {restoreModalOpen && <RestoreCancelledRentalModal
+        rental={rental}
+        onCancel={() => setRestoreModalOpen(false)}
+        onConfirm={async (paymentDueAt, reason) => {
+          const restored = await restoreCancelledRental?.(rental, paymentDueAt, reason);
+          if (restored) setRestoreModalOpen(false);
+          return restored;
+        }}
+      />}
       {editRentalOpen && createPortal(<RentalAmendmentModal
         rental={rental}
         vehicles={vehicles}
@@ -7735,6 +7771,89 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
         }}
       />}
   </article>;
+}
+
+function RestoreCancelledRentalModal({ rental, onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const minimumDeadline = new Date(Date.now() + 5 * 60 * 1000);
+  const maximumDeadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 - 60 * 1000);
+  const [deadline, setDeadline] = useState('');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  function tomorrowAtNineEastern() {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date()).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+    const tomorrow = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + 1));
+    return `${tomorrow.getUTCFullYear()}-${String(tomorrow.getUTCMonth() + 1).padStart(2, '0')}-${String(tomorrow.getUTCDate()).padStart(2, '0')}T09:00`;
+  }
+
+  function chooseQuickDeadline(kind) {
+    if (kind === 'tomorrow') return setDeadline(tomorrowAtNineEastern());
+    const minutes = { hour: 60, day: 24 * 60, threeDays: 3 * 24 * 60, sevenDays: 7 * 24 * 60 - 1 }[kind];
+    setDeadline(formatEasternDateTimeInput(new Date(Date.now() + minutes * 60 * 1000)));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    if (!deadline) {
+      setError('Choose a cancellation deadline before restoring this reservation.');
+      return;
+    }
+    const paymentDueAt = easternDateTimeInputToIso(deadline);
+    if (!paymentDueAt || new Date(paymentDueAt).getTime() < minimumDeadline.getTime()) {
+      setError('Choose a cancellation deadline at least five minutes from now in Eastern Time.');
+      return;
+    }
+    if (new Date(paymentDueAt).getTime() > maximumDeadline.getTime() + 60_000) {
+      setError('The cancellation deadline cannot be more than seven days away.');
+      return;
+    }
+    if (reason.trim().length < 5) {
+      setError('Enter a restore reason of at least five characters for the audit log.');
+      return;
+    }
+    setSaving(true);
+    const restored = await onConfirm(paymentDueAt, reason.trim());
+    if (!restored) setSaving(false);
+  }
+
+  return <div className="admin-modal-backdrop restore-rental-backdrop" role="presentation">
+    <form ref={dialogRef} className="admin-modal rental-deadline-modal restore-rental-modal" role="alertdialog" aria-modal="true" aria-label="Restore cancelled reservation with a required cancellation deadline" onSubmit={submit}>
+      <header className="admin-modal-header">
+        <History size={22}/>
+        <div><small>Cancelled unpaid reservation</small><strong>Restore reservation</strong><span>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'}</span></div>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close"><XCircle size={20}/></button>
+      </header>
+      <div className="rental-deadline-body">
+        <div className="restore-deadline-warning" role="alert">
+          <AlertTriangle size={20}/>
+          <span><strong>A cancellation time is mandatory.</strong> This reservation will not be restored until you choose exactly when it must cancel again if payment is still missing.</span>
+        </div>
+        <div className="deadline-current-summary">
+          <span><strong>Cancelled</strong>{rental.cancelled_at ? formatEasternDateTime(rental.cancelled_at) : 'Cancellation time not recorded'}</span>
+          <span><strong>Previous reason</strong>{rental.cancellation_reason || 'No cancellation reason recorded'}</span>
+        </div>
+        <div className="deadline-quick-actions" role="group" aria-label="Required cancellation deadline choices">
+          <button type="button" onClick={() => chooseQuickDeadline('hour')}>1 hour</button>
+          <button type="button" onClick={() => chooseQuickDeadline('tomorrow')}>Tomorrow at 9 AM</button>
+          <button type="button" onClick={() => chooseQuickDeadline('day')}>24 hours</button>
+          <button type="button" onClick={() => chooseQuickDeadline('threeDays')}>3 days</button>
+          <button type="button" onClick={() => chooseQuickDeadline('sevenDays')}>7 days</button>
+        </div>
+        <label><span>Cancel again if still unpaid — Eastern Time</span><input type="datetime-local" required min={formatEasternDateTimeInput(minimumDeadline)} max={formatEasternDateTimeInput(maximumDeadline)} value={deadline} onChange={(event) => setDeadline(event.target.value)}/><small>No time is preselected. The administrator must choose one.</small></label>
+        <label><span>Reason for restoring this reservation</span><textarea required minLength="5" maxLength="500" value={reason} onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="Why is this cancelled reservation being restored?"/></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+      </div>
+      <footer className="modal-actions">
+        <button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Keep Cancelled</button>
+        <button type="submit" className="primary-btn restore-rental-confirm" disabled={saving || !deadline || reason.trim().length < 5}>{saving ? 'Restoring…' : 'Restore With This Deadline'}</button>
+      </footer>
+    </form>
+  </div>;
 }
 
 function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
@@ -8241,7 +8360,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   if (scope === 'payment') {
     return createPortal(<div className="admin-modal-backdrop" role="presentation">
       <div ref={dialogRef} className="admin-modal admin-step-modal" role="dialog" aria-modal="true" aria-labelledby="admin-step-title">
-        <header className="admin-modal-header"><CreditCard size={21}/><div><small>Rental payment</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(amountDue)} remaining</span></div></header>
+        <header className="admin-modal-header"><CreditCard size={21}/><div><small>Rental payment</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(amountDue)} remaining</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={busy} aria-label="Close payment dialog"><X size={18}/></button></header>
         {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
           <label className="modal-field stripe-installment-amount">
             <span>Amount to collect with Stripe</span>
@@ -8260,7 +8379,6 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
           <small>Stripe credits this booking only after its webhook confirms payment. Each successful installment stays in the payment history, and the next checkout uses the recalculated remainder.</small>
           {error && <small className="form-error" role="alert">{error}</small>}
         </div>}
-        <div className="modal-actions"><button type="button" onClick={onCancel}>Close</button></div>
       </div>
     </div>, globalThis.document.body);
   }
@@ -8734,6 +8852,7 @@ function ChargeExternalPaymentModal({ rental, charge, onCancel, onConfirm }) {
       <header className="admin-modal-header">
         <Banknote size={28}/>
         <div><strong id={`external-charge-title-${charge.id}`}>Record Cash / External Payment</strong><span>{rental.vehicles?.name || 'Vehicle'} • {charge.name}</span></div>
+        <button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close external charge payment dialog"><X size={18}/></button>
       </header>
       <div className="external-payment-total"><span>Manual charge received</span><strong>{money(charge.total_amount)}</strong></div>
       <label className="modal-field"><span>Payment type</span><select value={form.paymentMethod} onChange={(event) => setForm((current) => ({ ...current, paymentMethod: event.target.value }))} required>
@@ -8800,6 +8919,7 @@ function RentalPaymentRefundModal({ rental, maximumAmount, previousRefunds = [],
           <strong>Refund Rental Payment</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close refund dialog"><X size={18}/></button>
       </div>
       <div className="refund-protection-summary">
         <span><strong>{money(maximumAmount)}</strong> available to refund from the rental payment</span>
@@ -8964,6 +9084,7 @@ function CancelRentalModal({ rental, onCancel, onConfirm }) {
           <strong>Cancel Rental?</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close cancellation dialog"><X size={18}/></button>
       </div>
       <div className="cancel-warning">
         <strong>This will cancel the reservation.</strong>
@@ -9005,6 +9126,7 @@ function VehiclePriceConfirmationModal({ confirmation, error = '', confirming = 
           <strong id="vehicle-price-confirmation-title">{title}</strong>
           <span>{confirmation.vehicleName}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} disabled={confirming} aria-label="Close price confirmation"><X size={18}/></button>
       </div>
       <div className={`price-confirmation-summary${isSingleDigit ? ' danger' : ''}`}>
         {!isNewVehicle && <div>
@@ -9049,6 +9171,7 @@ function RentalOverrideModal({ title, actionLabel, rental, missingRequirements =
           <strong>{title}</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close override dialog"><X size={18}/></button>
       </div>
       <div className="override-warning">
         <strong>Automatic checklist is incomplete.</strong>
@@ -9092,6 +9215,7 @@ function PickupOverrideModal({ rental, defaultMileage, missingRequirements = [],
           <strong>{override ? 'Override Pickup' : 'Mark Vehicle Picked Up'}</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close pickup dialog"><X size={18}/></button>
       </div>
       {override && <>
         <div className="override-warning">
@@ -9469,6 +9593,7 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
           <strong id={`external-payment-title-${rental.id}`}>Record External Payment</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}</span>
         </div>
+        <button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close external payment dialog"><X size={18}/></button>
       </header>
       <div className="external-payment-total">
         <span>{balancePayment ? 'Remaining rental balance' : 'Full amount due'}</span>
@@ -9582,6 +9707,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
         <strong id={`return-completion-title-${rental.id}`}>Return Completion</strong>
         <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
       </div>
+      <button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close return completion dialog"><X size={18}/></button>
     </header>
     <section className={`return-mileage-card${inspection.mileageOverride ? ' override-active' : ''}`}>
       <label className="field-label return-mileage-field"><span>Ending mileage</span>
