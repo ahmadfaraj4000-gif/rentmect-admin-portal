@@ -16,6 +16,11 @@ test('one rental-card action collects every outstanding add-on while preserving 
   assert.match(mainSource, /onClick=\{\(\) => chargeCard\(charge\)\}/);
   assert.match(mainSource, /onClick=\{\(\) => setExternalCharge\(charge\)\}/);
   assert.match(mainSource, /deferRefresh: index < collectible\.length - 1/);
+  assert.match(mainSource, /extension-action-row manual-charge-row/);
+  assert.match(mainSource, /compact \? 'Send link' : 'Send payment link'/);
+  assert.match(mainSource, /compact \? 'Charge card' : 'Charge customer'/);
+  assert.match(styles, /\.manual-charge-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) 244px !important/);
+  assert.match(styles, /\.manual-charge-row \.charge-collection-actions button \{[\s\S]*min-height: 30px !important/);
 });
 
 test('manual charges accept confirmed external payments without racing Stripe', () => {
@@ -38,6 +43,7 @@ test('left-side payment history uses the canonical ledger and scrolls after four
   assert.match(mainSource, /rentalPayments=\{rentalPayments\}/);
   assert.match(mainSource, /ledger-payment-\$\{payment\.id\}/);
   assert.match(mainSource, /matchesCanonicalPayment/);
+  assert.match(mainSource, /Manual charge.*charge\.name/s);
   assert.match(mainSource, /payments\.length > 4 \? 'is-scrollable'/);
   assert.match(styles, /\.rental-payment-history ol\.is-scrollable/);
   assert.match(styles, /max-height: 253px !important/);

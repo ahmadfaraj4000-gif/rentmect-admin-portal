@@ -8607,15 +8607,15 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   function renderChargeActions(charge) {
     if (charge.included_in_initial_payment || !['pending', 'failed', 'checkout_open'].includes(charge.status)) return null;
     return <div className="row-actions charge-collection-actions">
-      <button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> Send payment link</button>
-      <button type="button" className="approve" disabled={Boolean(chargingId)} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : ' Charge customer'}</button>
+      <button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> {compact ? 'Send link' : 'Send payment link'}</button>
+      <button type="button" className="approve" disabled={Boolean(chargingId)} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : compact ? 'Charge card' : 'Charge customer'}</button>
       {recordExternalRentalCharge && <button type="button" disabled={Boolean(chargingId)} onClick={() => setExternalCharge(charge)}><Banknote size={14}/> Cash / external</button>}
       <button type="button" className="reject" disabled={Boolean(chargingId)} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button>
     </div>;
   }
 
   function renderChargeRow(charge) {
-    return <div className="extension-action-row" key={charge.id}>
+    return <div className="extension-action-row manual-charge-row" key={charge.id}>
       <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
       {renderChargeActions(charge)}
     </div>;
