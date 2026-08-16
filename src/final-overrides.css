@@ -8704,30 +8704,38 @@ input[type="radio"] {
   background: #ddf2e5 !important;
 }
 
-/* More Actions is an operational menu, so keep its trigger unmistakable and
-   its actions visually consistent. Risk color is reserved for risky actions. */
+/* More Actions is a neutral secondary control. Keep the closed trigger crisp
+   black-on-white, then invert it while hovered, focused, or open. */
 .rental-overflow-menu > summary {
   min-height: 38px !important;
   padding: 0 14px !important;
-  border: 1px solid #12633d !important;
-  background: #12633d !important;
-  color: #fff !important;
-  box-shadow: 0 2px 6px rgba(13, 67, 41, .18) !important;
+  border: 1px solid #7f8b85 !important;
+  background: #fff !important;
+  color: #111713 !important;
+  box-shadow: 0 1px 3px rgba(17, 23, 19, .12) !important;
   font-size: 12.5px !important;
+  font-weight: 900 !important;
   letter-spacing: .01em !important;
+  opacity: 1 !important;
 }
 
 .rental-overflow-menu > summary:hover,
 .rental-overflow-menu > summary:focus-visible,
 .rental-overflow-menu[open] > summary {
-  border-color: #0a472b !important;
-  background: #0a472b !important;
+  border-color: #111713 !important;
+  background: #111713 !important;
   color: #fff !important;
 }
 
 .rental-overflow-menu > summary:focus-visible {
-  outline: 3px solid rgba(18, 99, 61, .24) !important;
+  outline: 3px solid rgba(17, 23, 19, .22) !important;
   outline-offset: 2px !important;
+}
+
+.rental-overflow-menu > summary > span,
+.rental-overflow-menu > summary > svg {
+  color: inherit !important;
+  opacity: 1 !important;
 }
 
 .rental-overflow-menu > div {

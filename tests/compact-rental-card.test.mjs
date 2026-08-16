@@ -33,6 +33,8 @@ test('rare rental actions use a clearly labelled More Actions menu', () => {
   assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*display: flex !important/);
   assert.match(styles, /\.rental-overflow-menu\s*\{[\s\S]*flex: 0 0 auto !important/);
   assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*white-space: nowrap !important/);
+  assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*background: #fff !important;[\s\S]*color: #111713 !important/);
+  assert.match(styles, /\.rental-overflow-menu\[open\] > summary\s*\{[\s\S]*background: #111713 !important;[\s\S]*color: #fff !important/);
 });
 
 test('the card renders exactly one clickable horizontal workflow rail', () => {

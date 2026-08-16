@@ -17,7 +17,8 @@ test('cancelled unpaid rentals require a new deadline before restore', () => {
   assert.match(source, /rental-overflow-menu-label">Reservation actions/);
   assert.match(styles, /\.restore-rental-action/);
   assert.match(styles, /\.restore-deadline-warning/);
-  assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*background: #12633d/);
+  assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*background: #fff/);
+  assert.match(styles, /\.rental-overflow-menu > summary > span,[\s\S]*color: inherit !important;[\s\S]*opacity: 1 !important;/);
   assert.match(styles, /\.rental-overflow-menu > div \.emergency-exception-action/);
   assert.match(styles, /\.rental-overflow-menu > div button\.reject/);
 });
