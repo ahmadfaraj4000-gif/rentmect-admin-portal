@@ -1307,6 +1307,136 @@ summary:focus-visible {
   color: #111 !important;
 }
 
+.automatic-charge-section {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #b8d7c3;
+  border-radius: 8px;
+  background: #f3faf5;
+}
+
+.automatic-charge-heading,
+.automatic-charge-heading > div:first-child,
+.automatic-charge-totals,
+.automatic-charge-card-footer {
+  display: flex;
+  align-items: center;
+}
+
+.automatic-charge-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.automatic-charge-heading > div:first-child {
+  align-items: flex-start;
+  gap: 8px;
+  color: #176a38;
+}
+
+.automatic-charge-heading > div:first-child > span {
+  display: grid;
+  gap: 2px;
+}
+
+.automatic-charge-heading small {
+  color: #52645a;
+}
+
+.automatic-charge-totals {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.automatic-charge-totals > span {
+  display: inline-flex;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid #c8dccf;
+  border-radius: 999px;
+  background: #fff;
+  color: #334b3b;
+  font-size: 12px;
+}
+
+.automatic-charge-totals .automatic-charge-primary {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  min-height: 38px !important;
+  padding: 8px 13px !important;
+  border-radius: 7px !important;
+  white-space: nowrap !important;
+  box-shadow: 0 2px 6px rgba(23, 106, 56, .16) !important;
+}
+
+.automatic-charge-list {
+  display: grid;
+  gap: 9px;
+}
+
+.automatic-charge-card {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #d5e4da;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.automatic-charge-fields {
+  display: grid;
+  grid-template-columns: minmax(210px, 2fr) minmax(150px, 1.2fr) minmax(105px, .7fr) minmax(105px, .7fr);
+  gap: 9px;
+}
+
+.automatic-charge-fields label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #526058;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.automatic-charge-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #ccd9d0;
+  border-radius: 6px;
+  background: #f7faf8;
+  color: #17251c;
+  font-weight: 750;
+}
+
+.automatic-charge-card-footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.automatic-charge-card-footer > small {
+  flex: 1 1 260px;
+  color: #607066;
+}
+
+.manual-charge-heading {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.manual-charge-heading small {
+  color: #68736c;
+}
+
 /* Customer row actions and manual communications composer. */
 .customer-summary-row {
   grid-template-columns: minmax(230px, 1.15fr) minmax(170px, .75fr) minmax(180px, .72fr) auto !important;
@@ -1338,6 +1468,130 @@ summary:focus-visible {
   border: 1px solid #111 !important;
   background: #111 !important;
   color: #fff !important;
+}
+
+.customer-edit-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  width: auto !important;
+  min-height: 36px !important;
+  padding: 8px 12px !important;
+  border: 1px solid #b8c9bf !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #173e2b !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.customer-edit-form,
+.customer-edit-grid,
+.customer-edit-name-grid {
+  display: grid !important;
+  gap: 14px !important;
+}
+
+.customer-edit-name-grid,
+.customer-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.customer-edit-grid .wide {
+  grid-column: 1 / -1 !important;
+}
+
+.customer-edit-form label,
+.customer-delete-confirmation label {
+  display: grid !important;
+  gap: 6px !important;
+  color: #34483d !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.customer-edit-form input,
+.customer-edit-form textarea,
+.customer-delete-confirmation input {
+  width: 100% !important;
+  min-height: 44px !important;
+  padding: 10px 12px !important;
+  border: 1px solid #b8c9bf !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #17251c !important;
+  font: inherit !important;
+}
+
+.customer-edit-form textarea {
+  min-height: 84px !important;
+  resize: vertical !important;
+}
+
+.customer-edit-form small {
+  color: #68766f !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+}
+
+.customer-delete-confirmation {
+  border-color: #d48d88 !important;
+  background: #fff7f6 !important;
+}
+
+.customer-delete-confirmation > div {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  color: #801d19 !important;
+}
+
+.customer-delete-confirmation h3,
+.customer-delete-confirmation p {
+  margin: 0 !important;
+}
+
+.customer-delete-confirmation p {
+  margin-top: 6px !important;
+  color: #5d3734 !important;
+  line-height: 1.5 !important;
+}
+
+.customer-delete-confirmation form {
+  margin-top: 14px !important;
+}
+
+.customer-delete-button {
+  width: auto !important;
+  min-height: 40px !important;
+  padding: 9px 14px !important;
+  border: 1px solid #8f1714 !important;
+  border-radius: 7px !important;
+  background: #8f1714 !important;
+  color: #fff !important;
+  font-weight: 900 !important;
+}
+
+.customer-details-actions {
+  justify-content: space-between !important;
+}
+
+.rental-archive-load-more {
+  display: flex !important;
+  width: fit-content !important;
+  margin: 18px auto 0 !important;
+}
+
+@media (max-width: 700px) {
+  .customer-edit-name-grid,
+  .customer-edit-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .customer-edit-grid .wide {
+    grid-column: auto !important;
+  }
 }
 
 .customer-contact-modal.admin-modal {
@@ -1676,6 +1930,10 @@ summary:focus-visible {
   .rental-charge-form.portal-form { grid-template-columns: 1fr !important; }
   .rental-charge-form .charge-description-field { grid-column: auto !important; }
   .rental-charge-form > button { justify-self: stretch !important; width: 100% !important; }
+  .automatic-charge-heading { display: grid; }
+  .automatic-charge-totals { justify-content: flex-start; }
+  .automatic-charge-fields { grid-template-columns: 1fr 1fr; }
+  .automatic-charge-card-footer { align-items: stretch; }
   .customer-summary-row { grid-template-columns: 1fr !important; gap: 10px !important; }
   .customer-row-actions { justify-content: stretch !important; }
   .customer-row-actions button { flex: 1 1 0 !important; }
@@ -1688,6 +1946,118 @@ summary:focus-visible {
   .customer-contact-actions > span { white-space: normal !important; }
   .customer-contact-actions > div { display: grid !important; grid-template-columns: 1fr 1fr !important; }
   .customer-contact-actions button { width: 100% !important; }
+}
+
+@media (max-width: 520px) {
+  .automatic-charge-fields { grid-template-columns: 1fr; }
+}
+
+/* Keep vehicle service controls with the vehicle being edited. */
+.vehicle-editor-maintenance-callout,
+.vehicle-editor-maintenance-section {
+  grid-column: 1 / -1 !important;
+  min-width: 0 !important;
+}
+
+.vehicle-editor-maintenance-callout {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 14px 16px !important;
+  border: 1px solid #bfd5c8 !important;
+  border-radius: 10px !important;
+  background: #f1f8f4 !important;
+}
+
+.vehicle-editor-maintenance-callout.locked {
+  border-color: #e1aaa6 !important;
+  background: #fff3f2 !important;
+}
+
+.vehicle-editor-maintenance-icon {
+  display: grid !important;
+  place-items: center !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  border-radius: 9px !important;
+  background: #dcece3 !important;
+  color: #1f6844 !important;
+}
+
+.vehicle-editor-maintenance-callout.locked .vehicle-editor-maintenance-icon {
+  background: #f5d9d6 !important;
+  color: #972c26 !important;
+}
+
+.vehicle-editor-maintenance-callout > div {
+  display: grid !important;
+  flex: 1 1 auto !important;
+  gap: 3px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-editor-maintenance-callout > div strong {
+  color: #23342b !important;
+  font-size: 13px !important;
+}
+
+.vehicle-editor-maintenance-callout > div span {
+  color: #627068 !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+
+.vehicle-editor-maintenance-callout > button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  flex: 0 0 auto !important;
+  min-height: 40px !important;
+  white-space: nowrap !important;
+}
+
+.vehicle-editor-maintenance-section {
+  scroll-margin-top: 16px !important;
+}
+
+.vehicle-editor-maintenance-section > .panel {
+  margin: 0 !important;
+  padding: 18px !important;
+  border: 1px solid #d7e1dc !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  box-shadow: 0 2px 8px rgba(19, 35, 27, .025) !important;
+}
+
+.vehicle-editor-maintenance-section > .panel > .eyebrow {
+  margin-bottom: 3px !important;
+}
+
+.vehicle-editor-maintenance-section > .panel > h3 {
+  margin: 0 0 16px !important;
+  color: #202a26 !important;
+  font-size: 18px !important;
+}
+
+@media (max-width: 760px) {
+  .vehicle-editor-maintenance-callout {
+    align-items: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .vehicle-editor-maintenance-callout > div {
+    flex-basis: calc(100% - 52px) !important;
+  }
+
+  .vehicle-editor-maintenance-callout > button {
+    width: 100% !important;
+  }
+
+  .vehicle-editor-maintenance-section > .panel {
+    padding: 14px !important;
+  }
 }
 
 /* Vehicle workspace redesign: calm hierarchy, compact controls, and one
@@ -2099,6 +2469,21 @@ summary:focus-visible {
   background: #f4f8f6 !important;
 }
 
+.vehicle-form-grid .vehicle-publish-control input[type="checkbox"] {
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  accent-color: var(--italy-green) !important;
+}
+
 .add-vehicle-modal .new-vehicle-feature-section {
   border: 1px solid #dfe5e2 !important;
   border-radius: 10px !important;
@@ -2118,11 +2503,19 @@ summary:focus-visible {
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
   display: grid !important;
+  grid-template-areas:
+    "maintenance-shortcut maintenance-shortcut"
+    "photos details"
+    "maintenance maintenance" !important;
   grid-template-columns: minmax(310px, .78fr) minmax(0, 1.22fr) !important;
   align-items: start !important;
   gap: 16px !important;
   padding: 18px 20px !important;
   background: #f7f9f8 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-maintenance-callout {
+  grid-area: maintenance-shortcut !important;
 }
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media,
@@ -2136,8 +2529,16 @@ summary:focus-visible {
 }
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media {
-  position: sticky !important;
-  top: 0 !important;
+  grid-area: photos !important;
+  position: static !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-detail-form {
+  grid-area: details !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-maintenance-section {
+  grid-area: maintenance !important;
 }
 
 .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-image-card img {
@@ -2223,6 +2624,17 @@ summary:focus-visible {
   }
 }
 
+@media (max-width: 1100px) {
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
+    grid-template-areas:
+      "maintenance-shortcut"
+      "photos"
+      "details"
+      "maintenance" !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 @media (max-width: 900px) {
   .vehicles-layout .list-search-toolbar {
     grid-template-columns: 1fr auto !important;
@@ -2245,10 +2657,6 @@ summary:focus-visible {
 
   .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-scroll {
     grid-template-columns: 1fr !important;
-  }
-
-  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-editor-media {
-    position: relative !important;
   }
 }
 
@@ -2878,6 +3286,162 @@ input[type="radio"] {
   accent-color: var(--ui-green) !important;
 }
 
+/* Legacy admin-modal input rules size every input like a text field. Keep
+   confirmation controls compact in every modal, including future dialogs. */
+.admin-modal input[type="checkbox"],
+.admin-modal input[type="radio"] {
+  display: inline-block !important;
+  flex: 0 0 18px !important;
+  box-sizing: border-box !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+/* Reservation-only manual discount workflow. */
+.manual-discount-modal.admin-modal {
+  width: min(680px, calc(100vw - 28px)) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-y: auto !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+.manual-discount-modal > .admin-modal-header {
+  padding: 18px 20px !important;
+  border-bottom: 1px solid var(--admin-line) !important;
+}
+
+.manual-discount-modal > .admin-modal-header .admin-close-button {
+  margin-left: auto;
+}
+
+.manual-discount-current,
+.manual-discount-modal > .modal-field,
+.manual-discount-modal > .modal-hint,
+.manual-discount-modal > .form-error,
+.manual-discount-promo-note,
+.manual-discount-credit-warning,
+.manual-discount-preview,
+.manual-discount-mode {
+  margin-left: 20px;
+  margin-right: 20px;
+}
+
+.manual-discount-current {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #c9ddd1;
+  border-radius: 14px;
+  background: #f3faf6;
+  color: #405149;
+}
+
+.manual-discount-current strong {
+  color: #10261d;
+  font-size: 1.35rem;
+}
+
+.manual-discount-current small { grid-column: 1 / -1; color: #6c7c74; }
+
+.manual-discount-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 5px;
+  border: 1px solid var(--admin-line);
+  border-radius: 12px;
+  background: #f3f6f4;
+}
+
+.manual-discount-mode button {
+  min-height: 42px;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: #526159 !important;
+  box-shadow: none !important;
+}
+
+.manual-discount-mode button.active {
+  background: #123f2d !important;
+  color: #fff !important;
+}
+
+.manual-discount-modal > .modal-field { margin-top: 16px; }
+.manual-discount-modal > .modal-field textarea { min-height: 84px; resize: vertical; }
+
+.manual-discount-preview {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 15px 16px;
+  border: 1px solid #cbd9d1;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.manual-discount-preview.loading { color: #6c7c74; }
+.manual-discount-preview > div { display: flex; justify-content: space-between; gap: 16px; }
+.manual-discount-preview .discount { color: #167144; }
+.manual-discount-preview .total {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--admin-line);
+  color: #10261d;
+  font-size: 1.08rem;
+}
+.manual-discount-preview > small { color: #65756d; }
+
+.manual-discount-credit-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 13px 15px;
+  border: 1px solid #efc58f;
+  border-radius: 12px;
+  background: #fff8ec;
+  color: #704619;
+}
+.manual-discount-credit-warning svg { flex: 0 0 auto; margin-top: 2px; }
+.manual-discount-promo-note,
+.manual-discount-note { display: flex; align-items: center; gap: 6px; color: #28704d; }
+.manual-discount-promo-note { margin-top: 12px; }
+
+.manual-discount-modal > .modal-actions {
+  margin-top: 18px !important;
+  padding: 14px 20px !important;
+  border-top: 1px solid var(--admin-line) !important;
+}
+.manual-discount-modal .manual-discount-remove { margin-right: auto; }
+
+.rental-payment-lines .discount-line,
+.rental-payment-lines .credit-line { color: #167144; }
+.rental-payment-lines .credit-line { font-weight: 800; }
+.manual-discount-note { margin: 10px 0 0; }
+
+@media (max-width: 620px) {
+  .manual-discount-mode { grid-template-columns: 1fr; }
+  .manual-discount-modal > .modal-actions { grid-template-columns: 1fr !important; }
+  .manual-discount-modal .manual-discount-remove { margin-right: 0; }
+}
+
+.admin-modal input[type="radio"] {
+  border-radius: 50% !important;
+}
+
 .search-row {
   display: flex !important;
   align-items: center !important;
@@ -3169,6 +3733,39 @@ input[type="radio"] {
   color: #fff !important;
 }
 
+.email-section-heading {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+  margin: 18px 0 12px !important;
+  padding: 18px 20px !important;
+  border: 1px solid #dce7df !important;
+  border-left: 5px solid #d71920 !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #fff 0%, #f3faf5 100%) !important;
+}
+
+.email-section-heading h3 {
+  margin: 2px 0 4px !important;
+  color: #123d2b !important;
+  font-size: 20px !important;
+}
+
+.email-section-heading span {
+  color: var(--ui-ink-soft) !important;
+  font-size: 13px !important;
+}
+
+.email-template-count {
+  flex: 0 0 auto !important;
+  padding: 7px 11px !important;
+  border-radius: 999px !important;
+  background: #0b6b3a !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+
 .admin-modal-backdrop {
   padding: 20px !important;
   background: rgba(10, 17, 13, .62) !important;
@@ -3241,6 +3838,44 @@ input[type="radio"] {
   padding: 12px 14px !important;
   border-radius: var(--ui-radius) !important;
   box-shadow: var(--ui-shadow-xs) !important;
+}
+
+.notice-viewport {
+  position: fixed;
+  z-index: 5000;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  width: min(520px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.notice-viewport .notice-banner {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: 11px !important;
+  margin: 0 !important;
+  box-shadow: 0 18px 46px rgba(17, 24, 39, .2) !important;
+  pointer-events: auto;
+}
+
+.notice-icon { color: var(--ui-green); }
+.notice-banner.error .notice-icon { color: #9f241f; }
+.notice-viewport .notice-dismiss {
+  display: grid !important;
+  place-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 !important;
+}
+
+@media (max-width: 620px) {
+  .notice-viewport {
+    top: max(10px, env(safe-area-inset-top));
+    right: 10px;
+    width: calc(100vw - 20px);
+  }
 }
 
 .muted,
@@ -3473,6 +4108,124 @@ input[type="radio"] {
   color: #a12626;
 }
 
+.adjust-payment-deadline-button {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid #b8cfc3;
+  border-radius: 9px;
+  background: #f5faf7;
+  color: #124b32;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.adjust-payment-deadline-button:hover,
+.adjust-payment-deadline-button:focus-visible {
+  border-color: #197444;
+  background: #eaf6ef;
+}
+
+.rental-deadline-modal {
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(780px, calc(100vh - 24px));
+  overflow: auto;
+}
+
+.rental-deadline-body {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.deadline-current-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.deadline-current-summary > span {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #d9e5de;
+  border-radius: 10px;
+  background: #f8fbf9;
+  color: #243d31;
+}
+
+.deadline-current-summary strong {
+  color: #66786f;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.deadline-policy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #d8c681;
+  border-radius: 10px;
+  background: #fff9e8;
+  color: #604c16;
+}
+
+.deadline-policy-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.deadline-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deadline-quick-actions button {
+  padding: 8px 11px;
+  border: 1px solid #c8d8cf;
+  border-radius: 999px;
+  background: #fff;
+  color: #124b32;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.deadline-quick-actions button:hover,
+.deadline-quick-actions button:focus-visible {
+  border-color: #197444;
+  background: #eaf6ef;
+}
+
+.rental-deadline-body label {
+  display: grid;
+  gap: 7px;
+  color: #34483e;
+  font-weight: 800;
+}
+
+.rental-deadline-body input,
+.rental-deadline-body textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rental-deadline-body textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+@media (max-width: 620px) {
+  .deadline-current-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .late-return-warning,
 .late-return-critical {
   display: inline-flex;
@@ -3505,6 +4258,19 @@ input[type="radio"] {
   background: #f7faf8;
 }
 
+/* Generic modal input rules make checkboxes full width and push their label
+   text outside the return panel. Keep every return-inspection checkbox compact. */
+.return-completion-panel input[type="checkbox"] {
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
 .payments-filter-bar {
   display: flex;
   align-items: end;
@@ -3530,6 +4296,47 @@ input[type="radio"] {
   font-weight: 800;
   letter-spacing: .08em;
   text-transform: uppercase;
+}
+
+.payments-type-filter select {
+  width: 100% !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  padding: 0 40px 0 14px !important;
+  border: 1px solid var(--ui-line-strong) !important;
+  border-radius: 9px !important;
+  background-color: #fff !important;
+  color: var(--ui-ink) !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+}
+
+/* Give every edit-gallery picture enough room for clear, tappable actions. */
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-card.featured {
+  grid-column: 1 / -1 !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-actions {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 7px !important;
+  padding: 9px !important;
+}
+
+.vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-actions button {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 42px !important;
+  padding: 9px 10px !important;
+  white-space: normal !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
 }
 
 .settings-workspace-nav {
@@ -3565,6 +4372,16 @@ input[type="radio"] {
   .settings-workspace-nav {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 620px) {
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-editor-modal:not(.add-vehicle-modal) .vehicle-photo-card.featured {
+    grid-column: auto !important;
   }
 }
 
@@ -4874,7 +5691,7 @@ input[type="radio"] {
 
 /* Vehicle price safeguards */
 .price-confirmation-backdrop {
-  z-index: 1200 !important;
+  z-index: 2147483000 !important;
 }
 
 .price-confirmation-modal {
@@ -4977,6 +5794,26 @@ input[type="radio"] {
   line-height: 1.5;
 }
 
+.price-confirmation-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 20px 20px;
+  padding: 12px 13px;
+  border: 1px solid #edc5c1;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-red-soft);
+  color: var(--ui-red);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.price-confirmation-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .price-confirmation-actions {
   display: flex !important;
   justify-content: flex-end !important;
@@ -5027,6 +5864,1452 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 }
+/* Stable fleet cards: status changes grow downward without shifting vehicle details. */
+.vehicles-layout .vehicle-list-row {
+  display: grid !important;
+  grid-template-columns:
+    minmax(340px, 1.3fr)
+    minmax(118px, .34fr)
+    minmax(270px, .9fr)
+    minmax(300px, .86fr) !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  min-height: 124px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.vehicles-layout .vehicle-list-row > .vehicle-card-identity,
+.vehicles-layout .vehicle-list-row > .vehicle-card-price,
+.vehicles-layout .vehicle-list-row > .vehicle-card-status,
+.vehicles-layout .vehicle-list-row > .vehicle-card-manage {
+  min-width: 0 !important;
+  padding: 17px 18px !important;
+}
+
+.vehicles-layout .vehicle-list-row > .vehicle-card-identity {
+  display: grid !important;
+  grid-template-columns: 96px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 16px !important;
+}
+
+.vehicle-list-thumbnail-shell {
+  display: grid !important;
+  place-items: center !important;
+  width: 96px !important;
+  height: 74px !important;
+  overflow: hidden !important;
+  border: 1px solid #dce2df !important;
+  border-radius: 9px !important;
+  background: #f4f6f5 !important;
+  color: #8a9690 !important;
+}
+
+.vehicles-layout .vehicle-list-thumbnail {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  flex: none !important;
+  object-fit: cover !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.vehicle-list-thumbnail-shell.empty {
+  border-style: dashed !important;
+  background: #f7f9f8 !important;
+}
+
+.vehicles-layout .vehicle-card-details {
+  display: grid !important;
+  align-content: center !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-details > strong {
+  overflow: hidden;
+  color: #202a26 !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.25 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vehicle-card-details > span,
+.vehicle-card-details > small {
+  overflow-wrap: anywhere;
+  color: #68746e !important;
+  line-height: 1.4 !important;
+}
+
+.vehicles-layout .vehicle-list-row > .vehicle-card-price,
+.vehicles-layout .vehicle-list-row > .vehicle-card-status,
+.vehicles-layout .vehicle-list-row > .vehicle-card-manage {
+  display: grid !important;
+  align-content: center !important;
+  gap: 10px !important;
+  border-left: 1px solid #e8ecea !important;
+}
+
+.vehicle-card-price {
+  justify-items: start !important;
+  background: #fbfcfb !important;
+}
+
+.vehicle-card-status {
+  background: #f8faf9 !important;
+}
+
+.vehicle-card-manage {
+  background: #fbfcfb !important;
+}
+
+.vehicle-card-zone-label {
+  color: #77827c !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .12em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.vehicle-card-price .vehicle-row-price {
+  justify-items: start !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-price .vehicle-row-price strong {
+  font-size: 16px !important;
+}
+
+.vehicle-card-status .vehicle-row-state {
+  display: flex !important;
+  align-items: flex-start !important;
+  align-content: flex-start !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-status .vehicle-publish-badge,
+.vehicle-card-status .fleet-status-badge {
+  max-width: 100% !important;
+  min-height: 27px !important;
+  white-space: normal !important;
+}
+
+.vehicle-card-manage .vehicle-row-controls {
+  display: grid !important;
+  grid-template-columns: minmax(126px, 1fr) auto auto !important;
+  align-items: end !important;
+  justify-content: stretch !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-manage .vehicle-status-control {
+  min-width: 0 !important;
+}
+
+.vehicle-card-manage .vehicle-condition-actions {
+  display: grid;
+  grid-template-columns: minmax(132px, 1fr) auto auto;
+  align-items: end;
+  gap: 7px;
+  min-width: 0;
+}
+
+.vehicle-card-manage .vehicle-mark-available-btn,
+.vehicle-card-manage .vehicle-undo-status-btn,
+.availability-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #20945c;
+  border-radius: 8px;
+  background: #edf8f2;
+  color: #155b3b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vehicle-card-manage .vehicle-undo-status-btn {
+  border-color: #c9d2ce;
+  background: #fff;
+  color: #34423b;
+}
+
+.vehicle-card-manage .vehicle-mark-available-btn:hover,
+.availability-remove-btn:hover {
+  border-color: #147444;
+  background: #dff3e8;
+}
+
+.vehicle-card-manage .vehicle-undo-status-btn:hover {
+  border-color: #87958e;
+  background: #f4f7f5;
+}
+
+.vehicle-card-manage .vehicle-mark-available-btn:disabled,
+.vehicle-card-manage .vehicle-undo-status-btn:disabled,
+.availability-remove-btn:disabled {
+  cursor: wait;
+  opacity: .58;
+}
+
+.availability-modal .availability-remove-btn {
+  margin-right: auto;
+}
+
+.vehicle-card-manage .vehicle-row-controls select {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.vehicle-card-manage .system-owned-status {
+  align-self: center !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 0 8px 0 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  overflow-wrap: anywhere;
+}
+
+.vehicle-card-manage .vehicle-row-controls button {
+  align-self: end !important;
+}
+
+@media (max-width: 1500px) {
+  .vehicles-layout .vehicle-list-row {
+    grid-template-columns: minmax(320px, 1fr) minmax(118px, .3fr) minmax(260px, .8fr) !important;
+  }
+
+  .vehicle-card-manage {
+    grid-column: 1 / -1 !important;
+    grid-template-columns: 86px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding: 13px 18px !important;
+    border-top: 1px solid #e8ecea !important;
+    border-left: 0 !important;
+  }
+
+  .vehicle-card-manage .vehicle-row-controls {
+    grid-template-columns: minmax(160px, 1fr) auto auto !important;
+  }
+}
+
+@media (max-width: 980px) {
+  .vehicles-layout .vehicle-list-row {
+    grid-template-columns: minmax(0, 1fr) minmax(118px, .34fr) !important;
+  }
+
+  .vehicle-card-status {
+    grid-column: 1 / -1 !important;
+    grid-template-columns: 86px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding: 13px 18px !important;
+    border-top: 1px solid #e8ecea !important;
+    border-left: 0 !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .vehicles-layout .vehicle-list-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vehicle-card-identity {
+    grid-template-columns: 78px minmax(0, 1fr) !important;
+    padding: 15px !important;
+  }
+
+  .vehicle-list-thumbnail-shell {
+    width: 78px !important;
+    height: 62px !important;
+  }
+
+  .vehicle-card-price,
+  .vehicle-card-status,
+  .vehicle-card-manage {
+    grid-column: auto !important;
+    grid-template-columns: 86px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding: 13px 15px !important;
+    border-top: 1px solid #e8ecea !important;
+    border-left: 0 !important;
+  }
+
+  .vehicle-card-manage .vehicle-row-controls {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .vehicle-card-manage .vehicle-condition-actions,
+  .vehicle-card-manage .vehicle-status-control,
+  .vehicle-card-manage .system-owned-status {
+    grid-column: 1 / -1 !important;
+  }
+
+  .vehicle-card-manage .vehicle-condition-actions {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .vehicle-card-manage .vehicle-condition-actions .vehicle-status-control {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+/* Compact rental operations card
+   Every Rental Manager filter renders the same RentalRow component. Keep its
+   workflow and controls consistent instead of allowing tab-specific stacks. */
+.rental-operations-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  width: 100% !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: 1px solid #ccd6d2 !important;
+  border-radius: 14px !important;
+  background: #fff !important;
+  color: var(--ui-ink) !important;
+  box-shadow: 0 8px 24px rgba(20, 42, 31, .06) !important;
+}
+
+.rental-card-header {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, auto) !important;
+  align-items: start !important;
+  gap: 24px !important;
+  padding: 18px 20px !important;
+}
+
+.rental-card-identity,
+.rental-card-command {
+  display: grid !important;
+  min-width: 0 !important;
+}
+
+.rental-card-identity {
+  gap: 5px !important;
+}
+
+.rental-card-title-line {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+}
+
+.rental-card-title-line > strong {
+  color: var(--ui-ink) !important;
+  font-size: 19px !important;
+  line-height: 1.2 !important;
+}
+
+.rental-card-title-line > strong span {
+  color: var(--ui-ink-soft) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.rental-card-title-line > em {
+  padding: 3px 6px !important;
+  border: 1px solid #d5a36a !important;
+  border-radius: 999px !important;
+  background: #fff4e6 !important;
+  color: #75420e !important;
+  font-size: 10px !important;
+}
+
+.rental-card-customer {
+  color: var(--ui-ink) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+}
+
+.rental-card-schedule,
+.rental-card-price-line {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.rental-card-schedule small {
+  margin-left: 3px !important;
+  color: #68766f !important;
+  font-weight: 800 !important;
+}
+
+.rental-card-price-line i {
+  color: #9aa7a1 !important;
+  font-style: normal !important;
+}
+
+.rental-card-command {
+  justify-items: end !important;
+  gap: 7px !important;
+  text-align: right !important;
+}
+
+.rental-card-command > small {
+  max-width: 420px !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 12px !important;
+}
+
+.rental-card-primary-action,
+.rental-card-secondary-actions,
+.rental-financial-actions {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+}
+
+.rental-card-primary-action,
+.rental-card-secondary-actions {
+  justify-content: flex-end !important;
+}
+
+.rental-card-primary-action button,
+.rental-card-secondary-actions > button,
+.rental-financial-actions button {
+  width: auto !important;
+  min-height: 36px !important;
+  padding: 8px 11px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+}
+
+.rental-card-secondary-actions > button {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--ui-ink-soft) !important;
+}
+
+.rental-card-secondary-actions > button:hover {
+  background: #eef3f0 !important;
+  color: var(--ui-ink) !important;
+}
+
+.rental-overflow-menu,
+.document-overflow-menu {
+  position: relative !important;
+}
+
+.rental-overflow-menu {
+  flex: 0 0 auto !important;
+}
+
+.rental-overflow-menu > summary,
+.document-overflow-menu > summary {
+  display: grid !important;
+  place-items: center !important;
+  min-width: 36px !important;
+  height: 36px !important;
+  padding: 0 8px !important;
+  border: 1px solid #d5ded9 !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--ui-ink) !important;
+  cursor: pointer !important;
+  list-style: none !important;
+  font-weight: 900 !important;
+}
+
+.rental-overflow-menu > summary {
+  display: flex !important;
+  grid-auto-flow: unset !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  width: auto !important;
+  gap: 6px !important;
+  padding: 0 11px !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
+}
+
+.rental-overflow-menu > summary svg {
+  flex: 0 0 auto !important;
+  transition: transform .18s ease !important;
+}
+
+.rental-overflow-menu[open] > summary svg {
+  transform: rotate(180deg) !important;
+}
+
+.rental-overflow-menu > summary::-webkit-details-marker,
+.document-overflow-menu > summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.rental-overflow-menu > div,
+.document-overflow-menu > div {
+  position: absolute !important;
+  z-index: 40 !important;
+  top: calc(100% + 6px) !important;
+  right: 0 !important;
+  display: grid !important;
+  min-width: 220px !important;
+  gap: 5px !important;
+  padding: 7px !important;
+  border: 1px solid #ccd6d2 !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  box-shadow: 0 14px 34px rgba(20, 42, 31, .18) !important;
+}
+
+.rental-overflow-menu > div button,
+.document-overflow-menu > div button {
+  justify-content: flex-start !important;
+  width: 100% !important;
+  min-height: 36px !important;
+  padding: 8px 10px !important;
+  border-radius: 7px !important;
+  text-align: left !important;
+}
+
+.rental-card-workflow {
+  min-width: 0 !important;
+  padding: 12px 16px 10px !important;
+  overflow: hidden !important;
+  border-top: 1px solid #d7dfdb !important;
+  border-bottom: 0 !important;
+  background: #f8faf9 !important;
+}
+
+.rental-card-details-toggle {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-height: 34px !important;
+  gap: 7px !important;
+  padding: 7px 16px !important;
+  border: 0 !important;
+  border-top: 1px solid #e2e8e5 !important;
+  border-bottom: 1px solid #d7dfdb !important;
+  border-radius: 0 !important;
+  background: #f2f6f4 !important;
+  color: #315b47 !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  letter-spacing: .01em !important;
+}
+
+.rental-card-details-toggle:hover {
+  background: #e9f2ed !important;
+  color: #176842 !important;
+}
+
+.rental-card-details-toggle svg {
+  flex: 0 0 auto !important;
+  transition: transform .18s ease !important;
+}
+
+.rental-card-details-toggle svg.is-expanded {
+  transform: rotate(180deg) !important;
+}
+
+.rental-card-workflow .rental-progress-tracker {
+  display: grid !important;
+  grid-template-columns: repeat(9, minmax(74px, 1fr)) !important;
+  align-items: start !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  gap: 0 !important;
+  padding: 1px 0 5px !important;
+  scrollbar-width: thin !important;
+}
+
+.rental-card-workflow .progress-step-wrap {
+  min-width: 74px !important;
+  gap: 5px !important;
+}
+
+.rental-card-workflow .progress-step-wrap:not(:last-child)::after {
+  left: calc(50% + 19px) !important;
+  right: calc(-50% + 19px) !important;
+  width: auto !important;
+  top: 16px !important;
+}
+
+.rental-card-workflow .progress-step {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.rental-card-workflow .progress-step-wrap span {
+  color: #4c5b54 !important;
+  font-size: 11px !important;
+  white-space: nowrap !important;
+}
+
+.rental-card-alerts {
+  display: grid !important;
+  gap: 7px !important;
+  padding: 10px 18px 0 !important;
+}
+
+.rental-card-alerts > small {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+.rental-card-expanded-content {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.rental-card-workspace {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.55fr) minmax(330px, 1fr) !important;
+  align-items: stretch !important;
+  min-width: 0 !important;
+}
+
+.rental-card-left-column {
+  display: grid !important;
+  min-width: 0 !important;
+  gap: 0 !important;
+  border-right: 1px solid #d7dfdb !important;
+}
+
+.rental-card-section,
+.rental-card-financial {
+  min-width: 0 !important;
+  padding: 18px 20px !important;
+}
+
+.rental-card-details {
+  border-bottom: 1px solid #e0e6e3 !important;
+}
+
+.rental-card-section-heading {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin-bottom: 14px !important;
+}
+
+.rental-card-section-heading > div {
+  display: grid !important;
+  gap: 1px !important;
+}
+
+.rental-card-section-heading small {
+  color: #718078 !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+}
+
+.rental-card-section-heading h4 {
+  margin: 0 !important;
+  color: var(--ui-ink) !important;
+  font-size: 14px !important;
+  letter-spacing: .02em !important;
+  text-transform: uppercase !important;
+}
+
+.rental-card-section-heading > span {
+  color: #617168 !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+}
+
+.rental-card-details dl,
+.rental-payment-lines {
+  display: grid !important;
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr) !important;
+  gap: 8px 16px !important;
+  margin: 0 !important;
+}
+
+.rental-card-details dt,
+.rental-card-details dd,
+.rental-payment-lines dt,
+.rental-payment-lines dd {
+  margin: 0 !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+.rental-card-details dt,
+.rental-payment-lines dt {
+  font-weight: 800 !important;
+}
+
+.rental-card-details dd,
+.rental-payment-lines dd {
+  color: var(--ui-ink) !important;
+  font-weight: 750 !important;
+}
+
+.rental-card-detail-note {
+  display: block !important;
+  margin-top: 12px !important;
+  color: #6c5832 !important;
+  font-size: 11px !important;
+}
+
+.rental-payment-history {
+  margin-top: 18px !important;
+  padding-top: 16px !important;
+  border-top: 1px solid #e0e6e3 !important;
+}
+
+.rental-payment-history-heading {
+  display: flex !important;
+  align-items: end !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin-bottom: 10px !important;
+}
+
+.rental-payment-history-heading > div {
+  display: grid !important;
+  gap: 1px !important;
+}
+
+.rental-payment-history-heading small {
+  color: #718078 !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+}
+
+.rental-payment-history-heading h5 {
+  margin: 0 !important;
+  color: var(--ui-ink) !important;
+  font-size: 12px !important;
+  letter-spacing: .02em !important;
+  text-transform: uppercase !important;
+}
+
+.rental-payment-history-heading > span {
+  color: #617168 !important;
+  font-size: 10px !important;
+  font-weight: 850 !important;
+}
+
+.rental-payment-history ol {
+  display: grid !important;
+  gap: 7px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+.rental-payment-history li {
+  display: grid !important;
+  grid-template-columns: minmax(145px, 1fr) auto auto !important;
+  align-items: center !important;
+  gap: 8px 12px !important;
+  min-width: 0 !important;
+  padding: 9px 10px !important;
+  border: 1px solid #dfe7e3 !important;
+  border-radius: 8px !important;
+  background: #f8faf9 !important;
+}
+
+.rental-payment-history time {
+  color: #53635b !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+.rental-payment-history li > strong {
+  color: var(--ui-ink) !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
+}
+
+.rental-payment-source {
+  min-width: 60px !important;
+  padding: 3px 7px !important;
+  border-radius: 999px !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .06em !important;
+  text-align: center !important;
+  text-transform: uppercase !important;
+}
+
+.rental-payment-source.stripe {
+  color: #4f3aa0 !important;
+  background: #eeeaff !important;
+}
+
+.rental-payment-source.external {
+  color: #17633d !important;
+  background: #e3f4ea !important;
+}
+
+.rental-payment-history li > small {
+  grid-column: 1 / -1 !important;
+  color: #65756d !important;
+  font-size: 10px !important;
+}
+
+.rental-payment-history > p {
+  margin: 0 !important;
+  color: #718078 !important;
+  font-size: 11px !important;
+}
+
+.rental-card-documents .document-mini-list {
+  gap: 7px !important;
+  margin: 0 !important;
+}
+
+.rental-card-documents .document-mini-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  min-width: 0 !important;
+  gap: 10px !important;
+  padding: 8px 9px !important;
+  border: 1px solid #dce4e0 !important;
+  border-radius: 9px !important;
+  background: #fbfcfb !important;
+}
+
+.document-mini-copy {
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0 !important;
+  gap: 9px !important;
+  color: #7d5b17 !important;
+}
+
+.document-mini-row.approved .document-mini-copy {
+  color: #176842 !important;
+}
+
+.document-mini-row.rejected .document-mini-copy {
+  color: #9a2d28 !important;
+}
+
+.document-mini-copy > span {
+  display: grid !important;
+  min-width: 0 !important;
+  gap: 1px !important;
+}
+
+.document-mini-copy strong {
+  overflow: hidden !important;
+  color: var(--ui-ink) !important;
+  font-size: 12px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.document-mini-copy small {
+  color: #66766e !important;
+  font-size: 10px !important;
+}
+
+.rental-card-documents .mini-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+}
+
+.rental-card-documents .mini-actions > button {
+  width: auto !important;
+  min-height: 34px !important;
+  padding: 7px 9px !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: var(--ui-ink) !important;
+}
+
+.rental-card-financial {
+  background: #fbfcfb !important;
+}
+
+.rental-card-financial .balance-clear {
+  color: #176842 !important;
+}
+
+.rental-card-financial .balance-due {
+  color: #9a2d28 !important;
+}
+
+.rental-payment-lines dd {
+  text-align: right !important;
+}
+
+.rental-payment-lines .total-line {
+  margin-top: 4px !important;
+  padding-top: 8px !important;
+  border-top: 1px solid #dce4e0 !important;
+  font-weight: 900 !important;
+}
+
+.rental-payment-lines .balance-line {
+  margin-top: 3px !important;
+  padding-top: 8px !important;
+  border-top: 1px solid #b8c7c0 !important;
+  color: var(--ui-ink) !important;
+  font-weight: 950 !important;
+}
+
+.rental-card-financial .payment-deadline {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-top: 10px !important;
+  padding: 7px 8px !important;
+  border-radius: 7px !important;
+  background: #fff6df !important;
+  color: #74500d !important;
+  font-size: 10px !important;
+}
+
+.rental-financial-actions {
+  justify-content: flex-start !important;
+  margin-top: 13px !important;
+}
+
+.rental-charge-manager.compact {
+  display: grid !important;
+  gap: 9px !important;
+  margin-top: 14px !important;
+  padding: 13px 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid #dce4e0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.rental-charge-manager.compact .rental-charge-heading {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-heading > div {
+  display: grid !important;
+  flex: 1 !important;
+  gap: 1px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-heading strong {
+  color: var(--ui-ink) !important;
+  font-size: 12px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-heading small {
+  color: #66766e !important;
+  font-size: 10px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-heading > button {
+  width: auto !important;
+  min-height: 34px !important;
+  padding: 7px 9px !important;
+  border-radius: 7px !important;
+  font-size: 11px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-balance {
+  padding: 8px 9px !important;
+  border-radius: 8px !important;
+}
+
+.rental-charge-history {
+  border-top: 1px solid #e0e6e3 !important;
+  padding-top: 8px !important;
+}
+
+.rental-charge-history > summary,
+.rental-card-activity > summary {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  cursor: pointer !important;
+  list-style: none !important;
+}
+
+.rental-charge-history > summary::-webkit-details-marker,
+.rental-card-activity > summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.rental-charge-history > summary span,
+.rental-charge-history > summary em {
+  color: var(--ui-ink-soft) !important;
+  font-size: 11px !important;
+  font-style: normal !important;
+  font-weight: 850 !important;
+}
+
+.rental-charge-history > summary svg,
+.rental-card-activity > summary svg:last-child {
+  transition: transform .18s ease !important;
+}
+
+.rental-charge-history[open] > summary svg,
+.rental-card-activity[open] > summary svg:last-child {
+  transform: rotate(180deg) !important;
+}
+
+.rental-charge-history-body {
+  display: grid !important;
+  gap: 8px !important;
+  padding-top: 9px !important;
+}
+
+.rental-card-activity {
+  border-top: 1px solid #d7dfdb !important;
+}
+
+.rental-card-activity > summary {
+  padding: 11px 18px !important;
+  color: var(--ui-ink) !important;
+}
+
+.rental-card-activity > summary > span {
+  display: flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  color: var(--ui-ink) !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+}
+
+.rental-card-activity > summary > em {
+  margin-left: auto !important;
+  color: #68776f !important;
+  font-size: 10px !important;
+  font-style: normal !important;
+  font-weight: 850 !important;
+}
+
+.rental-card-activity-body {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 0 18px 16px !important;
+}
+
+.rental-card-activity-body .admin-completion-badge {
+  width: auto !important;
+  min-height: 30px !important;
+  cursor: pointer !important;
+}
+
+@media (max-width: 1040px) {
+  .rental-card-header {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .rental-card-command {
+    justify-items: start !important;
+    text-align: left !important;
+  }
+
+  .rental-card-primary-action,
+  .rental-card-secondary-actions {
+    justify-content: flex-start !important;
+  }
+
+  .rental-card-workspace {
+    grid-template-columns: minmax(0, 1.3fr) minmax(300px, 1fr) !important;
+  }
+}
+
+@media (max-width: 780px) {
+  .rental-operations-card {
+    border-radius: 10px !important;
+  }
+
+  .rental-card-header,
+  .rental-card-section,
+  .rental-card-financial {
+    padding: 14px !important;
+  }
+
+  .rental-card-workspace {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rental-card-left-column {
+    border-right: 0 !important;
+    border-bottom: 1px solid #d7dfdb !important;
+  }
+
+  .rental-card-primary-action,
+  .rental-card-primary-action button {
+    width: 100% !important;
+  }
+
+  .rental-card-secondary-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+    overflow: visible !important;
+    padding-bottom: 2px !important;
+  }
+
+  .rental-card-secondary-actions > button,
+  .rental-card-secondary-actions > .rental-overflow-menu,
+  .rental-card-secondary-actions > .rental-overflow-menu > summary {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .rental-card-secondary-actions > button,
+  .rental-card-secondary-actions > .rental-overflow-menu > summary {
+    justify-content: center !important;
+  }
+
+  .rental-card-details dl,
+  .rental-payment-lines {
+    grid-template-columns: minmax(105px, auto) minmax(0, 1fr) !important;
+  }
+
+  .rental-card-documents .document-mini-row {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .rental-card-activity > summary {
+    padding-inline: 14px !important;
+  }
+
+  .rental-card-activity-body {
+    padding-inline: 14px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .rental-card-price-line {
+    align-items: flex-start !important;
+  }
+
+  .rental-card-documents .document-mini-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rental-card-documents .mini-actions {
+    justify-content: flex-start !important;
+  }
+
+  .rental-overflow-menu > div {
+    right: 0 !important;
+    left: auto !important;
+  }
+
+  .rental-card-details dl,
+  .rental-payment-lines {
+    gap: 7px 10px !important;
+  }
+
+  .rental-payment-history li {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .rental-payment-source {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    justify-self: start !important;
+  }
+
+  .rental-payment-history li > small {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    justify-self: end !important;
+  }
+}
+
+/* One-step bypass and document-circle actions must explain every blocking rule. */
+.emergency-step-modal,
+.document-step-action-modal {
+  width: min(640px, calc(100vw - 28px)) !important;
+  max-width: min(640px, calc(100vw - 28px)) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 22px !important;
+}
+
+.emergency-step-modal .admin-modal-header,
+.document-step-action-modal .admin-modal-header {
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr) 38px !important;
+  align-items: start !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 0 16px !important;
+  background: transparent !important;
+}
+
+.emergency-step-modal .admin-modal-header > div,
+.document-step-action-modal .admin-modal-header > div {
+  min-width: 0 !important;
+}
+
+.emergency-step-modal .admin-modal-header h3,
+.document-step-action-modal .admin-modal-header h3 {
+  margin: 2px 0 0 !important;
+  color: var(--ui-ink) !important;
+}
+
+.emergency-step-modal .admin-modal-header > button,
+.document-step-action-modal .admin-modal-header > button {
+  display: grid !important;
+  place-items: center !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid #e0e5e3 !important;
+  border-radius: 8px !important;
+  background: #f7f9f8 !important;
+  color: #9f1f17 !important;
+}
+
+.emergency-step-modal .admin-modal-header > button svg,
+.document-step-action-modal .admin-modal-header > button svg {
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+  color: currentColor !important;
+}
+
+.emergency-step-modal > label {
+  display: grid !important;
+  gap: 6px !important;
+}
+
+.emergency-step-modal > label > span {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: space-between !important;
+  gap: 6px 12px !important;
+}
+
+.emergency-step-modal > label > span strong {
+  color: #8f1714 !important;
+  font-size: 11px !important;
+  letter-spacing: .02em !important;
+}
+
+.field-requirement {
+  display: flex !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  color: #8f1714 !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+.field-requirement.valid {
+  color: #176b42 !important;
+}
+
+.field-has-error textarea,
+.field-has-error input {
+  border-color: #b52d27 !important;
+  box-shadow: 0 0 0 3px rgba(181, 45, 39, .12) !important;
+}
+
+.bypass-form-status {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  padding: 11px 12px !important;
+  border: 1px solid #efb4b0 !important;
+  border-radius: 10px !important;
+  background: #fff1f0 !important;
+  color: #81211d !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.bypass-form-status.ready {
+  border-color: #acd3bb !important;
+  background: #edf8f1 !important;
+  color: #176b42 !important;
+}
+
+.document-step-hint {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  width: fit-content !important;
+  margin-top: 7px !important;
+  color: #145c37 !important;
+  font-weight: 800 !important;
+}
+
+.progress-step.document-upload-step:hover,
+.progress-step.document-upload-step:focus-visible {
+  background: #edf8f1 !important;
+  color: #176b42 !important;
+  border-color: #176b42 !important;
+  box-shadow: 0 0 0 4px rgba(23, 107, 66, .13) !important;
+}
+
+.document-step-action-copy {
+  display: grid !important;
+  gap: 5px !important;
+  padding: 14px !important;
+  border: 1px solid #d8e0dd !important;
+  border-radius: 11px !important;
+  background: #f7f9f8 !important;
+}
+
+.document-step-action-copy span {
+  color: var(--ui-ink-soft) !important;
+  line-height: 1.5 !important;
+}
+
+.document-step-upload-button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 9px !important;
+  width: 100% !important;
+  padding: 13px 16px !important;
+  border: 1px solid #176b42 !important;
+  border-radius: 10px !important;
+  background: #176b42 !important;
+  color: #fff !important;
+  font-weight: 900 !important;
+  cursor: pointer !important;
+}
+
+.document-step-upload-button.is-busy {
+  opacity: .7 !important;
+  cursor: wait !important;
+}
+
+.document-step-upload-button input {
+  display: none !important;
+}
+
+.document-step-bypass-option {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 13px !important;
+  border: 1px solid #efc56d !important;
+  border-radius: 10px !important;
+  background: #fff8e7 !important;
+  color: #5b4212 !important;
+}
+
+.document-step-bypass-option span {
+  line-height: 1.45 !important;
+}
+
+@media (max-width: 680px) {
+  .admin-modal-backdrop:has(.emergency-step-modal),
+  .admin-modal-backdrop:has(.document-step-action-modal) {
+    align-items: stretch !important;
+    padding: 8px !important;
+  }
+
+  .emergency-step-modal,
+  .document-step-action-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 16px) !important;
+    padding: 16px !important;
+  }
+
+  .field-requirement {
+    display: grid !important;
+    gap: 3px !important;
+  }
+}
+
+/* Keep every top-corner dismiss control consistent and away from status yellow. */
+.admin-close-button.admin-close-button {
+  border-color: #4d0f0c !important;
+  background: #681512 !important;
+  color: #fff !important;
+  box-shadow: 0 3px 10px rgba(77, 15, 12, .2) !important;
+}
+
+.admin-close-button.admin-close-button:hover,
+.admin-close-button.admin-close-button:focus-visible {
+  border-color: #681512 !important;
+  background: #81211d !important;
+  color: #fff !important;
+}
+
+.admin-close-button.admin-close-button svg {
+  color: currentColor !important;
+}
+
+/* Return inspections can expand with damage notes and evidence. Keep the
+   dialog itself as the scroll container so every field and action is reachable
+   while the page behind it remains locked. */
+.return-completion-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-modal.return-completion-modal {
+  width: min(760px, calc(100vw - 40px)) !important;
+  max-width: 760px !important;
+  max-height: calc(100dvh - 40px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 680px) {
+  .return-completion-backdrop.admin-modal-backdrop {
+    padding: 8px !important;
+  }
+
+  .admin-modal.return-completion-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+}
+
 .automation-lock-note,
 .deposit-charge-block,
 .rental-charge-balance {
@@ -5083,5 +7366,1218 @@ input[type="radio"] {
 
   .rental-charge-balance > small {
     text-align: left;
+  }
+}
+
+/* Guarded rental amendment workflow */
+.edit-rental-action {
+  border-color: #b8d5c1 !important;
+  background: #f2faf4 !important;
+  color: #176534 !important;
+}
+
+.rental-amendment-backdrop {
+  z-index: 2147483100 !important;
+  padding: 24px !important;
+}
+
+.rental-amendment-modal {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(900px, calc(100vw - 32px)) !important;
+  max-width: 900px !important;
+  max-height: min(920px, calc(100vh - 32px)) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid #d9e2dd !important;
+  border-radius: 18px !important;
+  background: #f7f9f8 !important;
+  box-shadow: 0 28px 90px rgba(17, 34, 25, .28) !important;
+}
+
+.rental-amendment-header {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 13px !important;
+  margin: 0 !important;
+  padding: 20px 22px !important;
+  border-bottom: 1px solid #dfe7e2 !important;
+  background: #fff !important;
+}
+
+.rental-amendment-header > svg {
+  color: #198247;
+}
+
+.rental-amendment-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-header small {
+  color: #198247;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.rental-amendment-header strong {
+  color: #1f2b25;
+  font-size: 20px;
+}
+
+.rental-amendment-header span {
+  color: #6b7770;
+  font-size: 12px;
+}
+
+.rental-amendment-scroll {
+  display: grid;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 18px 22px 24px;
+}
+
+.rental-amendment-guardrail,
+.rental-amendment-resign,
+.rental-amendment-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid #cce4d4;
+  border-radius: 12px;
+  background: #edf8f1;
+  color: #225b35;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rental-amendment-guardrail svg,
+.rental-amendment-resign svg,
+.rental-amendment-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.rental-amendment-section {
+  display: grid;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid #dfe6e2;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.rental-amendment-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rental-amendment-section-heading > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1f7141;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.rental-amendment-section-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-section-heading strong {
+  color: #26322c;
+  font-size: 14px;
+}
+
+.rental-amendment-section-heading small {
+  color: #758078;
+  font-size: 11px;
+}
+
+.rental-amendment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+
+.rental-amendment-grid label,
+.rental-amendment-reason {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rental-amendment-grid label > span,
+.rental-amendment-reason > span {
+  color: #435048;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.rental-amendment-grid label > small {
+  color: #916014;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.rental-amendment-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.rental-amendment-grid input,
+.rental-amendment-grid select,
+.rental-amendment-grid textarea,
+.rental-amendment-reason textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #ccd6d0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.rental-amendment-grid input,
+.rental-amendment-grid select {
+  min-height: 43px;
+}
+
+.rental-amendment-grid textarea,
+.rental-amendment-reason textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.rental-amendment-grid input:disabled {
+  background: #eef1ef;
+  color: #68736d;
+}
+
+.rental-amendment-grid .currency-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #ccd6d0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.rental-amendment-grid .currency-input > span {
+  padding-left: 12px;
+  color: #526159;
+  font-weight: 800;
+}
+
+.rental-amendment-grid .currency-input input {
+  border: 0;
+  box-shadow: none;
+}
+
+.closed-rental-confirmation {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 10px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 12px !important;
+  overflow: hidden !important;
+  border: 1px solid #edc5a5 !important;
+  border-radius: 10px !important;
+  background: #fff7ef !important;
+  cursor: pointer;
+}
+
+.closed-rental-confirmation input[type="checkbox"] {
+  margin: 2px 0 0 !important;
+}
+
+.closed-rental-confirmation > span {
+  display: grid !important;
+  gap: 2px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow-wrap: anywhere;
+}
+
+.closed-rental-confirmation strong {
+  display: block;
+  color: #793d16;
+  font-size: 12px;
+}
+
+.closed-rental-confirmation small {
+  display: block;
+  color: #8a674f;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.rental-amendment-preview {
+  display: grid;
+  gap: 13px;
+  padding: 17px;
+  border: 1px solid #b9d9c3;
+  border-radius: 14px;
+  background: #f4fbf6;
+}
+
+.rental-amendment-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #17683a;
+}
+
+.rental-amendment-preview-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-preview-heading span {
+  color: #52705e;
+  font-size: 11px;
+}
+
+.rental-amendment-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.rental-amendment-comparison article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #d5e2d9;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.rental-amendment-comparison small {
+  color: #748078;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.rental-amendment-comparison strong {
+  overflow: hidden;
+  color: #26332b;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rental-amendment-comparison span {
+  color: #637069;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.rental-amendment-comparison em {
+  color: #1b6538;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.rental-amendment-ledger {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rental-amendment-ledger > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #d5e2d9;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.rental-amendment-ledger small {
+  color: #748078;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.rental-amendment-ledger strong {
+  color: #26332b;
+  font-size: 13px;
+}
+
+.rental-amendment-settlement {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 13px;
+  border-radius: 10px;
+  background: #e8f5ec;
+  color: #215e36;
+}
+
+.rental-amendment-settlement.due {
+  background: #fff3e7;
+  color: #844510;
+}
+
+.rental-amendment-settlement.credit {
+  background: #eaf3ff;
+  color: #215887;
+}
+
+.rental-amendment-settlement span {
+  display: grid;
+  gap: 2px;
+}
+
+.rental-amendment-settlement small {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.rental-amendment-resign {
+  border-color: #d8c58e;
+  background: #fff9e8;
+  color: #725c16;
+}
+
+.rental-amendment-warning {
+  border-color: #ecc29d;
+  background: #fff5ec;
+  color: #7f4317;
+}
+
+.rental-amendment-error {
+  margin: 0 !important;
+}
+
+.rental-amendment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 15px 22px;
+  border-top: 1px solid #dfe7e2;
+  background: #fff;
+}
+
+.rental-amendment-actions button {
+  min-width: 140px;
+}
+
+@media (max-width: 680px) {
+  .rental-amendment-backdrop {
+    align-items: stretch !important;
+    padding: 0 !important;
+  }
+
+  .rental-amendment-modal {
+    width: 100vw !important;
+    max-width: none !important;
+    max-height: 100dvh !important;
+    min-height: 100dvh !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .rental-amendment-header {
+    padding: 16px !important;
+  }
+
+  .rental-amendment-scroll {
+    padding: 14px;
+  }
+
+  .rental-amendment-grid,
+  .rental-amendment-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .rental-amendment-ledger {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rental-amendment-comparison > svg {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .rental-amendment-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 12px 14px;
+  }
+
+  .rental-amendment-actions button {
+    min-width: 0;
+  }
+}
+
+/* Keep the emergency-release form isolated from broad admin-modal input rules. */
+.emergency-exception-modal {
+  grid-template-columns: minmax(0, 1fr) !important;
+  width: min(680px, calc(100vw - 28px)) !important;
+  max-width: min(680px, calc(100vw - 28px)) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 22px !important;
+}
+
+.emergency-exception-modal > * {
+  min-width: 0;
+}
+
+.emergency-exception-modal .admin-modal-header {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 0 16px !important;
+  background: transparent !important;
+}
+
+.emergency-exception-modal .admin-modal-header > div {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.emergency-exception-modal .admin-modal-header > button {
+  display: grid !important;
+  flex: 0 0 38px !important;
+  place-items: center !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  border: 1px solid #e0e5e3 !important;
+  border-radius: 8px !important;
+  background: #f7f9f8 !important;
+  color: #9f1f17 !important;
+}
+
+.emergency-exception-modal .admin-modal-header > button svg {
+  flex: 0 0 20px !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+}
+
+.emergency-exception-modal .emergency-scope-list {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.emergency-exception-modal .emergency-scope-list label {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  cursor: pointer;
+}
+
+.emergency-exception-modal .emergency-scope-list input[type="checkbox"] {
+  display: block !important;
+  flex: 0 0 18px !important;
+  box-sizing: border-box !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 2px 0 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+.emergency-exception-modal .emergency-scope-list label > span {
+  display: grid !important;
+  flex: 1 1 auto !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.emergency-exception-modal > label {
+  display: grid !important;
+  gap: 6px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  color: var(--ui-ink-soft) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.emergency-exception-modal textarea {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+@media (max-width: 680px) {
+  .admin-modal-backdrop:has(.emergency-exception-modal) {
+    align-items: stretch !important;
+    padding: 8px !important;
+  }
+
+  .emergency-exception-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 16px) !important;
+    padding: 16px !important;
+  }
+
+  .emergency-exception-modal .admin-modal-header {
+    padding-bottom: 13px !important;
+  }
+}
+.notice-banner.update {
+  border-color: #d0a017;
+  background: #fff8df;
+  color: #4b3900;
+}
+
+.notice-banner.update .notice-icon {
+  color: #9a6a11;
+}
+
+.notice-banner .notice-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.notice-banner .notice-action {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #0d4b34 !important;
+  border-radius: 9px !important;
+  background: #0d4b34 !important;
+  color: #fff !important;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.customer-directory-summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.customer-directory-summary > span,
+.customer-directory-status > span {
+  color: var(--ui-ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.customer-directory-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 9px;
+  background: #f7faf8;
+}
+
+.customer-directory-status button,
+.customer-directory-error button {
+  border: 0;
+  background: transparent;
+  color: #0d6b49;
+  font-weight: 900;
+  text-decoration: underline;
+}
+
+.customer-admin-account-badge {
+  display: block;
+  width: fit-content;
+  margin-top: 5px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e5f5ec;
+  color: #176842;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.customer-directory-error {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .customer-directory-summary,
+  .customer-directory-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* The in-office agreement must remain readable and scrollable inside the
+   viewport even while the page behind the modal is locked. */
+.agreement-step-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 16px !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.admin-modal.agreement-step-modal {
+  width: min(920px, calc(100vw - 32px)) !important;
+  max-height: calc(100vh - 32px) !important;
+  max-height: calc(100dvh - 32px) !important;
+  margin: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+}
+
+.agreement-step-modal .admin-modal-header > div {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.agreement-step-modal .admin-modal-header > .admin-close-button {
+  flex: 0 0 40px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  margin-left: auto !important;
+  padding: 0 !important;
+}
+
+@media (max-width: 680px) {
+  .agreement-step-backdrop.admin-modal-backdrop {
+    padding: 8px !important;
+  }
+
+  .admin-modal.agreement-step-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+
+  .admin-agreement-scroll-box {
+    height: min(42dvh, 440px);
+    min-height: 220px;
+  }
+
+  .admin-agreement-review-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agreement-skip-button {
+    width: 100%;
+  }
+}
+
+/* Communication is a routine workflow, not a destructive warning. Keep its
+   hierarchy bright and make these final selectors win over generic modal rules. */
+.customer-contact-backdrop.admin-modal-backdrop {
+  background: rgba(15, 28, 21, .46) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
+.customer-contact-modal.admin-modal {
+  border-color: #cbdad2 !important;
+  box-shadow: 0 26px 72px rgba(14, 48, 31, .24) !important;
+}
+
+.customer-contact-modal > .customer-contact-header {
+  border-bottom: 1px solid #cfe2d6 !important;
+  background: linear-gradient(135deg, #f7fbf8 0%, #e8f4ed 100%) !important;
+}
+
+.customer-contact-modal > .customer-contact-header .customer-contact-icon {
+  border-color: #b9dbc7 !important;
+  background: #dff2e6 !important;
+  color: #0b6b3a !important;
+}
+
+.customer-contact-modal > .customer-contact-header small {
+  color: #587066 !important;
+}
+
+.customer-contact-modal > .customer-contact-header strong {
+  color: #123d2b !important;
+}
+
+.customer-contact-modal > .customer-contact-header div > span {
+  color: #5d6f67 !important;
+}
+
+.customer-contact-modal > .customer-contact-header .customer-details-close {
+  border-color: #ebc3c1 !important;
+  background: #fff1f0 !important;
+  color: #a82925 !important;
+}
+
+.customer-contact-modal .contact-channel-toggle button.active,
+.customer-contact-modal .customer-contact-actions .contact-send {
+  border-color: #0b6b3a !important;
+  background: #0b6b3a !important;
+  color: #fff !important;
+}
+
+.customer-contact-modal .contact-channel-toggle button.active {
+  box-shadow: 0 1px 4px rgba(11, 107, 58, .22) !important;
+}
+
+.customer-contact-modal .customer-contact-actions .contact-send:hover:not(:disabled) {
+  border-color: #08552f !important;
+  background: #08552f !important;
+}
+
+/* Automatic charges live inside the narrower financial column on compact
+   rental cards. Reflow that section to its card width instead of inheriting
+   the full-page four-column minimums. This is layout-only: all billing actions
+   and charge state remain unchanged. */
+.rental-charge-manager.compact {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  container: compact-rental-charges / inline-size;
+}
+
+.rental-charge-manager.compact .rental-charge-history,
+.rental-charge-manager.compact .rental-charge-history-body,
+.rental-charge-manager.compact .automatic-charge-section,
+.rental-charge-manager.compact .automatic-charge-card,
+.rental-charge-manager.compact .automatic-charge-heading > div,
+.rental-charge-manager.compact .automatic-charge-totals,
+.rental-charge-manager.compact .automatic-charge-fields,
+.rental-charge-manager.compact .automatic-charge-card-footer,
+.rental-charge-manager.compact .charge-collection-actions {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-heading {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: start !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-totals {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, max-content)) !important;
+  justify-content: start !important;
+  width: 100% !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-totals > span {
+  min-width: 0 !important;
+  white-space: normal !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-totals .automatic-charge-primary {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-fields label:first-child {
+  grid-column: 1 / -1 !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-fields input {
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-card-footer {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-card-footer > small {
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow-wrap: anywhere !important;
+}
+
+.rental-charge-manager.compact .automatic-charge-card-footer > .workflow-badge {
+  justify-self: start !important;
+}
+
+.rental-charge-manager.compact .charge-collection-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  justify-content: stretch !important;
+  width: 100% !important;
+}
+
+.rental-charge-manager.compact .charge-collection-actions button {
+  width: 100% !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  line-height: 1.2 !important;
+}
+
+@container compact-rental-charges (max-width: 520px) {
+  .rental-charge-manager.compact .automatic-charge-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@container compact-rental-charges (max-width: 390px) {
+  .rental-charge-manager.compact .automatic-charge-totals,
+  .rental-charge-manager.compact .automatic-charge-fields,
+  .rental-charge-manager.compact .charge-collection-actions {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rental-charge-manager.compact .automatic-charge-fields label:first-child,
+  .rental-charge-manager.compact .automatic-charge-totals .automatic-charge-primary {
+    grid-column: auto !important;
+  }
+}
+
+.rental-balance-callout {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  margin: 0.8rem 0;
+  padding: 0.8rem;
+  border: 1px solid #e5b8b2;
+  border-radius: 12px;
+  background: #fff5f3;
+  color: #8f2119;
+}
+
+.rental-balance-callout > span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.rental-balance-callout small {
+  color: #6f4c48;
+  line-height: 1.35;
+}
+
+.rental-balance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.rental-balance-actions button {
+  min-height: 34px;
+}
+.deposit-action-list .queue-row {
+  border-left: 4px solid #d97706;
+}
+
+.employee-permission-groups {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.employee-permission-group {
+  border: 1px solid #dfe5e1;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.employee-permission-group h4 {
+  margin: 0;
+  padding: 12px 16px;
+  background: #f5f8f6;
+  border-bottom: 1px solid #dfe5e1;
+}
+
+.settings-grid label.employee-permission-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 18px !important;
+  align-items: center !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 14px 16px !important;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.employee-permission-row:last-child { border-bottom: 0; }
+
+.settings-grid label.employee-permission-row > span {
+  grid-column: 1 !important;
+  display: grid !important;
+  gap: 3px !important;
+  min-width: 0 !important;
+  color: #27332d !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.35 !important;
+  text-transform: none !important;
+}
+
+.settings-grid label.employee-permission-row strong {
+  color: #17221c !important;
+  font-size: 13px !important;
+  font-weight: 760 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.3 !important;
+  text-transform: none !important;
+}
+
+.settings-grid label.employee-permission-row small {
+  color: #647067 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.4 !important;
+  text-transform: none !important;
+}
+
+.settings-grid label.employee-permission-row input[type="checkbox"][role="switch"] {
+  grid-column: 2 !important;
+  justify-self: end !important;
+  align-self: center !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  accent-color: var(--ui-green) !important;
+}
+
+@media (max-width: 720px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .settings-grid > .panel,
+  .employee-invite-form,
+  .employee-invite-form .form-row,
+  .employee-invite-form label,
+  .employee-permission-groups,
+  .employee-permission-group {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .employee-invite-form .form-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .employee-invite-form input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .settings-grid label.employee-permission-row {
+    grid-template-columns: minmax(0, 1fr) 18px !important;
+    align-items: start !important;
+  }
+
+  .settings-grid label.employee-permission-row > span {
+    min-width: 0 !important;
+    overflow-wrap: anywhere !important;
+  }
+}
+
+/* Deposit resolution must remain usable in short windows, landscape phones,
+   and browser zoom even though the global modal shell locks overflow. */
+.deposit-action-modal-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 14px !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.admin-modal.deposit-action-modal {
+  width: min(620px, calc(100vw - 28px)) !important;
+  max-height: calc(100vh - 28px) !important;
+  max-height: calc(100dvh - 28px) !important;
+  margin: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+}
+
+@media (max-width: 680px) {
+  .deposit-action-modal-backdrop.admin-modal-backdrop { padding: 8px !important; }
+  .admin-modal.deposit-action-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+}
+
+/* Keep the rental card compact while preserving every received payment. Four
+   entries remain visible; older activity scrolls inside the ledger itself. */
+.rental-payment-history ol.is-scrollable {
+  max-height: 253px !important;
+  padding-right: 5px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  scrollbar-gutter: stable !important;
+}
+
+.rental-payment-history ol.is-scrollable > li {
+  box-sizing: border-box !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  overflow: hidden !important;
+}
+
+.rental-payment-history ol.is-scrollable time,
+.rental-payment-history ol.is-scrollable li > small {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.rental-payment-history ol.is-scrollable:focus-visible {
+  outline: 2px solid var(--ui-green) !important;
+  outline-offset: 3px !important;
+  border-radius: 9px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-balance {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px 12px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-balance > div {
+  display: grid !important;
+  min-width: 0 !important;
+  gap: 2px !important;
+}
+
+.rental-charge-manager.compact .rental-charge-balance > div > span,
+.rental-charge-manager.compact .rental-charge-balance > div > small {
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+.rental-charge-manager.compact .charge-all-addons {
+  width: auto !important;
+  min-height: 34px !important;
+  padding: 7px 10px !important;
+  white-space: nowrap !important;
+}
+
+.external-charge-payment-backdrop.admin-modal-backdrop {
+  align-items: flex-start !important;
+  overflow-y: auto !important;
+  padding: 18px !important;
+}
+
+.admin-modal.external-charge-payment-modal {
+  width: min(560px, calc(100vw - 36px)) !important;
+  max-height: calc(100dvh - 36px) !important;
+  margin: auto !important;
+  overflow-y: auto !important;
+}
+
+@container compact-rental-charges (max-width: 430px) {
+  .rental-charge-manager.compact .rental-charge-balance {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rental-charge-manager.compact .charge-all-addons {
+    width: 100% !important;
+    white-space: normal !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .rental-payment-history li {
+    grid-template-columns: minmax(128px, 1fr) auto auto !important;
+  }
+
+  .rental-payment-history time {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+
+  .rental-payment-history li > strong {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+
+  .rental-payment-history .rental-payment-source {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    justify-self: end !important;
+  }
+
+  .rental-payment-history li > small {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    justify-self: stretch !important;
+    text-align: left !important;
   }
 }
