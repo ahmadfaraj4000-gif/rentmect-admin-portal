@@ -60,7 +60,7 @@ test('unpaid Stripe quotes are not counted as captured installment money', () =>
 });
 
 test('admin can choose a Stripe installment and see the resulting balance before checkout', () => {
-  assert.match(mainSource, /Amount to collect with Stripe/);
+  assert.match(mainSource, /Payment amount/);
   assert.match(mainSource, /Remaining after Stripe confirms/);
   assert.match(mainSource, /Open Stripe Installment Checkout/);
   assert.match(mainSource, /action: selectedAmountCents \? 'admin_create_installment_checkout'/);
@@ -68,6 +68,14 @@ test('admin can choose a Stripe installment and see the resulting balance before
   assert.match(mainSource, /checkoutWindow\.location\.replace\(data\.url\)/);
   assert.match(mainSource, /onOpenStripe\?\.\(stripeAmountValue\)/);
   assert.match(mainSource, /stripeBalanceAfter < protectedDeposit - 0\.005/);
+});
+
+test('edited payment amount transfers into the external-payment dialog', () => {
+  assert.match(mainSource, /const \[externalPaymentInitialAmount, setExternalPaymentInitialAmount\] = useState\(null\)/);
+  assert.match(mainSource, /initialAmount=\{externalPaymentInitialAmount\}/);
+  assert.match(mainSource, /onRecordExternal\?\.\(stripeAmount\)/);
+  assert.match(mainSource, /function ExternalPaymentModal\(\{ rental, amountDue: requestedAmountDue, initialAmount,/);
+  assert.match(mainSource, /Number\.isFinite\(initialAmountValue\) && initialAmountValue > 0/);
 });
 
 test('Stripe installment checkout retires conflicting links and uses a temporary charge', () => {
