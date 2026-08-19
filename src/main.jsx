@@ -7374,6 +7374,7 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
+  const [externalPaymentInitialAmount, setExternalPaymentInitialAmount] = useState(null);
   const [pickupModal, setPickupModal] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [emergencyStepScope, setEmergencyStepScope] = useState('');
@@ -7663,11 +7664,18 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
       {externalPaymentModalOpen && <ExternalPaymentModal
         rental={rental}
         amountDue={rentalBalanceDue || initialPaymentTotal}
+        initialAmount={externalPaymentInitialAmount}
         balancePayment={rentalBalanceDue > 0}
-        onCancel={() => setExternalPaymentModalOpen(false)}
+        onCancel={() => {
+          setExternalPaymentModalOpen(false);
+          setExternalPaymentInitialAmount(null);
+        }}
         onConfirm={async (payment) => {
           const recorded = await recordTestPayment?.(rental, payment);
-          if (recorded) setExternalPaymentModalOpen(false);
+          if (recorded) {
+            setExternalPaymentModalOpen(false);
+            setExternalPaymentInitialAmount(null);
+          }
           return recorded;
         }}
       />}
@@ -7702,7 +7710,11 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
         onComplete={(note, metadata) => completeAdminRentalStep?.(rental, adminStepScope, note, metadata)}
         onSignAgreement={(signature) => signAdminRentalAgreement?.(rental, signature)}
         onOpenStripe={(amount) => createAdminPaymentLink?.(rental, 'open', amount)}
-        onRecordExternal={() => { setAdminStepScope(''); setExternalPaymentModalOpen(true); }}
+        onRecordExternal={(amount) => {
+          setExternalPaymentInitialAmount(amount);
+          setAdminStepScope('');
+          setExternalPaymentModalOpen(true);
+        }}
         onBypass={() => {
           const scope = adminStepScope;
           setAdminStepScope('');
@@ -8363,7 +8375,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
         <header className="admin-modal-header"><CreditCard size={21}/><div><small>Rental payment</small><strong id="admin-step-title">Payment</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot} • {money(amountDue)} remaining</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={busy} aria-label="Close payment dialog"><X size={18}/></button></header>
         {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
           <label className="modal-field stripe-installment-amount">
-            <span>Amount to collect with Stripe</span>
+            <span>Payment amount</span>
             <div className="money-input-shell"><span>$</span><input type="number" min="0.50" max={Number(amountDue || 0).toFixed(2)} step="0.01" inputMode="decimal" value={stripeAmount} onFocus={(event) => event.target.select()} onChange={(event) => { setStripeAmount(event.target.value); setError(''); }} /></div>
           </label>
           {stripeAmountValue > 0 && <div className="stripe-installment-summary" role="status">
@@ -8374,7 +8386,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
               : 'The payment remains incomplete until the remaining balance is collected.'}</small>}
           </div>}
           <button type="button" className="primary-btn" onClick={startStripePayment} disabled={busy}><CreditCard size={16}/> {busy ? 'Opening Stripe…' : stripeIsPartial ? 'Open Stripe Installment Checkout' : 'Open Stripe Checkout for Full Balance'}</button>
-          <button type="button" className="secondary-btn" onClick={onRecordExternal}><Banknote size={16}/> Record external payment or installment</button>
+          <button type="button" className="secondary-btn" onClick={() => onRecordExternal?.(stripeAmount)}><Banknote size={16}/> Record external payment or installment</button>
           {canBypass && <button type="button" className="emergency-exception-action" onClick={onBypass}><AlertTriangle size={16}/> Emergency: bypass only Payment</button>}
           <small>Stripe credits this booking only after its webhook confirms payment. Each successful installment stays in the payment history, and the next checkout uses the recalculated remainder.</small>
           {error && <small className="form-error" role="alert">{error}</small>}
@@ -9538,7 +9550,7 @@ function RentalPaymentHistory({ payments = [] }) {
   </div>;
 }
 
-function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePayment = false, onCancel, onConfirm }) {
+function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, initialAmount, balancePayment = false, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
   const amountDue = Number(requestedAmountDue ?? (
     Number(rental.rental_total || 0)
@@ -9546,8 +9558,11 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, balancePa
       + Number(rental.tax_amount || 0)
       + Number(rental.security_deposit || 0)
   ));
+  const initialAmountValue = Number(initialAmount);
   const [form, setForm] = useState({
-    amount: amountDue.toFixed(2),
+    amount: Number.isFinite(initialAmountValue) && initialAmountValue > 0
+      ? initialAmountValue.toFixed(2)
+      : amountDue.toFixed(2),
     paymentMethod: '',
     reference: '',
     confirmed: false,
