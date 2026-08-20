@@ -35,3 +35,12 @@ test('the review explains payment, credit, and re-signing outcomes', () => {
   assert.match(mainSource, /customer credit will be recorded without rewriting the original payment/);
   assert.match(mainSource, /The prior signed copy stays preserved/);
 });
+
+test('the edit review presents one updated rental instead of a revised invoice', () => {
+  assert.match(mainSource, /Protected rental update/);
+  assert.match(mainSource, /<small>Updated rental<\/small>/);
+  assert.match(mainSource, /Total rental cost/);
+  assert.match(mainSource, /Rental total change/);
+  assert.doesNotMatch(mainSource, /Revised rental invoice/i);
+  assert.doesNotMatch(mainSource, /Revised agreement/i);
+});

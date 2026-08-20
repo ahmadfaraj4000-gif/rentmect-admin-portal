@@ -23,3 +23,9 @@ test('settings clearly identify templates as internal and non-public', () => {
   assert.match(source, /never included in public prices, checkout, or new-booking totals/);
   assert.match(source, /Apply charge to this rental/);
 });
+
+test('rental cards and payment summaries do not present a booking fee', () => {
+  assert.doesNotMatch(source, /Booking fees?/i);
+  assert.match(source, /refundable deposit/);
+  assert.match(source, /Total rental cost/);
+});

@@ -26,6 +26,26 @@ test('rental cards start minimized and reveal one complete detail workspace on d
   assert.match(styles, /\.rental-card-details-toggle\s*\{[\s\S]*width: 100% !important/);
 });
 
+test('collapsed cards in Needs Action name every specific blocker in the header', () => {
+  assert.match(source, /showNeedsActionSummary=\{rentalFilter === 'needs_action'\}/);
+  assert.match(source, /const needsActionReasons = \[\]/);
+  assert.match(source, /Vehicle overdue since/);
+  assert.match(source, /Inspect the returned vehicle and enter ending mileage/);
+  assert.match(source, /Collect \$\{money\(extensionAttention\.extension_total_amount/);
+  assert.match(source, /Decide extension through/);
+  assert.match(source, /Pickup blockers/);
+  assert.match(source, /Incomplete rental records/);
+  assert.match(source, /open damage or incident/);
+  assert.match(source, /className="rental-card-needs-action-summary"/);
+  assert.match(source, /onClick=\{\(\) => setDetailsExpanded\(true\)\}/);
+});
+
+test('Needs Action summary occupies the center column and stacks responsively', () => {
+  assert.match(styles, /\.rental-card-header\.has-needs-action-summary\s*\{[\s\S]*grid-template-columns: minmax\(250px, 1fr\) minmax\(300px, 440px\) minmax\(300px, 1fr\) !important/);
+  assert.match(styles, /\.rental-card-needs-action-summary\s*\{[\s\S]*text-align: center !important/);
+  assert.match(styles, /@media \(max-width: 1040px\)[\s\S]*\.rental-card-header\.has-needs-action-summary[\s\S]*grid-template-columns: minmax\(0, 1fr\) !important/);
+});
+
 test('rare rental actions use a clearly labelled More Actions menu', () => {
   assert.match(source, /<summary aria-label="More rental actions"><span>More Actions<\/span><ChevronDown/);
   assert.match(source, /More Actions[\s\S]*Global emergency override[\s\S]*Cancel rental/);
