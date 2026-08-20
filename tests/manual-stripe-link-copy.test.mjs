@@ -32,3 +32,12 @@ test('admins can create or reuse charge and extension checkout URLs without send
   assert.match(stripeSource, /return await createRentalChargeCheckout\(req, payload, charge\.user_id\)/);
   assert.match(stripeSource, /return await createExtensionCheckout\(req, payload, extension\.user_id\)/);
 });
+
+test('remaining-balance links reuse an already-open administrator installment', () => {
+  assert.match(mainSource, /action: 'admin_create_installment_checkout'/);
+  assert.match(mainSource, /reuseOpenInstallment: true/);
+  assert.match(stripeSource, /reuseOpenInstallment\?: boolean/);
+  assert.match(stripeSource, /payload\.reuseOpenInstallment && openInstallment/);
+  assert.match(stripeSource, /existingCheckout = await reusableCheckout/);
+  assert.match(stripeSource, /reused: true/);
+});
