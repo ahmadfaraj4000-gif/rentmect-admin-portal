@@ -2177,7 +2177,7 @@ function App() {
     } else if (Number(settlement?.credit_due || 0) > 0) {
       notify(`Rental updated. Customer credit due: ${money(settlement.credit_due)}. The original payment was preserved.`, 'success');
     } else if (amendment?.requires_customer_resign) {
-      notify('Rental updated and fully settled. The customer must sign the revised agreement before pickup.', 'success');
+      notify('Rental updated and fully settled. The customer must sign the updated agreement before pickup.', 'success');
     } else {
       notify('Rental updated, payment reconciled, and calendar availability refreshed.', 'success');
     }
@@ -5081,7 +5081,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
       {rentalFilter === 'archive' && displayedRentals.length < matchingRentals.length && <button type="button" className="secondary-btn rental-archive-load-more" onClick={() => setArchiveVisibleCount((count) => count + ARCHIVE_PAGE_SIZE)}>Load 25 more archived rentals</button>}
     </Panel>
   </>;
@@ -7455,7 +7455,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
@@ -7507,6 +7507,9 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
     && ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress, emergencyScopeSet, completionScopeSet);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
+  const extensionAttention = [...rentalExtensions]
+    .filter((request) => ['pending', 'approved_pending_payment'].includes(String(request.status || '').toLowerCase()))
+    .sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0))[0];
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
   const adminState = getAdminRentalState(rental, effectiveReleaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
@@ -7590,9 +7593,46 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
   const customerCreditDue = Math.max(0, paidAmount - initialPaymentTotal);
   const depositHeldAmount = protectedDeposit || 0;
   const nextAdminStep = progressSteps.find((step) => !step.complete && step.adminAction);
+  const openRentalReports = rentalReports.filter((report) => ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase()));
+  const extensionInsuranceAttention = extensionAttention ? latestInsurancePacket(rentalDocuments, extensionAttention.id) : null;
+  const incompleteSteps = progressSteps.filter((step) => !step.complete && !step.bypassed && step.key !== 'ready');
+  const needsActionReasons = [];
+  if (rental.status === 'return_initiated') {
+    needsActionReasons.push('Inspect the returned vehicle and enter ending mileage');
+  } else if (returnState.overdue) {
+    needsActionReasons.push(`Vehicle overdue since ${formatRentalDate(rental.return_date, rental.return_time)}`);
+  }
+  if (extensionAttention?.status === 'approved_pending_payment') {
+    needsActionReasons.push(`Collect ${money(extensionAttention.extension_total_amount || 0)} extension payment to activate ${formatRentalDate(extensionAttention.requested_return_date, extensionAttention.requested_return_time)}`);
+  } else if (extensionAttention?.status === 'pending') {
+    const insuranceStatus = extensionInsuranceAttention?.status === 'approved'
+      ? 'extension insurance approved'
+      : extensionInsuranceAttention
+        ? `extension insurance ${prettyStatus(extensionInsuranceAttention.status)}`
+        : 'extension insurance missing';
+    needsActionReasons.push(`Decide extension through ${formatRentalDate(extensionAttention.requested_return_date, extensionAttention.requested_return_time)} — ${insuranceStatus}`);
+  }
+  if (openRentalReports.length > 0) {
+    needsActionReasons.push(`${openRentalReports.length} open damage or incident ${openRentalReports.length === 1 ? 'report' : 'reports'}`);
+  }
+  if (activeEmergencyException) {
+    const unresolvedScopes = [...emergencyScopeSet].map(prettyStatus).join(', ');
+    needsActionReasons.push(`Emergency override active${unresolvedScopes ? ` for ${unresolvedScopes}` : ''}`);
+  }
+  if (incompleteSteps.length > 0) {
+    const incompleteLabel = ['active', 'rented', 'overdue', 'return_initiated'].includes(String(rental.status || '').toLowerCase())
+      ? 'Incomplete rental records'
+      : 'Pickup blockers';
+    needsActionReasons.push(`${incompleteLabel}: ${incompleteSteps.map((step) => step.detail).join(', ')}`);
+  }
+  if (outstandingAdditionalCharges > 0.005) {
+    needsActionReasons.push(`Collect or waive ${money(outstandingAdditionalCharges)} in additional charges`);
+  }
+  if (needsActionReasons.length === 0) needsActionReasons.push(adminState.next);
+  const showCollapsedNeedsAction = showNeedsActionSummary && !detailsExpanded;
   const activityNeedsAttention = Boolean(
     activeEmergencyException
-    || rentalReports.length
+    || openRentalReports.length
     || rentalExtensions.some((request) => ['pending', 'approved_pending_payment'].includes(String(request.status || '').toLowerCase()))
   );
 
@@ -7614,7 +7654,7 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
   }
 
   return <article className={`data-row rental-row rental-operations-card ${detailsExpanded ? 'is-expanded' : 'is-collapsed'}`}>
-    <header className="rental-card-header">
+    <header className={`rental-card-header ${showCollapsedNeedsAction ? 'has-needs-action-summary' : ''}`}>
       <div className="rental-card-identity">
         <div className="rental-card-title-line">
           <strong>{rental.vehicles?.name || 'Vehicle'} <span>#{rentalReference || 'Rental'}</span></strong>
@@ -7622,8 +7662,20 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
         </div>
         <span className="rental-card-customer">{customerName}</span>
         <span className="rental-card-schedule">{formatRentalDate(rental.pickup_date, rental.pickup_time)} <ArrowRight size={14}/> {formatRentalDate(rental.return_date, rental.return_time)} <small>{rentalDays} day{rentalDays === 1 ? '' : 's'}</small></span>
-        <span className="rental-card-price-line">{money(rental.rental_total)} rental <i>•</i> {money(rental.service_fee_total || 0)} booking fee <i>•</i> {money(rental.security_deposit)} deposit</span>
+        <span className="rental-card-price-line">{money(rental.rental_total)} rental <i>•</i> {money(rental.security_deposit)} refundable deposit</span>
+        {extensionAttention && !showCollapsedNeedsAction && <span className={`rental-card-extension-flag ${extensionAttention.status}`}>
+          <CalendarClock size={14}/>
+          <strong>{extensionAttention.status === 'approved_pending_payment' ? `Extension payment due: ${money(extensionAttention.extension_total_amount || 0)}` : 'Extension request awaiting review'}</strong>
+          <small>Current return {formatRentalDate(rental.return_date, rental.return_time)} • requested {formatRentalDate(extensionAttention.requested_return_date, extensionAttention.requested_return_time)}</small>
+        </span>}
       </div>
+      {showCollapsedNeedsAction && <button type="button" className="rental-card-needs-action-summary" onClick={() => setDetailsExpanded(true)} aria-label={`Needs action: ${needsActionReasons.join('. ')}`}>
+        <span className="rental-card-needs-action-heading"><AlertTriangle size={15}/> Needs action</span>
+        <span className="rental-card-needs-action-reasons">
+          {needsActionReasons.map((reason) => <strong key={reason}>{reason}</strong>)}
+        </span>
+        <small>Open card for the controls</small>
+      </button>}
       <div className="rental-card-command">
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
         <small>{adminState.next}</small>
@@ -7706,10 +7758,9 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
         <dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before adjustment</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt>Rental</dt><dd>{money(rental.rental_total)}</dd>
-          <dt>Booking fee</dt><dd>{money(rental.service_fee_total || 0)}</dd>
           <dt>Tax</dt><dd>{money(rental.tax_amount || 0)}</dd>
           <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
-          <dt className="total-line">Revised rental invoice</dt><dd className="total-line">{money(initialPaymentTotal)}</dd>
+          <dt className="total-line">Total rental cost</dt><dd className="total-line">{money(initialPaymentTotal)}</dd>
           <dt>Net payments received</dt><dd>−{money(paidAmount)}</dd>
           <dt>Deposit held</dt><dd>{money(depositHeldAmount)}</dd>
           {customerCreditDue > 0 && <><dt className="credit-line">Customer credit due</dt><dd className="credit-line">{money(customerCreditDue)}</dd></>}
@@ -7731,7 +7782,7 @@ function RentalRow({ rental, rentalPayments = [], updateRentalStatus, updateRent
     </div>
 
     <details className="rental-card-activity" open={activityNeedsAttention || undefined}>
-      <summary><span><History size={15}/> Activity, extensions &amp; rental history</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length} items</em><ChevronDown size={16}/></summary>
+      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length} items</em><ChevronDown size={16}/></summary>
       <div className="rental-card-activity-body">
         {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
           {stepCompletions.map((completion) => <button type="button" className="admin-completion-badge" key={completion.id} onClick={() => setAdminStepScope(completion.step_key)}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</button>)}
@@ -8126,19 +8177,19 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
   }
 
   const settlementCopy = preview?.canonical_settlement_status === 'balance_due'
-    ? `Payments already received stay credited. Payment reopens for exactly ${money(preview.balance_due)}—the remaining revised-rental balance.`
+    ? `Payments already received stay credited. Payment reopens for exactly ${money(preview.balance_due)}—the remaining rental balance.`
     : preview?.canonical_settlement_status === 'payment_pending'
       ? `No payment has been captured. The new checkout total will be ${money(preview.balance_due)}.`
       : preview?.canonical_settlement_status === 'credit_due'
         ? `${money(preview.credit_due)} customer credit will be recorded without rewriting the original payment.`
-        : 'The revised invoice is fully settled; no additional customer payment or credit is required.';
+        : 'The updated rental is fully settled; no additional customer payment or credit is required.';
 
   return <div className="admin-modal-backdrop rental-amendment-backdrop" role="presentation">
     <form ref={dialogRef} className="admin-modal rental-amendment-modal" role="dialog" aria-modal="true" aria-label="Edit rental" onSubmit={review}>
       <header className="admin-modal-header rental-amendment-header">
         <CalendarClock size={22}/>
         <div>
-          <small>Guarded rental amendment</small>
+          <small>Protected rental update</small>
           <strong>Edit Existing Rental</strong>
           <span>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'} • {prettyStatus(rental.status)}</span>
         </div>
@@ -8163,7 +8214,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
         </section>
 
         <section className="rental-amendment-section">
-          <div className="rental-amendment-section-heading"><span>2</span><div><strong>Pricing and deposit</strong><small>Age pricing, the saved discount, fees, and Connecticut tax are recalculated server-side.</small></div></div>
+          <div className="rental-amendment-section-heading"><span>2</span><div><strong>Pricing and deposit</strong><small>Age pricing, the saved discount, and Connecticut tax are recalculated server-side.</small></div></div>
           <div className="rental-amendment-grid">
             <label><span>Daily rental rate</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(event) => update('dailyRate', event.target.value)} required /></div></label>
             <label><span>Security deposit</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} disabled={paymentCaptured} /></div>{paymentCaptured && <small>Payment captured: this deposit is locked. Use the protected deposit refund or adjustment workflow instead.</small>}</label>
@@ -8182,19 +8233,19 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
           <div className="rental-amendment-comparison">
             <article><small>Current</small><strong>{preview.old?.vehicle_name}</strong><span>{formatRentalDate(preview.old?.pickup_date, preview.old?.pickup_time)} → {formatRentalDate(preview.old?.return_date, preview.old?.return_time)}</span><em>{money(preview.old?.total)} total</em></article>
             <ArrowRight size={20}/>
-            <article><small>Revised</small><strong>{preview.new?.vehicle_name}</strong><span>{formatRentalDate(preview.new?.pickup_date, preview.new?.pickup_time)} → {formatRentalDate(preview.new?.return_date, preview.new?.return_time)}</span><em>{money(preview.new?.total)} total</em></article>
+            <article><small>Updated rental</small><strong>{preview.new?.vehicle_name}</strong><span>{formatRentalDate(preview.new?.pickup_date, preview.new?.pickup_time)} → {formatRentalDate(preview.new?.return_date, preview.new?.return_time)}</span><em>{money(preview.new?.total)} total</em></article>
           </div>
           <div className="rental-amendment-ledger">
-            <span><small>Invoice change</small><strong>{Number(preview.total_delta || 0) === 0 ? money(0) : `${Number(preview.total_delta || 0) > 0 ? '+' : '−'}${money(Math.abs(Number(preview.total_delta || 0)))}`}</strong></span>
+            <span><small>Rental total change</small><strong>{Number(preview.total_delta || 0) === 0 ? money(0) : `${Number(preview.total_delta || 0) > 0 ? '+' : '−'}${money(Math.abs(Number(preview.total_delta || 0)))}`}</strong></span>
             <span><small>Payments credited</small><strong>{money(preview.net_paid)}</strong></span>
             <span><small>Remaining before edit</small><strong>{money(preview.old_balance_due)}</strong></span>
             <span><small>Remaining after edit</small><strong>{money(preview.balance_due)}</strong></span>
           </div>
           <div className={`rental-amendment-settlement ${Number(preview.balance_due || 0) > 0 ? 'due' : Number(preview.credit_due || 0) > 0 ? 'credit' : ''}`}>
             <ReceiptText size={18}/>
-            <span><strong>{Number(preview.balance_due || 0) > 0 ? `Remaining amount due: ${money(preview.balance_due)}` : Number(preview.credit_due || 0) > 0 ? `Customer credit due: ${money(preview.credit_due)}` : 'Revised invoice is fully settled'}</strong><small>{settlementCopy}</small></span>
+            <span><strong>{Number(preview.balance_due || 0) > 0 ? `Remaining amount due: ${money(preview.balance_due)}` : Number(preview.credit_due || 0) > 0 ? `Customer credit due: ${money(preview.credit_due)}` : 'Updated rental is fully settled'}</strong><small>{settlementCopy}</small></span>
           </div>
-          {preview.requires_customer_resign && <div className="rental-amendment-resign"><FileSignature size={17}/><span><strong>Revised agreement required</strong><small>The prior signed copy stays preserved; pickup controls remain guarded until the customer signs the revised terms.</small></span></div>}
+          {preview.requires_customer_resign && <div className="rental-amendment-resign"><FileSignature size={17}/><span><strong>Updated agreement required</strong><small>The prior signed copy stays preserved; pickup controls remain guarded until the customer signs the updated terms.</small></span></div>}
           {preview.new?.vehicle_published === false && <div className="rental-amendment-warning"><AlertTriangle size={17}/><span>The replacement vehicle is unpublished. Admin assignment is allowed, but customers cannot select it for new bookings.</span></div>}
         </section>}
 
@@ -9142,7 +9193,6 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
         <div><span>Rental before manual discount</span><strong>{money(preview.pre_manual_discount_rental_total)}</strong></div>
         <div className="discount"><span>Rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
         <div><span>Recalculated CT tax</span><strong>{money(preview.tax_amount)}</strong></div>
-        <div><span>Booking fees</span><strong>{money(preview.service_fee_total)}</strong></div>
         <div><span>Refundable deposit (unchanged)</span><strong>{money(preview.security_deposit)}</strong></div>
         <div className="total"><span>New reservation total</span><strong>{money(preview.new_total)}</strong></div>
         <small>Total savings including tax: {money(preview.total_savings)}</small>
@@ -9345,31 +9395,57 @@ function RequirementList({ requirements = [] }) {
 
 function RentalExtensionActions({ requests = [], documents = [], vehicles = [], decideExtension, recordExtensionPayment, cancelApprovedExtension, sendExtensionPaymentLink, openDocument, markDocument }) {
   const activeRequests = requests
-    .filter((request) => ['pending', 'approved_pending_payment', 'activated', 'rejected'].includes(request.status))
+    .filter((request) => ['pending', 'approved_pending_payment', 'activated', 'rejected', 'cancelled'].includes(request.status))
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
 
   if (!activeRequests.length) return null;
 
   return <div className="rental-extension-actions">
-    <strong>Extension / Switch Requests</strong>
+    <strong>Extension history</strong>
     {activeRequests.map((request) => {
       const replacement = vehicles.find((vehicle) => vehicle.id === request.replacement_vehicle_id);
       const isSwitch = request.request_kind === 'switch_car_continuation';
       const extensionInsurance = latestInsurancePacket(documents, request.id);
       const insuranceApproved = extensionInsurance?.status === 'approved';
+      const status = String(request.status || '').toLowerCase();
+      const paymentPaid = status === 'activated' || String(request.payment_status || '').toLowerCase() === 'paid';
+      const amount = Number(request.extension_total_amount || 0);
+      const originalReturn = request.original_return_date
+        ? formatRentalDate(request.original_return_date, request.original_return_time)
+        : 'the previous return time';
+      const requestedReturn = formatRentalDate(request.requested_return_date, request.requested_return_time);
+      const statusLabel = status === 'pending'
+        ? 'Awaiting approval'
+        : status === 'approved_pending_payment'
+          ? 'Approved — payment due'
+          : status === 'activated'
+            ? 'Paid and active'
+            : status === 'cancelled'
+              ? 'Cancelled'
+              : 'Rejected';
+      const paymentSummary = paymentPaid
+        ? `${money(amount)} paid${request.payment_provider ? ` via ${prettyStatus(request.payment_provider)}` : ''}${request.paid_at ? ` on ${new Date(request.paid_at).toLocaleString()}` : ''}`
+        : status === 'approved_pending_payment'
+          ? `${money(amount)} due${request.payment_due_at ? ` by ${new Date(request.payment_due_at).toLocaleString()}` : ''}`
+          : amount > 0
+            ? `${money(amount)} quoted`
+            : 'Price calculated when approved';
       return <div className={`extension-action-row ${request.status}`} key={request.id}>
-        <div>
-          <span>{isSwitch ? 'Switch vehicle continuation' : 'Same vehicle extension'} • {prettyStatus(request.status)}</span>
-          <small>
-            {isSwitch && replacement ? `${replacement.name} • ` : ''}
-            Requested return {formatRentalDate(request.requested_return_date, request.requested_return_time)}
-            {request.extension_total_amount ? ` • ${money(request.extension_total_amount)} due` : ''}
-          </small>
+        <div className="extension-action-copy">
+          <div className="extension-action-title">
+            <span>{isSwitch ? 'Vehicle switch' : 'Same-vehicle extension'}</span>
+            <em className={`extension-status-badge ${status}`}>{statusLabel}</em>
+          </div>
+          {isSwitch && replacement && <small>Replacement vehicle: {replacement.name}</small>}
+          <small className="extension-return-change">Return: {originalReturn} → {requestedReturn}</small>
+          <small className={`extension-payment-summary ${paymentPaid ? 'paid' : status}`}>{paymentSummary}</small>
+          {status === 'approved_pending_payment' && <small className="extension-current-return-note">The current rental still ends {originalReturn}. It changes to {requestedReturn} automatically when payment is recorded.</small>}
+          {status === 'activated' && <small className="extension-current-return-note active">{isSwitch ? 'The replacement rental is active' : 'The rental has been updated'} through {requestedReturn}.</small>}
           {isSwitch && request.status !== 'pending' && <small>{money(request.deposit_carried_amount || 0)} deposit carried{Number(request.deposit_increase_amount || 0) > 0 ? ` • ${money(request.deposit_increase_amount)} increase collected` : ''}{Number(request.deposit_decrease_amount || 0) > 0 ? ` • ${money(request.deposit_decrease_amount)} decrease refunded after original-car inspection` : ''}</small>}
           {request.status === 'approved_pending_payment' && <small>Customer notice: email {request.approval_email_queued_at ? 'queued' : 'not queued'} • SMS {prettyStatus(request.approval_sms_status || 'not due')}</small>}
-          <small className={insuranceApproved ? 'extension-insurance-approved' : 'form-error'}>
+          {(['pending', 'approved_pending_payment'].includes(status) || extensionInsurance) && <small className={insuranceApproved ? 'extension-insurance-approved' : 'form-error'}>
             Extension insurance packet: {prettyStatus(extensionInsurance?.status || 'missing')}{extensionInsurance ? ` • ${extensionInsurance.documents.length} ${extensionInsurance.documents.length === 1 ? 'file' : 'files'}` : ''}
-          </small>
+          </small>}
           {request.customer_note && <small>Note: {request.customer_note}</small>}
         </div>
         <div className="mini-actions">
@@ -9377,9 +9453,9 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
           {extensionInsurance && extensionInsurance.status !== 'approved' && markDocument && <button type="button" className="approve" onClick={() => markDocument(extensionInsurance.representative.id, 'approved')}><CheckCircle2 size={14}/> Approve Packet</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance packet first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Notify Customer</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="reject" onClick={() => decideExtension(request.id, false)}><XCircle size={14}/> Reject</button>}
-          {request.status === 'approved_pending_payment' && recordExtensionPayment && <button type="button" className="approve" onClick={() => recordExtensionPayment(request.id)}><CreditCard size={14}/> Record Payment</button>}
-          {request.status === 'approved_pending_payment' && sendExtensionPaymentLink && <button type="button" onClick={() => sendExtensionPaymentLink(request)}><Send size={14}/> Send Payment Link</button>}
-          {request.status === 'approved_pending_payment' && cancelApprovedExtension && <button type="button" className="reject" onClick={() => cancelApprovedExtension(request.id)}><XCircle size={14}/> Cancel Hold</button>}
+          {request.status === 'approved_pending_payment' && recordExtensionPayment && <button type="button" className="approve" onClick={() => recordExtensionPayment(request.id)}><CreditCard size={14}/> Record Payment &amp; Activate</button>}
+          {request.status === 'approved_pending_payment' && sendExtensionPaymentLink && <button type="button" onClick={() => sendExtensionPaymentLink(request)}><Send size={14}/> Send Extension Payment Link</button>}
+          {request.status === 'approved_pending_payment' && cancelApprovedExtension && <button type="button" className="reject" onClick={() => cancelApprovedExtension(request.id)}><XCircle size={14}/> Cancel Extension Hold</button>}
         </div>
       </div>;
     })}
