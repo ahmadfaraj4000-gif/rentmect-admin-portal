@@ -15,6 +15,7 @@ type CheckoutPayload = {
   extensionRequestId?: string;
   chargeId?: string;
   amountCents?: number;
+  reuseOpenInstallment?: boolean;
   refundRequestId?: string;
   successUrl?: string;
   cancelUrl?: string;
@@ -568,11 +569,38 @@ async function createAdminStripeInstallmentCheckout(req: Request, payload: Check
 
   const { data: openCharges, error: openChargesError } = await adminClient!
     .from("rental_charge_items")
-    .select("id, charge_type, status, stripe_checkout_session_id, stripe_payment_intent_id")
+    .select("id, charge_type, status, total_amount, stripe_checkout_session_id, stripe_payment_intent_id")
     .eq("rental_id", rental.id)
     .in("charge_type", ["rental_amendment", "rental_installment"])
     .in("status", ["checkout_open"]);
   if (openChargesError) throw openChargesError;
+  const openInstallment = (openCharges || []).find((charge) => charge.charge_type === "rental_installment");
+  if (payload.reuseOpenInstallment && openInstallment) {
+    if (!String(openInstallment.stripe_checkout_session_id || "").startsWith("cs_")) {
+      throw new HttpError("The existing Stripe installment is still starting. Refresh in a moment.", 409);
+    }
+    const openAmountCents = cents(Number(openInstallment.total_amount || 0));
+    const existingCheckout = await reusableCheckout(
+      openInstallment.stripe_checkout_session_id,
+      "charge",
+      openInstallment.id,
+      openAmountCents,
+    );
+    if (existingCheckout.url) {
+      return {
+        url: existingCheckout.url,
+        sessionId: existingCheckout.sessionId,
+        targetType: "charge",
+        targetId: openInstallment.id,
+        rentalId: rental.id,
+        installment: openAmountCents < balanceDueCents,
+        installmentAmount: openAmountCents / 100,
+        balanceBeforePayment: balanceDueCents / 100,
+        balanceAfterPayment: Math.max(0, balanceDueCents - openAmountCents) / 100,
+        reused: true,
+      };
+    }
+  }
   for (const charge of openCharges || []) {
     if (!charge.stripe_checkout_session_id && !charge.stripe_payment_intent_id) {
       throw new HttpError("Another Stripe payment attempt is starting. Refresh before choosing a new amount.", 409);

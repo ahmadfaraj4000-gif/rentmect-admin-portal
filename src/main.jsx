@@ -3691,16 +3691,23 @@ function App() {
   async function createManualStripePaymentLink({ rental, charge = null, extension = null, rentalBalance = false }) {
     if (!requireStaffPermission('payment.collect', 'create Stripe payment links')) return null;
     if (!rental?.id) return null;
-    if (rentalBalance && !charge?.id) {
-      const amount = Number(charge?.total_amount || 0);
-      return await createAdminPaymentLink(rental, 'manual', amount > 0 ? amount : null);
-    }
     const successUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_success`;
     const cancelUrl = `${CLIENT_PORTAL_URL}/?booking=${encodeURIComponent(rental.id)}&payment=stripe_cancelled`;
-    const body = extension?.id
-      ? { action: 'admin_create_extension_checkout', extensionRequestId: extension.id }
-      : { action: 'admin_create_charge_checkout', chargeId: charge?.id };
-    if (!body.extensionRequestId && !body.chargeId) return null;
+    const rentalBalanceAmountCents = Math.round(Number(charge?.total_amount || 0) * 100);
+    const body = rentalBalance
+      ? {
+          action: 'admin_create_installment_checkout',
+          rentalId: rental.id,
+          amountCents: rentalBalanceAmountCents,
+          reuseOpenInstallment: true,
+        }
+      : extension?.id
+        ? { action: 'admin_create_extension_checkout', extensionRequestId: extension.id }
+        : { action: 'admin_create_charge_checkout', chargeId: charge?.id };
+    if (rentalBalance && rentalBalanceAmountCents < 50) {
+      throw new Error('The remaining rental balance is too small for Stripe Checkout.');
+    }
+    if (!body.rentalId && !body.extensionRequestId && !body.chargeId) return null;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: { ...body, successUrl, cancelUrl },
     });
