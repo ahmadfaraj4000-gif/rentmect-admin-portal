@@ -6195,24 +6195,26 @@ input[type="radio"] {
 }
 
 .rental-card-header.has-needs-action-summary {
-  grid-template-columns: minmax(250px, 1fr) minmax(300px, 440px) minmax(300px, 1fr) !important;
-  align-items: center !important;
-  gap: 18px !important;
+  grid-template-columns: minmax(250px, 1fr) minmax(220px, 360px) minmax(300px, 1fr) !important;
+  align-items: start !important;
+  gap: 12px !important;
 }
 
 .rental-card-needs-action-summary {
   appearance: none !important;
-  display: grid !important;
-  justify-items: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   gap: 6px !important;
   width: 100% !important;
   min-width: 0 !important;
-  padding: 10px 13px !important;
-  border: 2px solid #d7662b !important;
-  border-radius: 10px !important;
+  align-self: start !important;
+  padding: 5px 8px !important;
+  border: 1px solid #d98a61 !important;
+  border-radius: 8px !important;
   background: #fff4eb !important;
   color: #672b0d !important;
-  box-shadow: 0 5px 14px rgba(151, 67, 23, .12) !important;
+  box-shadow: none !important;
   cursor: pointer !important;
   text-align: center !important;
 }
@@ -6231,37 +6233,38 @@ input[type="radio"] {
 .rental-card-needs-action-heading {
   display: flex !important;
   align-items: center !important;
-  gap: 6px !important;
+  flex: 0 0 auto !important;
+  gap: 4px !important;
   color: #a43c0e !important;
-  font-size: 11px !important;
+  font-size: 9px !important;
   font-weight: 950 !important;
-  letter-spacing: .08em !important;
+  letter-spacing: .06em !important;
   text-transform: uppercase !important;
 }
 
 .rental-card-needs-action-reasons {
-  display: grid !important;
-  gap: 3px !important;
+  display: block !important;
   min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .rental-card-needs-action-reasons strong {
   color: #672b0d !important;
-  font-size: 12px !important;
+  font-size: 10.5px !important;
   font-weight: 850 !important;
-  line-height: 1.35 !important;
-  overflow-wrap: anywhere !important;
-}
-
-.rental-card-needs-action-reasons strong + strong {
-  padding-top: 4px !important;
-  border-top: 1px solid rgba(164, 60, 14, .16) !important;
+  line-height: 1.2 !important;
 }
 
 .rental-card-needs-action-summary > small {
+  flex: 0 0 auto !important;
+  padding: 1px 4px !important;
+  border-radius: 999px !important;
+  background: rgba(164, 60, 14, .1) !important;
   color: #8d4f30 !important;
-  font-size: 10px !important;
-  font-weight: 750 !important;
+  font-size: 8px !important;
+  font-weight: 850 !important;
 }
 
 .rental-card-identity,
@@ -7095,6 +7098,20 @@ input[type="radio"] {
 .extension-current-return-note.active { background: #eaf8f0 !important; color: #17613a !important; }
 .rental-card-activity-body .extension-action-row > .mini-actions { justify-content: flex-end !important; max-width: 430px !important; }
 
+.extension-insurance-modal { max-width: 620px !important; }
+.extension-insurance-existing {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 9px !important;
+  padding: 10px 12px !important;
+  border: 1px solid #d8dfdb !important;
+  border-radius: 9px !important;
+  background: #f7faf8 !important;
+}
+.extension-insurance-existing > svg { flex: 0 0 auto !important; margin-top: 2px !important; color: #426d58 !important; }
+.extension-insurance-existing > span { display: grid !important; gap: 3px !important; }
+.extension-insurance-existing small { color: #5f6d66 !important; line-height: 1.4 !important; }
+
 @media (max-width: 1040px) {
   .rental-card-header,
   .rental-card-header.has-needs-action-summary {
@@ -7102,7 +7119,7 @@ input[type="radio"] {
     gap: 12px !important;
   }
 
-  .rental-card-needs-action-summary { justify-items: start !important; text-align: left !important; }
+  .rental-card-needs-action-summary { justify-content: flex-start !important; text-align: left !important; }
 
   .rental-card-command {
     justify-items: start !important;
