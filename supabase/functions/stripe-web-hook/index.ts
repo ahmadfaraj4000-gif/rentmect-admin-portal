@@ -9,7 +9,7 @@ const corsHeaders = {
 };
 
 type CheckoutPayload = {
-  action?: "create_checkout" | "confirm_checkout" | "admin_create_checkout" | "admin_create_installment_checkout" | "admin_charge_saved_card" | "admin_record_external_charge" | "admin_apply_manual_discount" | "admin_apply_rental_amendment" | "admin_record_external_balance" | "refund_rental_payment" | "release_deposit" | "release_due_deposits" | "create_identity_verification" | "get_identity_verification";
+  action?: "create_checkout" | "confirm_checkout" | "admin_create_checkout" | "admin_create_installment_checkout" | "admin_create_charge_checkout" | "admin_create_extension_checkout" | "admin_charge_saved_card" | "admin_record_external_charge" | "admin_apply_manual_discount" | "admin_apply_rental_amendment" | "admin_record_external_balance" | "refund_rental_payment" | "release_deposit" | "release_due_deposits" | "create_identity_verification" | "get_identity_verification";
   targetType?: "rental" | "extension" | "charge";
   rentalId?: string;
   extensionRequestId?: string;
@@ -1882,6 +1882,20 @@ async function createRentalChargeCheckout(req: Request, payload: CheckoutPayload
   };
 }
 
+async function createAdminRentalChargeCheckout(req: Request, payload: CheckoutPayload) {
+  await requireAdmin(req, "payment.collect");
+  if (!payload.chargeId) throw new HttpError("Rental charge id is required.", 400);
+  const { data: charge, error } = await adminClient!
+    .from("rental_charge_items")
+    .select("id, user_id")
+    .eq("id", payload.chargeId)
+    .single();
+  if (error || !charge?.user_id) {
+    throw new HttpError(error?.message || "Rental charge not found.", 404);
+  }
+  return await createRentalChargeCheckout(req, payload, charge.user_id);
+}
+
 async function createExtensionCheckout(req: Request, payload: CheckoutPayload, userId: string) {
   assertPaymentCreationEnabled();
   if (!payload.extensionRequestId) throw new Error("Extension request id is required.");
@@ -1967,6 +1981,20 @@ async function createExtensionCheckout(req: Request, payload: CheckoutPayload, u
     .eq("id", request.id);
 
   return { url: session.url, sessionId: session.id };
+}
+
+async function createAdminExtensionCheckout(req: Request, payload: CheckoutPayload) {
+  await requireAdmin(req, "payment.collect");
+  if (!payload.extensionRequestId) throw new HttpError("Extension request id is required.", 400);
+  const { data: extension, error } = await adminClient!
+    .from("rental_extension_requests")
+    .select("id, user_id")
+    .eq("id", payload.extensionRequestId)
+    .single();
+  if (error || !extension?.user_id) {
+    throw new HttpError(error?.message || "Extension request not found.", 404);
+  }
+  return await createExtensionCheckout(req, payload, extension.user_id);
 }
 
 async function recordAdminSavedCardCharge(
@@ -2537,6 +2565,14 @@ async function handleApiAction(req: Request) {
 
   if (payload.action === "admin_create_installment_checkout") {
     return json(await createAdminStripeInstallmentCheckout(req, payload));
+  }
+
+  if (payload.action === "admin_create_charge_checkout") {
+    return json(await createAdminRentalChargeCheckout(req, payload));
+  }
+
+  if (payload.action === "admin_create_extension_checkout") {
+    return json(await createAdminExtensionCheckout(req, payload));
   }
 
   if (payload.action === "admin_create_checkout") {
