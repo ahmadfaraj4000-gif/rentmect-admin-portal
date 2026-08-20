@@ -3567,7 +3567,7 @@ function App() {
       if (error) throw error;
       setDocuments((current) => [...(data || []), ...current]);
       notify(documentType === 'insurance'
-        ? `Insurance packet uploaded with ${rows.length} ${rows.length === 1 ? 'file' : 'files'}. Approve the packet once after review.`
+        ? `${extensionRequestId ? 'Extension insurance' : 'Insurance'} packet uploaded with ${rows.length} ${rows.length === 1 ? 'file' : 'files'}. Approve the packet once after review.${extensionRequestId ? ' Any older extension packet remains in the document history.' : ''}`
         : 'Driver License uploaded for review.', 'success');
       return true;
     } catch (error) {
@@ -7471,6 +7471,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const [contactModal, setContactModal] = useState(null);
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
+  const [extensionInsuranceRequestId, setExtensionInsuranceRequestId] = useState('');
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -7507,6 +7508,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     && ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(rental.status);
   const progressSteps = getRentalProgressSteps(rental, documentsForProgress, emergencyScopeSet, completionScopeSet);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
+  const extensionInsuranceRequest = rentalExtensions.find((request) => request.id === extensionInsuranceRequestId);
   const extensionAttention = [...rentalExtensions]
     .filter((request) => ['pending', 'approved_pending_payment'].includes(String(request.status || '').toLowerCase()))
     .sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0))[0];
@@ -7669,12 +7671,12 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           <small>Current return {formatRentalDate(rental.return_date, rental.return_time)} • requested {formatRentalDate(extensionAttention.requested_return_date, extensionAttention.requested_return_time)}</small>
         </span>}
       </div>
-      {showCollapsedNeedsAction && <button type="button" className="rental-card-needs-action-summary" onClick={() => setDetailsExpanded(true)} aria-label={`Needs action: ${needsActionReasons.join('. ')}`}>
-        <span className="rental-card-needs-action-heading"><AlertTriangle size={15}/> Needs action</span>
+      {showCollapsedNeedsAction && <button type="button" className="rental-card-needs-action-summary" onClick={() => setDetailsExpanded(true)} aria-label={`Needs action: ${needsActionReasons.join('. ')}`} title={needsActionReasons.join(' • ')}>
+        <span className="rental-card-needs-action-heading"><AlertTriangle size={13}/> Needs action</span>
         <span className="rental-card-needs-action-reasons">
-          {needsActionReasons.map((reason) => <strong key={reason}>{reason}</strong>)}
+          <strong>{needsActionReasons[0]}</strong>
         </span>
-        <small>Open card for the controls</small>
+        {needsActionReasons.length > 1 && <small>+{needsActionReasons.length - 1} more</small>}
       </button>}
       <div className="rental-card-command">
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
@@ -7748,7 +7750,10 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
             openDocument={openDocument}
             markDocument={markDocument}
             deleteDocument={deleteDocument}
-            onManageDocument={(document) => setAdminStepScope(document.document_type)}
+            onManageDocument={uploadAdminBookingDocument ? (document) => {
+              if (document.extension_request_id) setExtensionInsuranceRequestId(document.extension_request_id);
+              else setAdminStepScope(document.document_type);
+            } : null}
           />
         </section>
       </div>
@@ -7789,7 +7794,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
         </div>}
         {activeEmergencyException && <EmergencyExceptionBanner exception={activeEmergencyException} checklist={releaseChecklist} onResolve={(scope) => resolveEmergencyExceptionScope?.(activeEmergencyException.id, scope)} />}
-        <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} />
+        <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} onManageInsurance={uploadAdminBookingDocument ? (request) => setExtensionInsuranceRequestId(request.id) : null} />
         {rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
         {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && <small>No extension, incident, or admin-completion activity is attached to this rental.</small>}
       </div>
@@ -7856,6 +7861,13 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           setAdminStepScope('');
           setEmergencyStepScope(scope);
         }}
+      />}
+      {extensionInsuranceRequest && <ExtensionInsuranceDocumentModal
+        rental={rental}
+        request={extensionInsuranceRequest}
+        existingPacket={latestInsurancePacket(rentalDocuments, extensionInsuranceRequest.id)}
+        onCancel={() => setExtensionInsuranceRequestId('')}
+        onUpload={(items) => uploadAdminBookingDocument?.(rental, 'insurance', items, { extensionRequestId: extensionInsuranceRequest.id })}
       />}
       {emergencyStepScope && <EmergencyStepBypassModal
         rental={rental}
@@ -9393,7 +9405,7 @@ function RequirementList({ requirements = [] }) {
   </div>;
 }
 
-function RentalExtensionActions({ requests = [], documents = [], vehicles = [], decideExtension, recordExtensionPayment, cancelApprovedExtension, sendExtensionPaymentLink, openDocument, markDocument }) {
+function RentalExtensionActions({ requests = [], documents = [], vehicles = [], decideExtension, recordExtensionPayment, cancelApprovedExtension, sendExtensionPaymentLink, openDocument, markDocument, onManageInsurance }) {
   const activeRequests = requests
     .filter((request) => ['pending', 'approved_pending_payment', 'activated', 'rejected', 'cancelled'].includes(request.status))
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
@@ -9449,6 +9461,7 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
           {request.customer_note && <small>Note: {request.customer_note}</small>}
         </div>
         <div className="mini-actions">
+          {onManageInsurance && ['pending', 'approved_pending_payment', 'activated'].includes(status) && <button type="button" className={!extensionInsurance ? 'approve' : ''} onClick={() => onManageInsurance(request)}><Upload size={14}/> {extensionInsurance ? 'Replace Extension Insurance' : 'Add Extension Insurance'}</button>}
           {extensionInsurance?.documents.map((document) => <button type="button" key={document.id} onClick={() => openDocument?.(document)}><FileText size={14}/> Open {insuranceCoverageLabel(document.insurance_coverage_type)}</button>)}
           {extensionInsurance && extensionInsurance.status !== 'approved' && markDocument && <button type="button" className="approve" onClick={() => markDocument(extensionInsurance.representative.id, 'approved')}><CheckCircle2 size={14}/> Approve Packet</button>}
           {request.status === 'pending' && decideExtension && <button type="button" className="approve" disabled={!insuranceApproved} title={!insuranceApproved ? 'Approve the new extension insurance packet first.' : undefined} onClick={() => decideExtension(request.id, true)}><CheckCircle2 size={14}/> Approve &amp; Notify Customer</button>}
@@ -9460,6 +9473,41 @@ function RentalExtensionActions({ requests = [], documents = [], vehicles = [], 
       </div>;
     })}
   </div>;
+}
+
+function ExtensionInsuranceDocumentModal({ rental, request, existingPacket, onCancel, onUpload }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const requestedReturn = formatRentalDate(request.requested_return_date, request.requested_return_time);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    if (!insurancePacketItemsComplete(items)) {
+      setError('Choose one combined policy file or include both liability and collision files.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await onUpload?.(items);
+      if (saved) onCancel();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return createPortal(<div className="admin-modal-backdrop" role="presentation">
+    <form ref={dialogRef} className="admin-modal extension-insurance-modal" role="dialog" aria-modal="true" aria-labelledby="extension-insurance-title" onSubmit={submit}>
+      <header className="admin-modal-header"><ShieldCheck size={21}/><div><small>Extension documents</small><strong id="extension-insurance-title">{existingPacket ? 'Replace Extension Insurance' : 'Add Extension Insurance'}</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'} • coverage through {requestedReturn}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={busy} aria-label="Close extension insurance dialog"><X size={18}/></button></header>
+      {existingPacket && <div className="extension-insurance-existing"><FileText size={17}/><span><strong>Current packet: {prettyStatus(existingPacket.status)}</strong><small>{existingPacket.documents.length} {existingPacket.documents.length === 1 ? 'file' : 'files'} saved. Uploading a replacement keeps these files in history and makes the new packet the one requiring review.</small></span></div>}
+      {!existingPacket && <p className="muted">Upload the policy covering the extended rental dates. The extension cannot be approved until this packet is reviewed and approved.</p>}
+      <InsurancePacketPicker items={items} setItems={setItems} disabled={busy}/>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button><button type="submit" className="approve" disabled={busy || !insurancePacketItemsComplete(items)}><Upload size={15}/> {busy ? 'Uploading…' : existingPacket ? 'Upload Replacement Packet' : 'Upload Extension Insurance'}</button></div>
+    </form>
+  </div>, globalThis.document.body);
 }
 
 function DamageReportList({ reports = [] }) {
@@ -10005,7 +10053,7 @@ function DocumentMiniList({ documents = [], openDocument, markDocument, deleteDo
         <details className="document-overflow-menu">
           <summary aria-label={`More actions for ${docLabel(document.document_type)}`}>•••</summary>
           <div>
-            {onManageDocument && !document.extension_request_id && <button type="button" onClick={() => onManageDocument(document)}><Upload size={14}/> Replace or manage</button>}
+            {onManageDocument && <button type="button" onClick={() => onManageDocument(document)}><Upload size={14}/> {document.extension_request_id ? 'Replace extension insurance' : 'Replace or manage'}</button>}
             {markDocument && document.status !== 'approved' && <button type="button" className="approve" onClick={() => markDocument(document.id, 'approved')}><CheckCircle2 size={14}/> Approve</button>}
             {markDocument && document.status !== 'rejected' && <button type="button" className="reject" onClick={() => markDocument(document.id, 'rejected')}><XCircle size={14}/> Reject</button>}
             {deleteDocument && <button type="button" className="reject" onClick={() => deleteDocument(document)}><Trash2 size={14}/> Delete</button>}

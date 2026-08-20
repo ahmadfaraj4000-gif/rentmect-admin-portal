@@ -26,7 +26,7 @@ test('rental cards start minimized and reveal one complete detail workspace on d
   assert.match(styles, /\.rental-card-details-toggle\s*\{[\s\S]*width: 100% !important/);
 });
 
-test('collapsed cards in Needs Action name every specific blocker in the header', () => {
+test('collapsed Needs Action cards retain every blocker while leading with the first action', () => {
   assert.match(source, /showNeedsActionSummary=\{rentalFilter === 'needs_action'\}/);
   assert.match(source, /const needsActionReasons = \[\]/);
   assert.match(source, /Vehicle overdue since/);
@@ -37,12 +37,16 @@ test('collapsed cards in Needs Action name every specific blocker in the header'
   assert.match(source, /Incomplete rental records/);
   assert.match(source, /open damage or incident/);
   assert.match(source, /className="rental-card-needs-action-summary"/);
+  assert.match(source, /title=\{needsActionReasons\.join\(' • '\)\}/);
   assert.match(source, /onClick=\{\(\) => setDetailsExpanded\(true\)\}/);
 });
 
-test('Needs Action summary occupies the center column and stacks responsively', () => {
-  assert.match(styles, /\.rental-card-header\.has-needs-action-summary\s*\{[\s\S]*grid-template-columns: minmax\(250px, 1fr\) minmax\(300px, 440px\) minmax\(300px, 1fr\) !important/);
-  assert.match(styles, /\.rental-card-needs-action-summary\s*\{[\s\S]*text-align: center !important/);
+test('Needs Action summary is a compact center pill and stacks responsively', () => {
+  assert.match(source, /<strong>\{needsActionReasons\[0\]\}<\/strong>/);
+  assert.match(source, /needsActionReasons\.length > 1[\s\S]*\+\{needsActionReasons\.length - 1\} more/);
+  assert.match(styles, /\.rental-card-header\.has-needs-action-summary\s*\{[\s\S]*grid-template-columns: minmax\(250px, 1fr\) minmax\(220px, 360px\) minmax\(300px, 1fr\) !important;[\s\S]*align-items: start !important/);
+  assert.match(styles, /\.rental-card-needs-action-summary\s*\{[\s\S]*display: flex !important;[\s\S]*align-self: start !important;[\s\S]*padding: 5px 8px !important;[\s\S]*border: 1px solid/);
+  assert.match(styles, /\.rental-card-needs-action-reasons\s*\{[\s\S]*white-space: nowrap !important/);
   assert.match(styles, /@media \(max-width: 1040px\)[\s\S]*\.rental-card-header\.has-needs-action-summary[\s\S]*grid-template-columns: minmax\(0, 1fr\) !important/);
 });
 
