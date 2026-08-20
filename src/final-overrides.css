@@ -8169,6 +8169,121 @@ input[type="radio"] {
   background: #08552f !important;
 }
 
+.customer-contact-modal .customer-contact-body {
+  max-height: calc(100dvh - 190px) !important;
+  overflow-y: auto !important;
+}
+
+.customer-contact-modal .stripe-link-copy-panel {
+  display: grid !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+  padding: 13px !important;
+  border: 1px solid #b9d8c6 !important;
+  border-radius: 9px !important;
+  background: #f1faf5 !important;
+}
+
+.customer-contact-modal .stripe-link-copy-panel.has-error {
+  border-color: #e4b4ae !important;
+  background: #fff6f5 !important;
+}
+
+.customer-contact-modal .stripe-link-copy-heading,
+.customer-contact-modal .stripe-link-copy-heading > div,
+.customer-contact-modal .stripe-link-copy-row,
+.customer-contact-modal .stripe-link-copy-error {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  min-width: 0 !important;
+}
+
+.customer-contact-modal .stripe-link-copy-heading {
+  justify-content: space-between !important;
+}
+
+.customer-contact-modal .stripe-link-copy-heading > div {
+  color: #0b6b3a !important;
+}
+
+.customer-contact-modal .stripe-link-copy-heading span {
+  display: grid !important;
+  gap: 2px !important;
+}
+
+.customer-contact-modal .stripe-link-copy-heading strong {
+  color: #173d2b !important;
+  font-size: 13px !important;
+}
+
+.customer-contact-modal .stripe-link-copy-heading small,
+.customer-contact-modal .stripe-link-copy-heading em {
+  color: #60746a !important;
+  font-size: 11px !important;
+  font-style: normal !important;
+}
+
+.customer-contact-modal .stripe-link-copy-row input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  height: 38px !important;
+  padding: 0 10px !important;
+  border: 1px solid #c7d4cd !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #263b31 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-size: 11px !important;
+}
+
+.customer-contact-modal .stripe-link-copy-row button,
+.customer-contact-modal .stripe-link-copy-row a,
+.customer-contact-modal .stripe-link-copy-error button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  flex: 0 0 auto !important;
+  min-height: 38px !important;
+  padding: 0 11px !important;
+  border: 1px solid #0b6b3a !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #0b6b3a !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-decoration: none !important;
+}
+
+.customer-contact-modal .stripe-link-copy-row .stripe-link-copy-button {
+  background: #0b6b3a !important;
+  color: #fff !important;
+}
+
+.customer-contact-modal .stripe-link-copy-error {
+  justify-content: space-between !important;
+  color: #9d2924 !important;
+  font-size: 12px !important;
+}
+
+@media (max-width: 620px) {
+  .customer-contact-modal .stripe-link-copy-heading,
+  .customer-contact-modal .stripe-link-copy-row {
+    align-items: stretch !important;
+    flex-wrap: wrap !important;
+  }
+
+  .customer-contact-modal .stripe-link-copy-row input {
+    flex-basis: 100% !important;
+  }
+
+  .customer-contact-modal .stripe-link-copy-row button,
+  .customer-contact-modal .stripe-link-copy-row a {
+    flex: 1 1 calc(50% - 5px) !important;
+  }
+}
+
 /* Automatic charges live inside the narrower financial column on compact
    rental cards. Reflow that section to its card width instead of inheriting
    the full-page four-column minimums. This is layout-only: all billing actions
