@@ -2858,7 +2858,7 @@ function App() {
       ...data,
       minimum_rental_hours: Number(data?.minimum_rental_days || minimumDays) * 24,
     });
-    notify('Booking rules saved. New quotes and bookings now use these limits.', 'success');
+    notify('Booking rules saved globally. Existing automatic staff-booking deadlines were recalculated; individual deadline exceptions and customer checkout holds were preserved.', 'success');
   }
 
   function resetPromotionForm() {
@@ -7096,7 +7096,7 @@ function SettingsTab({
             <input type="number" min="5" max="10080" step="5" value={bookingPolicy.admin_booking_payment_deadline_minutes ?? 60} onChange={(event) => setBookingPolicy((current) => ({ ...current, admin_booking_payment_deadline_minutes: event.target.value }))} />
             <strong>minutes</strong>
           </div>
-          <small>New unpaid bookings created by staff auto-cancel after this many minutes. You can still change an individual open booking’s deadline.</small>
+          <small>Applies globally to new staff-created unpaid bookings and recalculates every existing open staff booking still using an automatic deadline. Individual deadline exceptions and customer website checkout holds stay unchanged.</small>
         </label>
         <div className="form-row">
           <label>
@@ -7114,7 +7114,7 @@ function SettingsTab({
         </div>
         <div className="booking-policy-preview">
           <CheckCircle2 size={18}/>
-          <span><strong>{Number(bookingPolicy.minimum_rental_days || 1) * 24}-hour minimum.</strong> {advanceNoticeMinutes === 0 ? 'Customers can choose the next available same-day pickup time.' : `Pickup must be booked ${formatAdminDuration(advanceNoticeMinutes)} ahead.`}</span>
+          <span><strong>{Number(bookingPolicy.minimum_rental_days || 1) * 24}-hour minimum.</strong> Staff-created unpaid bookings use a global {formatAdminDuration(bookingPolicy.admin_booking_payment_deadline_minutes || 60)} payment deadline. {advanceNoticeMinutes === 0 ? 'Customers can choose the next available same-day pickup time.' : `Pickup must be booked ${formatAdminDuration(advanceNoticeMinutes)} ahead.`}</span>
         </div>
         <button className="primary-btn" disabled={bookingPolicySaving}>{bookingPolicySaving ? 'Saving…' : 'Save Booking Rules'}</button>
       </form>
