@@ -4279,7 +4279,7 @@ function PaymentsTab({ paymentEvents, paymentFilter, setPaymentFilter, paymentTy
   </>;
 }
 
-function TollsTab({ rentals = [], notify }) {
+function TollsTab({ notify }) {
   const [transactions, setTransactions] = useState([]);
   const [syncRuns, setSyncRuns] = useState([]);
   const [mappings, setMappings] = useState([]);
@@ -4288,8 +4288,7 @@ function TollsTab({ rentals = [], notify }) {
   const [busy, setBusy] = useState('');
   const [loadError, setLoadError] = useState('');
   const [connection, setConnection] = useState(null);
-  const [statusFilter, setStatusFilter] = useState('open');
-  const [matchSelections, setMatchSelections] = useState({});
+  const [statusFilter, setStatusFilter] = useState('all');
   const [dateWindow, setDateWindow] = useState({
     fromDate: adminBookingDateOffset(-30),
     toDate: adminBookingDateOffset(0),
@@ -4329,7 +4328,13 @@ function TollsTab({ rentals = [], notify }) {
     ]);
     const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error].filter(Boolean);
     setLoadError(errors.map((error) => error.message).join(' '));
-    if (transactionsRes.data) setTransactions(transactionsRes.data);
+    if (transactionsRes.data) {
+      setTransactions(transactionsRes.data.filter((transaction) =>
+        transaction.vehicle_id &&
+        transaction.rental_id &&
+        String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'
+      ));
+    }
     if (runsRes.data) setSyncRuns(runsRes.data);
     if (mappingsRes.data) setMappings(mappingsRes.data);
     if (fleetRes.data) {
@@ -4419,50 +4424,6 @@ function TollsTab({ rentals = [], notify }) {
     await loadTollspotData({ silent: true });
   }
 
-  async function matchTransaction(transaction) {
-    const rentalId = matchSelections[transaction.id];
-    if (!rentalId) return notify('Choose the rental that was using this vehicle.');
-    setBusy(`match:${transaction.id}`);
-    const { error } = await supabase.rpc('admin_match_tollspot_transaction', {
-      p_transaction_id: transaction.id,
-      p_rental_id: rentalId,
-    });
-    setBusy('');
-    if (error) return notify(error.message);
-    notify('TollSpot charge matched to the rental.', 'success');
-    await loadTollspotData({ silent: true });
-  }
-
-  async function createTollCharge(transaction) {
-    const confirmed = window.confirm(
-      `Create a pending ${money(transaction.total_amount)} customer charge for TollSpot transaction ${transaction.tollspot_transaction_id}? This does not charge the saved card.`
-    );
-    if (!confirmed) return;
-    setBusy(`charge:${transaction.id}`);
-    const { error } = await supabase.rpc('admin_create_tollspot_charge', {
-      p_transaction_id: transaction.id,
-      p_taxable: false,
-    });
-    setBusy('');
-    if (error) return notify(error.message);
-    notify('Pending toll charge created. The customer can pay through the secure portal.', 'success');
-    await loadTollspotData({ silent: true });
-  }
-
-  async function ignoreTransaction(transaction) {
-    const reason = window.prompt('Why should this TollSpot transaction be ignored? Enter at least 8 characters.');
-    if (!reason) return;
-    setBusy(`ignore:${transaction.id}`);
-    const { error } = await supabase.rpc('admin_ignore_tollspot_transaction', {
-      p_transaction_id: transaction.id,
-      p_reason: reason,
-    });
-    setBusy('');
-    if (error) return notify(error.message);
-    notify('TollSpot transaction ignored with an audit reason.', 'success');
-    await loadTollspotData({ silent: true });
-  }
-
   const selectedVehicle = fleet.find((item) => item.id === selectedVehicleId);
   const openStatuses = new Set(['received', 'needs_review', 'matched']);
   const visibleTransactions = transactions.filter((item) =>
@@ -4535,15 +4496,14 @@ function TollsTab({ rentals = [], notify }) {
       </div>
     </Panel>
 
-    <Panel title="Toll Exceptions" eyebrow="Automatic Matches Need No Admin Work">
+    <Panel title="Connected Rental Tolls" eyebrow="Rent Me CT Records Only">
+      <p className="muted">Only tolls connected to both a Rent Me CT fleet vehicle and rental appear here. Unmatched provider or Wheelbase activity is kept out of this screen.</p>
       <div className="filter-row tollspot-filter-row">
         {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{prettyStatus(status)}</button>)}
       </div>
       {!visibleTransactions.length && <p className="muted">No TollSpot transactions in this view.</p>}
       <div className="tollspot-transaction-list">
-        {visibleTransactions.map((transaction) => {
-          const candidateRentals = rentals.filter((rental) => !transaction.vehicle_id || rental.vehicle_id === transaction.vehicle_id);
-          return <article key={transaction.id}>
+        {visibleTransactions.map((transaction) => <article key={transaction.id}>
             <div className="tollspot-transaction-heading">
               <div><strong>{money(transaction.total_amount)} • {transaction.agency || 'Toll agency'}</strong><span>{transaction.exit_location || transaction.entry_location || 'Location unavailable'} • {new Date(transaction.occurred_at).toLocaleString()}</span></div>
               <span className={`fleet-status-badge ${transaction.status === 'matched' ? 'available' : transaction.status === 'needs_review' ? 'maintenance' : 'reserved'}`}>{prettyStatus(transaction.status)}</span>
@@ -4554,17 +4514,7 @@ function TollsTab({ rentals = [], notify }) {
               <span>Provider #{transaction.tollspot_transaction_id}</span>
               {transaction.review_reason && <span className="tollspot-review-reason">{transaction.review_reason}</span>}
             </div>
-            {openStatuses.has(transaction.status) && <div className="tollspot-review-actions">
-              <select aria-label="Rental match" value={matchSelections[transaction.id] || transaction.rental_id || ''} onChange={(event) => setMatchSelections({ ...matchSelections, [transaction.id]: event.target.value })}>
-                <option value="">Choose rental</option>
-                {candidateRentals.map((rental) => <option key={rental.id} value={rental.id}>{rental.profiles?.full_name || rental.user_email || 'Customer'} • {rental.vehicles?.name || 'Vehicle'} • {formatDateOnly(rental.pickup_date)}–{formatDateOnly(rental.return_date)}</option>)}
-              </select>
-              <button className="secondary-btn" disabled={busy === `match:${transaction.id}`} onClick={() => matchTransaction(transaction)}>Match Rental</button>
-              {transaction.status === 'matched' && <button className="primary-btn" disabled={busy === `charge:${transaction.id}`} onClick={() => createTollCharge(transaction)}>Create Pending Charge</button>}
-              <button className="reject" disabled={busy === `ignore:${transaction.id}`} onClick={() => ignoreTransaction(transaction)}>Ignore</button>
-            </div>}
-          </article>;
-        })}
+          </article>)}
       </div>
     </Panel>
   </section>;
@@ -7171,13 +7121,13 @@ function SettingsTab({
     </Panel>}
 
     {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Hands-Off Operations">
-      <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle and rental, and adds the customer charge automatically. Only ambiguous provider records need admin review.</p>
+      <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle possession history, and adds one idempotent customer charge. Provider or Wheelbase records that cannot be connected to a Rent Me CT rental stay out of the admin toll list.</p>
       <form className="portal-form settings-form" onSubmit={saveBillingAutomation}>
         <label className="checkbox-pill">
           <input type="checkbox" checked={billingAutomation.tollspot_automatic_sync_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, tollspot_automatic_sync_enabled: event.target.checked }))} />
           Fetch TollSpot activity automatically
         </label>
-        <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>Automatic toll charges are always on.</strong> Exact matches become rental charges; questionable matches stay in the Tolls review queue.</span></div>
+        <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>Automatic toll charges are always on.</strong> Exact Rent Me CT matches become one rental charge; unmatched external records remain internal and are not shown.</span></div>
         <label className="checkbox-pill">
           <input type="checkbox" checked={billingAutomation.automatic_deposit_release_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, automatic_deposit_release_enabled: event.target.checked }))} />
           Automatically refund clean-return deposits
