@@ -22,5 +22,12 @@ test('all automatic-charge payment controls remain wired to their original handl
   assert.match(source, /onClick=\{chargeAllAutomatic\}/);
   assert.match(source, /onClick=\{\(\) => sendPaymentLink\?\.\(charge\)\}/);
   assert.match(source, /onClick=\{\(\) => chargeCard\(charge\)\}/);
-  assert.match(source, /onClick=\{\(\) => waiveRentalCharge\?\.\(charge\.id\)\}/);
+  assert.match(source, /onClick=\{\(\) => waiveCharge\(charge\)\}/);
+  assert.match(source, /waivingId === charge\.id \? 'Waiving…' : 'Waive'/);
+});
+
+test('waivers use the checkout-aware Stripe action', () => {
+  assert.match(source, /action: 'admin_waive_rental_charge', chargeId: id/);
+  assert.match(source, /Any open Stripe payment link was closed first/);
+  assert.doesNotMatch(source, /supabase\.rpc\('admin_waive_rental_charge'/);
 });

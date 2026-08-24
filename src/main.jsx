@@ -2237,10 +2237,22 @@ function App() {
 
   async function waiveRentalCharge(id) {
     if (!requireStaffPermission('charge.manage', 'waive rental charges')) return false;
-    const { data, error } = await supabase.rpc('admin_waive_rental_charge', { p_charge_id: id });
-    if (error) return notify(error.message);
-    setRentalCharges((current) => current.map((charge) => charge.id === id ? data : charge));
-    notify('Charge waived.', 'success');
+    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+      body: { action: 'admin_waive_rental_charge', chargeId: id },
+    });
+    if (error || data?.error) {
+      notify(data?.error || error.message);
+      return false;
+    }
+    if (data?.charge) {
+      setRentalCharges((current) => current.map((charge) => charge.id === id ? { ...charge, ...data.charge } : charge));
+    }
+    if (data?.status === 'already_paid') {
+      notify(data.reason || 'Stripe already collected this charge. It was recorded as paid and cannot be waived.');
+      return false;
+    }
+    notify(data?.status === 'already_waived' ? 'Charge was already waived.' : 'Charge waived. Any open Stripe payment link was closed first.', 'success');
+    return true;
   }
 
   async function chargeRentalSavedCard(charge, options = {}) {
@@ -8738,6 +8750,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [chargingId, setChargingId] = useState('');
+  const [waivingId, setWaivingId] = useState('');
   const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0 });
   const [externalCharge, setExternalCharge] = useState(null);
   const [form, setForm] = useState({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
@@ -8774,6 +8787,13 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
     setChargingId('');
     return saved;
   }
+
+  async function waiveCharge(charge) {
+    setWaivingId(charge.id);
+    const waived = await waiveRentalCharge?.(charge.id);
+    setWaivingId('');
+    return waived;
+  }
   const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
   const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const paidTotal = charges.filter((charge) => charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
@@ -8791,7 +8811,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
 
   async function chargeAllCollectible() {
-    if (!collectible.length || chargingId) return;
+    if (!collectible.length || chargingId || waivingId) return;
     if (!window.confirm(`Charge the customer's saved card for all ${collectible.length} unpaid add-ons totaling ${money(outstandingTotal)}? Each charge stays itemized in the payment ledger.`)) return;
 
     setChargingId('all-charges');
@@ -8818,7 +8838,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   }
 
   async function chargeAllAutomatic() {
-    if (!automaticCollectible.length || chargingId) return;
+    if (!automaticCollectible.length || chargingId || waivingId) return;
     const label = automaticCollectible.length === 1
       ? `the ${automaticCollectible[0].name} charge`
       : `${automaticCollectible.length} automatic charges`;
@@ -8835,10 +8855,10 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   function renderChargeActions(charge) {
     if (charge.included_in_initial_payment || !['pending', 'failed', 'checkout_open'].includes(charge.status)) return null;
     return <div className="row-actions charge-collection-actions">
-      <button type="button" onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> {compact ? 'Send link' : 'Send payment link'}</button>
-      <button type="button" className="approve" disabled={Boolean(chargingId)} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : compact ? 'Charge card' : 'Charge customer'}</button>
-      {recordExternalRentalCharge && <button type="button" disabled={Boolean(chargingId)} onClick={() => setExternalCharge(charge)}><Banknote size={14}/> Cash / external</button>}
-      <button type="button" className="reject" disabled={Boolean(chargingId)} onClick={() => waiveRentalCharge?.(charge.id)}>Waive</button>
+      <button type="button" disabled={Boolean(chargingId || waivingId)} onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> {compact ? 'Send link' : 'Send payment link'}</button>
+      <button type="button" className="approve" disabled={Boolean(chargingId || waivingId)} onClick={() => chargeCard(charge)}><CreditCard size={14}/>{chargingId === charge.id ? ' Charging…' : compact ? 'Charge card' : 'Charge customer'}</button>
+      {recordExternalRentalCharge && <button type="button" disabled={Boolean(chargingId || waivingId)} onClick={() => setExternalCharge(charge)}><Banknote size={14}/> Cash / external</button>}
+      <button type="button" className="reject" disabled={Boolean(chargingId || waivingId)} onClick={() => waiveCharge(charge)}>{waivingId === charge.id ? 'Waiving…' : 'Waive'}</button>
     </div>;
   }
 
@@ -8854,7 +8874,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <div><span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
       <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small></div>
-      {collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(chargingId)} onClick={chargeAllCollectible}><CreditCard size={15}/>{chargingId === 'all-charges' ? ` Charging ${bulkProgress.completed}/${bulkProgress.total}…` : `Charge all · ${money(outstandingTotal)}`}</button>}
+      {collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(chargingId || waivingId)} onClick={chargeAllCollectible}><CreditCard size={15}/>{chargingId === 'all-charges' ? ` Charging ${bulkProgress.completed}/${bulkProgress.total}…` : `Charge all · ${money(outstandingTotal)}`}</button>}
     </div>
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
     {(compact && charges.length > 0) && <details className="rental-charge-history" open={outstandingTotal > 0 || undefined}>
@@ -8866,7 +8886,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
         {automaticCollectible.length > 0 && <div className="automatic-charge-totals">
           {automaticLateTotal > 0 && <span>Late return <strong>{money(automaticLateTotal)}</strong></span>}
           {automaticTollTotal > 0 && <span>Tolls <strong>{money(automaticTollTotal)}</strong></span>}
-          <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
+          <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId || waivingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
         </div>}
       </div>
       <div className="automatic-charge-list">
@@ -8895,7 +8915,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
           {automaticCollectible.length > 0 && <div className="automatic-charge-totals">
             {automaticLateTotal > 0 && <span>Late fees <strong>{money(automaticLateTotal)}</strong></span>}
             {automaticTollTotal > 0 && <span>Tolls <strong>{money(automaticTollTotal)}</strong></span>}
-            <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
+            <button type="button" className="approve automatic-charge-primary" disabled={Boolean(chargingId || waivingId)} onClick={chargeAllAutomatic}><CreditCard size={16}/>{chargingId === 'automatic-all' ? ' Charging card…' : `Charge saved card ${money(automaticCollectibleTotal)}`}</button>
           </div>}
         </div>
         <div className="automatic-charge-list">
