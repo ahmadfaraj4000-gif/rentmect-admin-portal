@@ -9203,3 +9203,73 @@ input[type="radio"] {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+/* Payment operations use the same unmistakable turning-circle feedback as the
+   admin access screen, while preserving the open Stripe window gesture. */
+.payment-processing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 18, 29, .55);
+  backdrop-filter: blur(4px);
+}
+
+.payment-processing-card {
+  width: min(430px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 30px 26px;
+  border: 1px solid rgba(15, 118, 110, .22);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .28);
+  text-align: center;
+}
+
+.payment-processing-card strong { font-size: 1.02rem; color: #152437; }
+.payment-processing-card small { color: #607083; line-height: 1.45; }
+
+.stripe-attempt-block,
+.external-refund-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #f1bd70;
+  border-radius: 12px;
+  background: #fff8eb;
+  color: #75450c;
+}
+
+.stripe-attempt-block > span,
+.external-refund-warning > span { display: grid; gap: 4px; }
+.stripe-attempt-block small,
+.external-refund-warning small { line-height: 1.4; }
+.stripe-attempt-block em { font-size: .75rem; font-style: normal; font-weight: 700; }
+
+.external-payment-details-modal { width: min(680px, calc(100vw - 28px)); }
+.payment-adjustment-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.payment-adjustment-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid #d7dee7;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.payment-adjustment-choice label.selected { border-color: #178579; background: #effaf8; }
+.payment-adjustment-choice label.selected.danger { border-color: #c85a50; background: #fff2f0; }
+.payment-adjustment-choice label span { display: grid; gap: 4px; }
+.payment-adjustment-choice label small { color: #667588; line-height: 1.35; }
+.external-payment-confirm { display: flex; align-items: flex-start; gap: 9px; font-weight: 700; }
+.rental-payment-history li.is-refund strong,
+.rental-payment-history li.is-refund small { color: #a23932; }
+
+@media (max-width: 640px) {
+  .payment-adjustment-choice { grid-template-columns: 1fr; }
+}
