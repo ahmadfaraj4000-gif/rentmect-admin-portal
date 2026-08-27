@@ -498,7 +498,10 @@ function App() {
   const [rentalPayments, setRentalPayments] = useState([]);
   const [rentalRefunds, setRentalRefunds] = useState([]);
   const [rentalCharges, setRentalCharges] = useState([]);
+  const [externalPaymentActions, setExternalPaymentActions] = useState([]);
   const [stripeReconciliationIssues, setStripeReconciliationIssues] = useState([]);
+  const [paymentProcessing, setPaymentProcessing] = useState('');
+  const paymentOperationsRef = useRef(0);
   const [paymentLoadError, setPaymentLoadError] = useState('');
   const [customerEmailTemplates, setCustomerEmailTemplates] = useState([]);
   const [smsTemplates, setSmsTemplates] = useState([]);
@@ -649,6 +652,17 @@ function App() {
     window.clearTimeout(noticeTimeoutRef.current);
     if (resolvedType !== 'error' && !action) {
       noticeTimeoutRef.current = window.setTimeout(() => setNotice(null), 7000);
+    }
+  }
+
+  async function withPaymentProcessing(message, operation) {
+    paymentOperationsRef.current += 1;
+    setPaymentProcessing(message);
+    try {
+      return await operation();
+    } finally {
+      paymentOperationsRef.current = Math.max(0, paymentOperationsRef.current - 1);
+      if (paymentOperationsRef.current === 0) setPaymentProcessing('');
     }
   }
 
@@ -921,6 +935,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payment_refunds' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payments' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_external_payment_actions' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_allocations' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_action_tasks' }, () => {
@@ -1168,20 +1183,22 @@ function App() {
         if (stepCompletionsRes.data) setRentalStepCompletions(stepCompletionsRes.data);
         results = [['Documents', documentsRes], ['Messages', messagesRes], ['Reports', reportsRes], ['Extensions', extensionsRes], ['Admin step completions', stepCompletionsRes]];
       } else if (domain === 'payments') {
-        const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, reconciliationIssuesRes] = await Promise.all([
+        const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, externalActionsRes, reconciliationIssuesRes] = await Promise.all([
           withRequestDeadline(supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
           withRequestDeadline(supabase.from('rental_payments').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Payments'),
           withRequestDeadline(supabase.from('rental_payment_refunds').select('*').order('created_at', { ascending: false }), 'Refunds'),
           withRequestDeadline(supabase.from('rental_charge_items').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Additional charges'),
+          withRequestDeadline(supabase.from('rental_external_payment_actions').select('*').order('created_at', { ascending: false }), 'External payment adjustments'),
           withRequestDeadline(supabase.from('stripe_reconciliation_issues').select('*').order('created_at', { ascending: false }).limit(500), 'Stripe reconciliation'),
         ]);
         if (depositAllocationsRes.data) setDepositAllocations(depositAllocationsRes.data);
         if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
         if (rentalRefundsRes.data) setRentalRefunds(rentalRefundsRes.data);
         if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
+        if (externalActionsRes.data) setExternalPaymentActions(externalActionsRes.data);
         if (reconciliationIssuesRes.data) setStripeReconciliationIssues(reconciliationIssuesRes.data);
-        setPaymentLoadError([depositAllocationsRes.error, rentalPaymentsRes.error, rentalRefundsRes.error, rentalChargesRes.error, reconciliationIssuesRes.error].filter(Boolean).map((error) => error.message).join(' '));
-        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes], ['Stripe reconciliation', reconciliationIssuesRes]];
+        setPaymentLoadError([depositAllocationsRes.error, rentalPaymentsRes.error, rentalRefundsRes.error, rentalChargesRes.error, externalActionsRes.error, reconciliationIssuesRes.error].filter(Boolean).map((error) => error.message).join(' '));
+        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes], ['External payment adjustments', externalActionsRes], ['Stripe reconciliation', reconciliationIssuesRes]];
       } else if (domain === 'templates') {
         const [emailRes, smsRes] = await Promise.all([
           withRequestDeadline(supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
@@ -1838,13 +1855,13 @@ function App() {
     const confirmed = window.confirm(`Refund ${money(amount)} of the captured Stripe payment to this customer now?`);
     if (!confirmed) return;
 
-    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+    const { data, error } = await withPaymentProcessing('Reconciling Stripe and returning the security deposit…', () => supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'release_deposit',
         rentalId: rental.id,
         reason: 'Released manually from the admin portal.',
       },
-    });
+    }));
     if (error || data?.error) {
       let detail = data?.error || error?.message || 'Could not refund the security deposit.';
       if (!data?.error && error?.context) {
@@ -1890,7 +1907,7 @@ function App() {
     }
 
     const refundRequestId = crypto.randomUUID();
-    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+    const { data, error } = await withPaymentProcessing('Submitting the rental refund to Stripe…', () => supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'refund_rental_payment',
         rentalId: rental.id,
@@ -1898,7 +1915,7 @@ function App() {
         reason,
         refundRequestId,
       },
-    });
+    }));
     if (error || data?.error) {
       let detail = data?.error || error?.message || 'The Stripe refund could not be submitted.';
       try {
@@ -1922,6 +1939,37 @@ function App() {
     }, ...current.filter((item) => item.id !== refundRequestId)]);
     await loadAllData({ silent: true });
     notify(`Stripe refund of ${money(amount)} submitted. The security deposit remains protected separately.`, 'success');
+    return true;
+  }
+
+  async function adjustExternalRentalPayment(rental, adjustment) {
+    const actionType = adjustment?.actionType === 'refund' ? 'refund' : 'method_correction';
+    const permission = actionType === 'refund' ? 'payment.refund' : 'payment.collect';
+    const permissionLabel = actionType === 'refund' ? 'refund external rental payments' : 'correct external payment details';
+    if (!requireStaffPermission(permission, permissionLabel) || !rental?.id) return false;
+
+    const { data, error } = await withPaymentProcessing(
+      actionType === 'refund' ? 'Recording the returned money and recalculating the rental balance…' : 'Correcting the payment ledger…',
+      () => supabase.rpc('admin_adjust_external_rental_payment', {
+        p_rental_id: rental.id,
+        p_payment_charge_id: adjustment.paymentChargeId || null,
+        p_action_type: actionType,
+        p_replacement_method: actionType === 'method_correction' ? adjustment.paymentMethod : null,
+        p_reference: adjustment.reference?.trim() || null,
+        p_reason: adjustment.reason?.trim() || null,
+      }),
+    );
+    if (error || data?.error) {
+      notify(data?.error || error?.message || 'The external payment adjustment could not be saved.');
+      return false;
+    }
+    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+    notify(
+      actionType === 'refund'
+        ? 'External refund recorded. The returned money was removed from paid totals and the rental balance is open for a replacement payment.'
+        : 'Payment method corrected. No refund was recorded and the amount paid did not change.',
+      'success',
+    );
     return true;
   }
 
@@ -2260,9 +2308,9 @@ function App() {
     if (!charge?.id) return false;
     const confirmed = options.skipConfirmation || window.confirm(`Charge the customer's saved card ${money(charge.total_amount)} for “${charge.name}”? This attempts the charge immediately.`);
     if (!confirmed) return false;
-    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+    const { data, error } = await withPaymentProcessing(`Charging ${money(charge.total_amount)} through Stripe…`, () => supabase.functions.invoke('stripe-web-hook', {
       body: { action: 'admin_charge_saved_card', chargeId: charge.id },
-    });
+    }));
     if (error || data?.error) {
       if (!options.silent) notify(data?.error || error.message);
       return false;
@@ -2281,14 +2329,14 @@ function App() {
   async function recordExternalRentalCharge(charge, payment) {
     if (!requireStaffPermission('charge.manage', 'record external rental-charge payments')) return false;
     if (!charge?.id) return false;
-    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+    const { data, error } = await withPaymentProcessing('Recording the external payment…', () => supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'admin_record_external_charge',
         chargeId: charge.id,
         paymentMethod: payment.paymentMethod,
         paymentReference: payment.reference?.trim() || null,
       },
-    });
+    }));
     if (error || data?.error) {
       notify(data?.error || error?.message || 'The external charge payment could not be recorded.');
       return false;
@@ -3657,7 +3705,7 @@ function App() {
     const selectedAmountCents = Number.isFinite(amount) && amount > 0
       ? Math.round(amount * 100)
       : null;
-    const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
+    const { data, error } = await withPaymentProcessing('Creating the secure Stripe checkout…', () => supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: selectedAmountCents ? 'admin_create_installment_checkout' : 'admin_create_checkout',
         rentalId: rental.id,
@@ -3665,7 +3713,7 @@ function App() {
         successUrl,
         cancelUrl,
       },
-    });
+    }));
     if (!error && data?.noPaymentRequired) {
       checkoutWindow?.close();
       notify('The 100% discount completed this booking with the security deposit waived. No Stripe payment link was needed.', 'success');
@@ -3946,6 +3994,7 @@ function App() {
 
   return (
     <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
+      {paymentProcessing && <PaymentProcessingOverlay message={paymentProcessing} />}
       {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-drawer-scrim" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
       {isMobileAdminNav && (
         <aside className={`mobile-drawer admin-mobile-drawer ${navCollapsed ? '' : 'open'}`} aria-label="Admin navigation">
@@ -4029,7 +4078,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
+        {activeTab === 'rentals' && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -5016,7 +5065,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const ARCHIVE_PAGE_SIZE = 25;
   const [archiveVisibleCount, setArchiveVisibleCount] = useState(ARCHIVE_PAGE_SIZE);
   useEffect(() => setArchiveVisibleCount(ARCHIVE_PAGE_SIZE), [rentalFilter, search]);
@@ -5043,7 +5092,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
       {rentalFilter === 'archive' && displayedRentals.length < matchingRentals.length && <button type="button" className="secondary-btn rental-archive-load-more" onClick={() => setArchiveVisibleCount((count) => count + ARCHIVE_PAGE_SIZE)}>Load 25 more archived rentals</button>}
     </Panel>
   </>;
@@ -7417,7 +7466,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
-function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
@@ -7429,6 +7478,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [paymentDetailsOpen, setPaymentDetailsOpen] = useState(false);
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [contactModal, setContactModal] = useState(null);
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
@@ -7478,6 +7528,10 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const adminState = getAdminRentalState(rental, effectiveReleaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
   const rentalBalanceCharges = rentalCharges.filter((charge) => charge.charge_type === 'rental_amendment');
+  const stripePaymentAttempts = rentalCharges.filter((charge) =>
+    charge.charge_type === 'rental_installment'
+      && ['pending', 'checkout_open', 'failed'].includes(String(charge.status || '').toLowerCase())
+  );
   const openRentalBalance = rentalBalanceCharges.find((charge) =>
     ['pending', 'checkout_open', 'failed'].includes(String(charge.status || '').toLowerCase())
   );
@@ -7550,8 +7604,12 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const paidRentalBalances = rentalBalanceCharges
     .filter((charge) => charge.status === 'paid')
     .reduce((sum, charge) => sum + Number(charge.payment_amount_cents || Math.round(Number(charge.total_amount || 0) * 100)) / 100, 0);
-  const paidAmount = Math.max(0, recordedPaymentAmount + paidRentalBalances - recordedRentalRefunds);
-  const paymentHistory = buildRentalPaymentHistory(rental, rentalPayments, rentalCharges, rentalExtensions, initialPaymentTotal);
+  const recordedExternalRefunds = externalPaymentActions
+    .filter((action) => action.action_type === 'refund')
+    .reduce((sum, action) => sum + Number(action.amount || 0), 0);
+  const paidAmount = Math.max(0, recordedPaymentAmount + paidRentalBalances - recordedRentalRefunds - recordedExternalRefunds);
+  const paymentHistory = buildRentalPaymentHistory(rental, rentalPayments, rentalCharges, rentalExtensions, initialPaymentTotal, externalPaymentActions);
+  const editableExternalPayments = paymentHistory.filter((payment) => payment.editable && payment.provider === 'external' && payment.amount > 0);
   const invoiceBalanceDue = Math.max(0, initialPaymentTotal - paidAmount);
   const balanceDue = Math.max(0, invoiceBalanceDue + outstandingAdditionalCharges);
   const customerCreditDue = Math.max(0, paidAmount - initialPaymentTotal);
@@ -7740,9 +7798,13 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
           {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
           {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
+          {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <button type="button" onClick={() => setPaymentDetailsOpen(true)}><Pencil size={15}/> Edit Rental Payment Details</button>}
           {canReleaseDeposit && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
           {canReleaseDeposit && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
         </div>
+        {stripePaymentAttempts.length > 0 && <div className="stripe-attempt-block" role="status">
+          <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
+        </div>}
         <RentalChargeManager compact rental={rental} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} sendPaymentLink={(charge) => setContactModal({ charge })} notify={notify} />
         {outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
       </aside>
@@ -7874,6 +7936,19 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           const submitted = await refundRentalPayment(rental, refund);
           if (submitted) setRefundModalOpen(false);
           return submitted;
+        }}
+      />}
+      {paymentDetailsOpen && <ExternalPaymentDetailsModal
+        rental={rental}
+        payments={editableExternalPayments}
+        onCancel={() => setPaymentDetailsOpen(false)}
+        onConfirm={async (adjustment) => {
+          const saved = await adjustExternalRentalPayment?.(rental, adjustment);
+          if (saved) {
+            setPaymentDetailsOpen(false);
+            if (adjustment.actionType === 'refund') setAdminStepScope('payment');
+          }
+          return saved;
         }}
       />}
       {discountModalOpen && createPortal(<ManualRentalDiscountModal
@@ -9623,7 +9698,10 @@ function externalPaymentMethodLabel(method) {
   }[method] || 'External';
 }
 
-function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = [], extensionRequests = [], initialPaymentTotal = 0) {
+function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = [], extensionRequests = [], initialPaymentTotal = 0, externalPaymentActions = []) {
+  const refundedSources = new Set(externalPaymentActions
+    .filter((action) => action.action_type === 'refund')
+    .map((action) => action.payment_charge_id ? `rental_charge:${action.payment_charge_id}` : 'rental:initial'));
   const canonicalPayments = rentalPayments
     .filter((payment) => ['paid', 'partially_paid', 'succeeded'].includes(normalizeLedgerStatus(payment.status)))
     .map((payment) => {
@@ -9645,6 +9723,9 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
         paymentIntentId: payment.stripe_payment_intent_id || '',
         checkoutSessionId: payment.stripe_checkout_session_id || '',
         paymentType,
+        sourceKind: provider === 'external' && !paymentType.includes('extension') ? 'rental' : '',
+        paymentChargeId: null,
+        editable: provider === 'external' && !paymentType.includes('extension') && !refundedSources.has('rental:initial'),
       };
     });
   const canonicalPaymentIntents = new Set(canonicalPayments.map((payment) => payment.paymentIntentId).filter(Boolean));
@@ -9672,6 +9753,9 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
         label: chargeType === 'rental_amendment'
           ? 'Rental balance'
           : `${automatic ? 'Automatic charge' : 'Manual charge'} · ${charge.name || prettyStatus(chargeType || 'Add-on')}`,
+        sourceKind: chargeType === 'rental_amendment' ? 'rental_charge' : '',
+        paymentChargeId: chargeType === 'rental_amendment' ? charge.id : null,
+        editable: provider === 'external' && chargeType === 'rental_amendment' && !refundedSources.has(`rental_charge:${charge.id}`),
       };
     })];
 
@@ -9704,11 +9788,27 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
       provider,
       method: provider === 'external' ? externalPaymentMethodLabel(rental.external_payment_method) : '',
       label: 'Original rental payment',
+      sourceKind: 'rental',
+      paymentChargeId: null,
+      editable: provider === 'external' && !refundedSources.has('rental:initial'),
     });
   }
 
+  externalPaymentActions
+    .filter((action) => action.action_type === 'refund')
+    .forEach((action) => payments.push({
+      id: `external-refund-${action.id}`,
+      amount: -Number(action.amount || 0),
+      date: action.created_at,
+      provider: 'external',
+      method: externalPaymentMethodLabel(action.original_method),
+      label: `Money returned · ${action.reason}`,
+      editable: false,
+      isRefund: true,
+    }));
+
   return payments
-    .filter((payment) => payment.amount > 0 && payment.date)
+    .filter((payment) => Math.abs(payment.amount) > 0 && payment.date)
     .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
 }
 
@@ -9719,14 +9819,73 @@ function RentalPaymentHistory({ payments = [] }) {
       <span>{payments.length} recorded</span>
     </div>
     {payments.length > 0
-      ? <ol className={payments.length > 4 ? 'is-scrollable' : ''} tabIndex={payments.length > 4 ? 0 : undefined} aria-label={payments.length > 4 ? `All ${payments.length} received payments; scroll for older payments` : undefined}>{payments.map((payment) => <li key={payment.id}>
+      ? <ol className={payments.length > 4 ? 'is-scrollable' : ''} tabIndex={payments.length > 4 ? 0 : undefined} aria-label={payments.length > 4 ? `All ${payments.length} payment ledger entries; scroll for older payments and refunds` : undefined}>{payments.map((payment) => <li key={payment.id} className={payment.isRefund ? 'is-refund' : ''}>
           <time dateTime={payment.date}>{formatEasternDateTime(payment.date)}</time>
-          <strong>{money(payment.amount)}</strong>
+          <strong>{payment.amount < 0 ? `−${money(Math.abs(payment.amount))}` : money(payment.amount)}</strong>
           <span className={`rental-payment-source ${payment.provider}`}>{payment.provider === 'stripe' ? 'Stripe' : 'External'}</span>
           <small>{[payment.label, payment.method].filter(Boolean).join(' • ')}</small>
         </li>)}</ol>
       : <p>No received payments recorded yet.</p>}
   </div>;
+}
+
+function ExternalPaymentDetailsModal({ rental, payments = [], onCancel, onConfirm }) {
+  const dialogRef = useDialogFocus(onCancel);
+  const [selectedId, setSelectedId] = useState(payments[0]?.id || '');
+  const [actionType, setActionType] = useState('method_correction');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [reference, setReference] = useState('');
+  const [reason, setReason] = useState('');
+  const [confirmedReturned, setConfirmedReturned] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const selected = payments.find((payment) => payment.id === selectedId) || payments[0];
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    if (!selected) return setError('Choose an external receipt to edit.');
+    if (reason.trim().length < 5) return setError('Enter an audit reason of at least five characters.');
+    if (actionType === 'method_correction' && !paymentMethod) return setError('Choose the corrected payment type.');
+    if (actionType === 'refund' && !confirmedReturned) return setError('Confirm that the full receipt amount was actually returned to the customer.');
+    setSaving(true);
+    const saved = await onConfirm?.({
+      actionType,
+      paymentChargeId: selected.paymentChargeId || null,
+      paymentMethod,
+      reference,
+      reason,
+    });
+    setSaving(false);
+    if (!saved) setError('The payment details were not changed. Review the admin message and try again.');
+  }
+
+  return createPortal(<div className="admin-modal-backdrop payment-details-backdrop">
+    <form ref={dialogRef} className="admin-modal external-payment-details-modal" role="dialog" aria-modal="true" aria-labelledby={`payment-details-title-${rental.id}`} onSubmit={submit}>
+      <header className="admin-modal-header">
+        <ReceiptText size={27}/><div><strong id={`payment-details-title-${rental.id}`}>Edit Rental Payment Details</strong><span>{rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'} · {rental.vehicles?.name || 'Vehicle'}</span></div>
+        <button type="button" className="admin-modal-close admin-close-button" onClick={onCancel} aria-label="Close payment details"><X size={20}/></button>
+      </header>
+      <label className="modal-field"><span>External receipt</span>
+        <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+          {payments.map((payment) => <option key={payment.id} value={payment.id}>{formatEasternDateTime(payment.date)} · {money(payment.amount)} · {[payment.label, payment.method].filter(Boolean).join(' · ')}</option>)}
+        </select>
+      </label>
+      <div className="payment-adjustment-choice" role="radiogroup" aria-label="Payment adjustment type">
+        <label className={actionType === 'method_correction' ? 'selected' : ''}><input type="radio" name="payment-adjustment" value="method_correction" checked={actionType === 'method_correction'} onChange={() => setActionType('method_correction')} /><span><strong>Correct payment type</strong><small>Use when cash/card was entered incorrectly. No money is returned and paid totals stay unchanged.</small></span></label>
+        <label className={actionType === 'refund' ? 'selected danger' : ''}><input type="radio" name="payment-adjustment" value="refund" checked={actionType === 'refund'} onChange={() => setActionType('refund')} /><span><strong>Refund entire external receipt</strong><small>Use only after the full {money(selected?.amount || 0)} was actually returned outside Stripe. The rental balance will reopen.</small></span></label>
+      </div>
+      {actionType === 'method_correction' && <label className="modal-field"><span>Correct payment type</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} required>
+        <option value="">Choose payment type</option><option value="cash">Cash</option><option value="card">Card</option><option value="terminal">Card terminal</option><option value="cash_app">Cash App</option><option value="bank_transfer">Bank transfer</option><option value="other">Other external payment</option>
+      </select><small>“Card” here corrects the ledger only; it does not charge or refund Stripe.</small></label>}
+      {actionType === 'refund' && <div className="external-refund-warning"><AlertTriangle size={18}/><span><strong>This records money actually returned.</strong><small>It does not send money through Stripe because this receipt was external. After saving, choose Take Payment to record cash/card externally or launch a new Stripe checkout.</small></span></div>}
+      <label className="modal-field"><span>Receipt/reference (optional)</span><input value={reference} maxLength="120" onChange={(event) => setReference(event.target.value)} placeholder={actionType === 'refund' ? 'External refund receipt or confirmation' : 'Correct receipt or terminal reference'} /></label>
+      <label className="modal-field"><span>Audit reason</span><textarea value={reason} maxLength="500" onChange={(event) => setReason(event.target.value)} placeholder="Explain what was entered incorrectly or why the payment was returned." required /></label>
+      {actionType === 'refund' && <label className="external-payment-confirm"><input type="checkbox" checked={confirmedReturned} onChange={(event) => setConfirmedReturned(event.target.checked)} /><span>I confirm the full {money(selected?.amount || 0)} was actually returned to the customer outside Stripe.</span></label>}
+      {error && <p className="modal-error" role="alert">{error}</p>}
+      <div className="admin-modal-actions"><button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Cancel</button><button type="submit" className={actionType === 'refund' ? 'reject' : 'approve'} disabled={saving}>{saving ? 'Saving…' : actionType === 'refund' ? 'Record Full External Refund' : 'Save Payment Type Correction'}</button></div>
+    </form>
+  </div>, document.body);
 }
 
 function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, initialAmount, balancePayment = false, onCancel, onConfirm }) {
@@ -10047,6 +10206,15 @@ function Loading({ message = 'Loading admin portal…' }) {
       <p>Please keep this page open.</p>
     </div>
   </div>;
+}
+function PaymentProcessingOverlay({ message }) {
+  return createPortal(<div className="payment-processing-overlay" role="status" aria-live="assertive" aria-busy="true">
+    <div className="payment-processing-card">
+      <div className="admin-access-spinner" aria-hidden="true"><span /></div>
+      <strong>{message}</strong>
+      <small>Please keep this page open. The result will appear when processing finishes.</small>
+    </div>
+  </div>, document.body);
 }
 function Login({ authForm, setAuthForm, handleLogin, authMessage, showPassword, setShowPassword, handleForgotPassword }) {
   return <div className="auth-screen admin-auth-light">
