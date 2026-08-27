@@ -108,13 +108,13 @@ test('the final Stripe capture remains large enough to refund the security depos
   assert.match(stripeInstallmentMigration, /partially_paid.*partial.*new\.payment_status.*paid/s);
 });
 
-test('rental details show every captured payment with its date, amount, and provider', () => {
+test('rental details show every payment and refund transaction with its date, amount, and provider', () => {
   assert.match(mainSource, /function buildRentalPaymentHistory/);
   assert.match(mainSource, /String\(charge\.status \|\| ''\)\.toLowerCase\(\) === 'paid'/);
   assert.match(mainSource, /charge\.paid_at \|\| charge\.updated_at \|\| charge\.created_at/);
   assert.match(mainSource, /payment\.provider === 'stripe' \? 'Stripe' : 'External'/);
   assert.match(mainSource, /<RentalPaymentHistory payments=\{paymentHistory\} \/>/);
-  assert.match(mainSource, /No received payments recorded yet\./);
+  assert.match(mainSource, /No payment or refund transactions recorded yet\./);
   assert.match(finalOverridesSource, /\.rental-payment-history li/);
   assert.match(finalOverridesSource, /\.rental-payment-source\.stripe/);
   assert.match(finalOverridesSource, /\.rental-payment-source\.external/);
