@@ -51,7 +51,7 @@ import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInpu
 import { optimizeVehicleImage } from './lib/imageOptimizer';
 import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
 import { AGREEMENT_TEXT, AGREEMENT_VERSION } from './rentalAgreement';
-import { rentalHasActionableIssue, rentalStillNeedsPickupClearance } from './rentalNeedsAction';
+import { getRentalPaymentAction, rentalHasActionableIssue, rentalStillNeedsPickupClearance } from './rentalNeedsAction';
 import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
@@ -7531,7 +7531,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     .filter((request) => ['pending', 'approved_pending_payment'].includes(String(request.status || '').toLowerCase()))
     .sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0))[0];
   const rentalReports = reports.filter((report) => report.rental_id === rental.id || report.rentals?.id === rental.id);
-  const adminState = getAdminRentalState(rental, effectiveReleaseChecklist);
+  const baseAdminState = getAdminRentalState(rental, effectiveReleaseChecklist);
   const defaultPickupMileage = rental?.starting_mileage ?? rental?.vehicles?.current_mileage ?? '';
   const rentalBalanceCharges = rentalCharges.filter((charge) => charge.charge_type === 'rental_amendment');
   const stripePaymentAttempts = rentalCharges.filter((charge) =>
@@ -7620,6 +7620,15 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const balanceDue = Math.max(0, invoiceBalanceDue + outstandingAdditionalCharges);
   const customerCreditDue = Math.max(0, paidAmount - initialPaymentTotal);
   const depositHeldAmount = protectedDeposit || 0;
+  const paymentAction = getRentalPaymentAction({
+    customerName,
+    balanceDue,
+    paymentStatus: rental.payment_status,
+    formatMoney: money,
+  });
+  const adminState = paymentAction
+    ? { label: paymentAction.label, tone: 'warning', next: paymentAction.next }
+    : baseAdminState;
   const nextAdminStep = progressSteps.find((step) => !step.complete && step.adminAction);
   const openRentalReports = rentalReports.filter((report) => ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase()));
   const extensionInsuranceAttention = extensionAttention ? latestInsurancePacket(rentalDocuments, extensionAttention.id) : null;
@@ -7627,6 +7636,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     ? progressSteps.filter((step) => !step.complete && !step.bypassed && step.key !== 'ready')
     : [];
   const needsActionReasons = [];
+  if (paymentAction) needsActionReasons.push(paymentAction.reason);
   if (rental.status === 'return_initiated') {
     needsActionReasons.push('Inspect the returned vehicle and enter ending mileage');
   } else if (returnState.overdue) {
@@ -7651,9 +7661,6 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   }
   if (incompleteSteps.length > 0) {
     needsActionReasons.push(`Pickup blockers: ${incompleteSteps.map((step) => step.detail).join(', ')}`);
-  }
-  if (outstandingAdditionalCharges > 0.005) {
-    needsActionReasons.push(`Collect or waive ${money(outstandingAdditionalCharges)} in additional charges`);
   }
   if (needsActionReasons.length === 0) needsActionReasons.push(adminState.next);
   const showCollapsedNeedsAction = showNeedsActionSummary && !detailsExpanded;

@@ -34,3 +34,30 @@ export function rentalHasActionableIssue({
 export function rentalStillNeedsPickupClearance(status) {
   return !VEHICLE_OUT_RENTAL_STATUSES.has(String(status || 'pending').toLowerCase());
 }
+
+export function getRentalPaymentAction({
+  customerName = 'Customer',
+  balanceDue = 0,
+  paymentStatus,
+  formatMoney = (amount) => `$${Number(amount || 0).toFixed(2)}`,
+}) {
+  const normalizedBalance = Math.max(0, Number(balanceDue || 0));
+  const paymentNeedsReview = String(paymentStatus || 'pending').toLowerCase() !== 'paid';
+
+  if (normalizedBalance <= 0.005 && !paymentNeedsReview) return null;
+
+  if (normalizedBalance > 0.005) {
+    const formattedBalance = formatMoney(normalizedBalance);
+    return {
+      label: 'Payment Due',
+      next: `${customerName} owes ${formattedBalance}. Collect the outstanding balance.`,
+      reason: `${customerName} owes ${formattedBalance} — collect the outstanding balance`,
+    };
+  }
+
+  return {
+    label: 'Payment Review',
+    next: `${customerName}'s payment status needs review before this rental can be cleared.`,
+    reason: `Review ${customerName}'s payment status before clearing this rental`,
+  };
+}

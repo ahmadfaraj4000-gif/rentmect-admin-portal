@@ -41,6 +41,12 @@ test('collapsed Needs Action cards retain every blocker while leading with the f
   assert.match(source, /onClick=\{\(\) => setDetailsExpanded\(true\)\}/);
 });
 
+test('payment debt overrides generic car-out guidance everywhere on the card', () => {
+  assert.match(source, /const paymentAction = getRentalPaymentAction/);
+  assert.match(source, /\? \{ label: paymentAction\.label, tone: 'warning', next: paymentAction\.next \}/);
+  assert.match(source, /if \(paymentAction\) needsActionReasons\.push\(paymentAction\.reason\)/);
+});
+
 test('Needs Action summary is a compact center pill and stacks responsively', () => {
   assert.match(source, /<strong>\{needsActionReasons\[0\]\}<\/strong>/);
   assert.match(source, /needsActionReasons\.length > 1[\s\S]*\+\{needsActionReasons\.length - 1\} more/);
