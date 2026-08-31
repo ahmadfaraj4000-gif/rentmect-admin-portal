@@ -6267,6 +6267,81 @@ input[type="radio"] {
   font-weight: 850 !important;
 }
 
+.needs-action-warning-backdrop.admin-modal-backdrop {
+  align-items: center !important;
+  overflow-y: auto !important;
+}
+
+.needs-action-warning-modal {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  width: min(640px, 100%) !important;
+  max-height: min(720px, calc(100dvh - 40px)) !important;
+}
+
+.needs-action-warning-modal .admin-modal-header > svg {
+  flex: 0 0 auto !important;
+  color: #b94612 !important;
+}
+
+.needs-action-warning-body {
+  display: grid !important;
+  gap: 14px !important;
+  min-height: 0 !important;
+  padding: 20px !important;
+  overflow-y: auto !important;
+}
+
+.needs-action-warning-body > p {
+  margin: 0 !important;
+  color: #526159 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+.needs-action-warning-body ol {
+  display: grid !important;
+  gap: 10px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+.needs-action-warning-body li {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 10px !important;
+  padding: 13px 14px !important;
+  border: 1px solid #edb08e !important;
+  border-radius: 10px !important;
+  background: #fff4eb !important;
+  color: #672b0d !important;
+  font-size: 14px !important;
+  font-weight: 750 !important;
+  line-height: 1.5 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.needs-action-warning-body li > svg {
+  margin-top: 2px !important;
+  color: #b94612 !important;
+}
+
+.needs-action-warning-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+}
+
+@media (max-width: 640px) {
+  .needs-action-warning-backdrop.admin-modal-backdrop { padding: 10px !important; }
+  .needs-action-warning-modal { max-height: calc(100dvh - 20px) !important; }
+  .needs-action-warning-body { padding: 14px !important; }
+  .needs-action-warning-body li { padding: 11px 12px !important; }
+  .needs-action-warning-actions .primary-btn { width: 100% !important; }
+}
+
 .rental-card-identity,
 .rental-card-command {
   display: grid !important;

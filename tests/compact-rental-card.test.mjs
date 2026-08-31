@@ -37,8 +37,9 @@ test('collapsed Needs Action cards retain every blocker while leading with the f
   assert.doesNotMatch(source, /Incomplete rental records/);
   assert.match(source, /open damage or incident/);
   assert.match(source, /className="rental-card-needs-action-summary"/);
-  assert.match(source, /title=\{needsActionReasons\.join\(' • '\)\}/);
-  assert.match(source, /onClick=\{\(\) => setDetailsExpanded\(true\)\}/);
+  assert.match(source, /onClick=\{\(\) => setNeedsActionModalOpen\(true\)\}/);
+  assert.match(source, /aria-haspopup="dialog"/);
+  assert.match(source, /title="View full warning"/);
 });
 
 test('payment debt overrides generic car-out guidance everywhere on the card', () => {
@@ -49,11 +50,21 @@ test('payment debt overrides generic car-out guidance everywhere on the card', (
 
 test('Needs Action summary is a compact center pill and stacks responsively', () => {
   assert.match(source, /<strong>\{needsActionReasons\[0\]\}<\/strong>/);
-  assert.match(source, /needsActionReasons\.length > 1[\s\S]*\+\{needsActionReasons\.length - 1\} more/);
+  assert.match(source, /needsActionReasons\.length > 1 \? `\+\$\{needsActionReasons\.length - 1\} more` : 'View full warning'/);
   assert.match(styles, /\.rental-card-header\.has-needs-action-summary\s*\{[\s\S]*grid-template-columns: minmax\(250px, 1fr\) minmax\(220px, 360px\) minmax\(300px, 1fr\) !important;[\s\S]*align-items: start !important/);
   assert.match(styles, /\.rental-card-needs-action-summary\s*\{[\s\S]*display: flex !important;[\s\S]*align-self: start !important;[\s\S]*padding: 5px 8px !important;[\s\S]*border: 1px solid/);
   assert.match(styles, /\.rental-card-needs-action-reasons\s*\{[\s\S]*white-space: nowrap !important/);
   assert.match(styles, /@media \(max-width: 1040px\)[\s\S]*\.rental-card-header\.has-needs-action-summary[\s\S]*grid-template-columns: minmax\(0, 1fr\) !important/);
+});
+
+test('clicking a clipped Needs Action warning opens every full warning in an accessible popup', () => {
+  assert.match(source, /function NeedsActionWarningModal/);
+  assert.match(source, /role="dialog" aria-modal="true" aria-labelledby=\{titleId\}/);
+  assert.match(source, /reasons\.map\(\(reason, index\) => <li/);
+  assert.match(source, /onMouseDown=\{\(event\) => event\.target === event\.currentTarget && onClose\(\)\}/);
+  assert.match(source, /Close warning/);
+  assert.match(styles, /\.needs-action-warning-body li\s*\{[\s\S]*white-space: normal !important;[\s\S]*overflow-wrap: anywhere !important/);
+  assert.match(styles, /\.needs-action-warning-modal\s*\{[\s\S]*max-height: min\(720px, calc\(100dvh - 40px\)\) !important/);
 });
 
 test('rare rental actions use a clearly labelled More Actions menu', () => {

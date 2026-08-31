@@ -7474,6 +7474,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
 
 function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [needsActionModalOpen, setNeedsActionModalOpen] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
   const [externalPaymentInitialAmount, setExternalPaymentInitialAmount] = useState(null);
@@ -7703,12 +7704,12 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           <small>Current return {formatRentalDate(rental.return_date, rental.return_time)} • requested {formatRentalDate(extensionAttention.requested_return_date, extensionAttention.requested_return_time)}</small>
         </span>}
       </div>
-      {showCollapsedNeedsAction && <button type="button" className="rental-card-needs-action-summary" onClick={() => setDetailsExpanded(true)} aria-label={`Needs action: ${needsActionReasons.join('. ')}`} title={needsActionReasons.join(' • ')}>
+      {showCollapsedNeedsAction && <button type="button" className="rental-card-needs-action-summary" onClick={() => setNeedsActionModalOpen(true)} aria-haspopup="dialog" aria-expanded={needsActionModalOpen} aria-label={`View full needs action warning for ${customerName}`} title="View full warning">
         <span className="rental-card-needs-action-heading"><AlertTriangle size={13}/> Needs action</span>
         <span className="rental-card-needs-action-reasons">
           <strong>{needsActionReasons[0]}</strong>
         </span>
-        {needsActionReasons.length > 1 && <small>+{needsActionReasons.length - 1} more</small>}
+        <small>{needsActionReasons.length > 1 ? `+${needsActionReasons.length - 1} more` : 'View full warning'}</small>
       </button>}
       <div className="rental-card-command">
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
@@ -7979,7 +7980,39 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           return saved;
         }}
       />}
+      {needsActionModalOpen && <NeedsActionWarningModal
+        rentalId={rental.id}
+        vehicleName={rental.vehicles?.name || 'Vehicle'}
+        customerName={customerName}
+        reasons={needsActionReasons}
+        onClose={() => setNeedsActionModalOpen(false)}
+      />}
   </article>;
+}
+
+function NeedsActionWarningModal({ rentalId, vehicleName, customerName, reasons = [], onClose }) {
+  const dialogRef = useDialogFocus(onClose);
+  const titleId = `needs-action-warning-title-${rentalId}`;
+
+  return createPortal(<div className="admin-modal-backdrop needs-action-warning-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section ref={dialogRef} className="admin-modal needs-action-warning-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex="-1">
+      <header className="admin-modal-header">
+        <AlertTriangle size={22}/>
+        <div>
+          <strong id={titleId}>Needs action</strong>
+          <span>{vehicleName} • {customerName}</span>
+        </div>
+        <button type="button" className="admin-close-button" onClick={onClose} aria-label="Close full warning"><X size={18}/></button>
+      </header>
+      <div className="needs-action-warning-body">
+        <p>Resolve the following {reasons.length === 1 ? 'issue' : 'issues'} before this rental is clear:</p>
+        <ol>{reasons.map((reason, index) => <li key={`${index}-${reason}`}><AlertTriangle size={17}/><span>{reason}</span></li>)}</ol>
+      </div>
+      <footer className="modal-actions needs-action-warning-actions">
+        <button type="button" className="primary-btn" onClick={onClose}>Close warning</button>
+      </footer>
+    </section>
+  </div>, document.body);
 }
 
 function RestoreCancelledRentalModal({ rental, onCancel, onConfirm }) {
