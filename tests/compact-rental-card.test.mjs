@@ -34,7 +34,7 @@ test('collapsed Needs Action cards retain every blocker while leading with the f
   assert.match(source, /Collect \$\{money\(extensionAttention\.extension_total_amount/);
   assert.match(source, /Decide extension through/);
   assert.match(source, /Pickup blockers/);
-  assert.match(source, /Incomplete rental records/);
+  assert.doesNotMatch(source, /Incomplete rental records/);
   assert.match(source, /open damage or incident/);
   assert.match(source, /className="rental-card-needs-action-summary"/);
   assert.match(source, /title=\{needsActionReasons\.join\(' • '\)\}/);

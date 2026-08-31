@@ -51,6 +51,7 @@ import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInpu
 import { optimizeVehicleImage } from './lib/imageOptimizer';
 import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
 import { AGREEMENT_TEXT, AGREEMENT_VERSION } from './rentalAgreement';
+import { rentalHasActionableIssue, rentalStillNeedsPickupClearance } from './rentalNeedsAction';
 import logoUrl from './assets/logo-sidebar.png';
 import logoMobileUrl from './assets/logo-mobile.png';
 import './styles.css';
@@ -1047,14 +1048,14 @@ function App() {
   const filteredRentals = useMemo(() => {
     const q = search.toLowerCase().trim();
     return rentalManagerRentals.filter((r) =>
-      rentalMatchesFilter(r, rentalFilter, { documents, extensionRequests, vehicles }) &&
+      rentalMatchesFilter(r, rentalFilter, { documents, extensionRequests, vehicles, reports, emergencyExceptions, rentalCharges }) &&
       (!q ||
       [r.vehicles?.name, r.profiles?.full_name, r.profiles?.phone, r.profiles?.intended_vehicle_use, r.user_email, r.status]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q))
       )
     );
-  }, [rentalManagerRentals, search, rentalFilter, documents, extensionRequests, vehicles]);
+  }, [rentalManagerRentals, search, rentalFilter, documents, extensionRequests, vehicles, reports, emergencyExceptions, rentalCharges]);
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -5080,7 +5081,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
     : matchingRentals;
   const filterCounts = Object.fromEntries(rentalFilterOptions().map((filter) => [
     filter.key,
-    allRentals.filter((rental) => rentalMatchesFilter(rental, filter.key, { documents, extensionRequests, vehicles })).length,
+    allRentals.filter((rental) => rentalMatchesFilter(rental, filter.key, { documents, extensionRequests, vehicles, reports, emergencyExceptions, rentalCharges })).length,
   ]));
 
   return <>
@@ -7622,7 +7623,9 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const nextAdminStep = progressSteps.find((step) => !step.complete && step.adminAction);
   const openRentalReports = rentalReports.filter((report) => ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase()));
   const extensionInsuranceAttention = extensionAttention ? latestInsurancePacket(rentalDocuments, extensionAttention.id) : null;
-  const incompleteSteps = progressSteps.filter((step) => !step.complete && !step.bypassed && step.key !== 'ready');
+  const incompleteSteps = rentalStillNeedsPickupClearance(rental.status)
+    ? progressSteps.filter((step) => !step.complete && !step.bypassed && step.key !== 'ready')
+    : [];
   const needsActionReasons = [];
   if (rental.status === 'return_initiated') {
     needsActionReasons.push('Inspect the returned vehicle and enter ending mileage');
@@ -7647,10 +7650,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     needsActionReasons.push(`Emergency override active${unresolvedScopes ? ` for ${unresolvedScopes}` : ''}`);
   }
   if (incompleteSteps.length > 0) {
-    const incompleteLabel = ['active', 'rented', 'overdue', 'return_initiated'].includes(String(rental.status || '').toLowerCase())
-      ? 'Incomplete rental records'
-      : 'Pickup blockers';
-    needsActionReasons.push(`${incompleteLabel}: ${incompleteSteps.map((step) => step.detail).join(', ')}`);
+    needsActionReasons.push(`Pickup blockers: ${incompleteSteps.map((step) => step.detail).join(', ')}`);
   }
   if (outstandingAdditionalCharges > 0.005) {
     needsActionReasons.push(`Collect or waive ${money(outstandingAdditionalCharges)} in additional charges`);
@@ -11171,7 +11171,7 @@ function rentalFilterOptions() {
   ];
 }
 
-function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests = [], vehicles = [] } = {}) {
+function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests = [], vehicles = [], reports = [], emergencyExceptions = [], rentalCharges = [] } = {}) {
   if (filter === 'archive') return ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase());
   if (filter === 'all') return !['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase());
   const rentalDocuments = documents.filter((document) => document.rental_id === rental.id);
@@ -11184,6 +11184,21 @@ function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests
     (request.rental_id === rental.id || request.rentals?.id === rental.id) &&
     ['pending', 'approved_pending_payment'].includes(request.status)
   );
+  const hasOpenReport = reports.some((report) =>
+    (report.rental_id === rental.id || report.rentals?.id === rental.id) &&
+    ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase())
+  );
+  const hasActiveEmergencyException = emergencyExceptions.some((exception) =>
+    exception.rental_id === rental.id &&
+    exception.status === 'active' &&
+    new Date(exception.expires_at).getTime() > Date.now()
+  );
+  const hasOutstandingCharge = rentalCharges.some((charge) =>
+    (charge.rental_id === rental.id || charge.rentals?.id === rental.id) &&
+    !charge.included_in_initial_payment &&
+    charge.charge_type !== 'rental_installment' &&
+    ['pending', 'checkout_open', 'failed'].includes(String(charge.status || '').toLowerCase())
+  );
   const vehicle = vehicles.find((item) => item.id === rental.vehicle_id) || rental.vehicles;
   const vehicleStatus = String(vehicle?.status || '').toLowerCase();
 
@@ -11192,13 +11207,16 @@ function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests
   if (filter === 'returns_today') return ['active', 'overdue', 'return_initiated'].includes(rental.status) && isToday(rental.return_date);
   if (filter === 'extensions') return hasOpenExtension;
   if (filter === 'maintenance') return ['maintenance', 'unavailable', 'inactive'].includes(vehicleStatus);
-  return (
-    hasOpenExtension ||
-    rental.status === 'return_initiated' ||
-    isOverdue(rental.return_date, rental.return_time, rental.status) ||
-    (rental.payment_status || 'pending') !== 'paid' ||
-    !releaseChecklist.ready
-  ) && !['completed', 'cancelled'].includes(rental.status);
+  return rentalHasActionableIssue({
+    status: rental.status,
+    paymentStatus: rental.payment_status,
+    hasOpenExtension,
+    hasOpenReport,
+    hasActiveEmergencyException,
+    hasOutstandingCharge,
+    returnIsOverdue: isOverdue(rental.return_date, rental.return_time, rental.status),
+    releaseChecklistReady: releaseChecklist.ready,
+  });
 }
 
 function latestCustomerDocument(documents = [], userId, type) {
