@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { builtInLateFeeTemplates, isReturnWindowExtended } from './lib/lateFeePolicy.js';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
@@ -2195,7 +2196,7 @@ function App() {
     return data;
   }
 
-  async function applyRentalAmendment(rental, form, idempotencyKey) {
+  async function applyRentalAmendment(rental, form, idempotencyKey, { waiveLateFees = false } = {}) {
     if (!requireStaffPermission('rental.edit', 'edit rental details')) return false;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: {
@@ -2211,6 +2212,7 @@ function App() {
         reason: form.reason.trim(),
         adminNotes: form.adminNotes,
         idempotencyKey,
+        waiveLateFees,
       },
     });
     if (error || data?.error) {
@@ -2226,14 +2228,19 @@ function App() {
     await loadAllData({ silent: true });
     const amendment = data?.amendment;
     const settlement = data?.settlement;
+    const lateFeeResult = data?.lateFeeDecision === 'waive'
+      ? ' Existing late fees were waived.'
+      : data?.lateFeeDecision === 'keep'
+        ? ' Existing late fees remain due.'
+        : '';
     if (Number(settlement?.balance_due || 0) > 0) {
-      notify(`Rental updated. ${money(settlement.net_paid)} remains credited and only ${money(settlement.balance_due)} is due. Payment is now partially paid.`, 'success');
+      notify(`Rental updated. ${money(settlement.net_paid)} remains credited and only ${money(settlement.balance_due)} is due. Payment is now partially paid.${lateFeeResult}`, 'success');
     } else if (Number(settlement?.credit_due || 0) > 0) {
-      notify(`Rental updated. Customer credit due: ${money(settlement.credit_due)}. The original payment was preserved.`, 'success');
+      notify(`Rental updated. Customer credit due: ${money(settlement.credit_due)}. The original payment was preserved.${lateFeeResult}`, 'success');
     } else if (amendment?.requires_customer_resign) {
-      notify('Rental updated and fully settled. The customer must sign the updated agreement before pickup.', 'success');
+      notify(`Rental updated and fully settled. The customer must sign the updated agreement before pickup.${lateFeeResult}`, 'success');
     } else {
-      notify('Rental updated, payment reconciled, and calendar availability refreshed.', 'success');
+      notify(`Rental updated, payment reconciled, and calendar availability refreshed.${lateFeeResult}`, 'success');
     }
     return data;
   }
@@ -7936,6 +7943,10 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       {editRentalOpen && createPortal(<RentalAmendmentModal
         rental={rental}
         vehicles={vehicles}
+        lateFees={trueAdditionalCharges.filter((charge) =>
+          String(charge.source_type || '').toLowerCase() === 'late_return'
+          && ['pending', 'checkout_open', 'failed'].includes(String(charge.status || '').toLowerCase())
+        )}
         onPreview={previewRentalAmendment}
         onApply={applyRentalAmendment}
         onCancel={() => setEditRentalOpen(false)}
@@ -8174,7 +8185,7 @@ function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
   </div>;
 }
 
-function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCancel }) {
+function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const rentalDays = Math.max(1, Math.round(
     (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
@@ -8198,6 +8209,7 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
   const [error, setError] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lateFeePromptOpen, setLateFeePromptOpen] = useState(false);
   const [closedCorrectionConfirmed, setClosedCorrectionConfirmed] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const paymentCaptured = Boolean(rental.paid_at)
@@ -8248,6 +8260,23 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
     }
   }
 
+  const extendingReturnWindow = isReturnWindowExtended(rental, form.returnDate, form.returnTime);
+  const lateFeeTotal = lateFees.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+
+  async function commitApply(waiveLateFees) {
+    setLateFeePromptOpen(false);
+    setSaving(true);
+    setError('');
+    try {
+      await onApply?.(rental, form, idempotencyKey, { waiveLateFees });
+      onCancel();
+    } catch (applyError) {
+      setError(applyError?.message || 'The rental changes could not be applied.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function apply() {
     const minimumReasonLength = completed ? 20 : 10;
     if (form.reason.trim().length < minimumReasonLength) {
@@ -8258,16 +8287,11 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
       setError('Confirm that this is an intentional correction to a completed rental.');
       return;
     }
-    setSaving(true);
-    setError('');
-    try {
-      await onApply?.(rental, form, idempotencyKey);
-      onCancel();
-    } catch (applyError) {
-      setError(applyError?.message || 'The rental changes could not be applied.');
-    } finally {
-      setSaving(false);
+    if (extendingReturnWindow && lateFees.length > 0) {
+      setLateFeePromptOpen(true);
+      return;
     }
+    await commitApply(false);
   }
 
   const settlementCopy = preview?.canonical_settlement_status === 'balance_due'
@@ -8352,6 +8376,19 @@ function RentalAmendmentModal({ rental, vehicles = [], onPreview, onApply, onCan
           ? <button type="submit" className="primary-btn" disabled={reviewing || saving}>{reviewing ? 'Checking availability…' : 'Review Changes'}</button>
           : <button type="button" className="primary-btn" onClick={apply} disabled={saving || (completed && !closedCorrectionConfirmed)}>{saving ? 'Applying safely…' : 'Apply Rental Changes'}</button>}
       </footer>
+      {lateFeePromptOpen && <div className="late-fee-decision-backdrop" role="presentation">
+        <section className="late-fee-decision-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`late-fee-decision-title-${rental.id}`}>
+          <header><AlertTriangle size={22}/><div><small>Extension fee decision</small><strong id={`late-fee-decision-title-${rental.id}`}>What should happen to the existing late fees?</strong></div></header>
+          <p>This extension moves the return window later. Choose explicitly whether the {lateFees.length} existing late-return charge{lateFees.length === 1 ? '' : 's'} totaling <strong>{money(lateFeeTotal)}</strong> stay due or are waived.</p>
+          <div className="late-fee-decision-list">{lateFees.map((charge) => <span key={charge.id}><strong>{charge.name}</strong><em>{money(charge.total_amount)}</em></span>)}</div>
+          <small>The choice and administrator account are written to the audit log.</small>
+          <footer>
+            <button type="button" onClick={() => setLateFeePromptOpen(false)} disabled={saving}>Back</button>
+            <button type="button" className="primary-btn" autoFocus onClick={() => commitApply(false)} disabled={saving}>Keep Late Fees Due</button>
+            <button type="button" className="reject" onClick={() => commitApply(true)} disabled={saving}>Waive Late Fees</button>
+          </footer>
+        </section>
+      </div>}
     </form>
   </div>;
 }
@@ -8875,18 +8912,31 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   const [externalCharge, setExternalCharge] = useState(null);
   const [form, setForm] = useState({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
   const standardChargeTypes = new Set(['toll', 'add_on', 'cleaning', 'late_fee', 'damage', 'other']);
+  const policyTemplates = builtInLateFeeTemplates(rental);
 
-  function chooseInternalTemplate(templateId) {
-    const template = serviceFees.find((fee) => fee.id === templateId);
+  function applyChargeTemplate(template) {
     if (!template) return;
-    const templateType = String(template.service_type || 'other');
     setForm({
       name: template.name || '',
-      chargeType: templateType,
+      chargeType: template.chargeType || template.service_type || 'other',
       amount: Number(template.amount || 0).toFixed(2),
       taxable: Boolean(template.taxable),
       description: template.description || '',
     });
+  }
+
+  function chooseInternalTemplate(templateId) {
+    const template = policyTemplates.find((item) => item.id === templateId)
+      || serviceFees.find((fee) => `service:${fee.id}` === templateId);
+    applyChargeTemplate(template);
+  }
+
+  function chooseChargeType(chargeType) {
+    if (chargeType === 'late_fee') {
+      applyChargeTemplate(policyTemplates[0]);
+      return;
+    }
+    setForm({ ...form, chargeType });
   }
 
   async function submit(event) {
@@ -9058,9 +9108,9 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
     </>}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <div className="manual-charge-heading"><strong>Manual rental charge</strong><small>Start from an internal template or enter a one-off charge. Nothing is billed until you submit it for this reservation.</small></div>
-      {serviceFees.length > 0 && <label className="full-field internal-fee-template-field"><span>Internal fee template</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose a saved internal fee…</option>{serviceFees.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {money(fee.amount)}</option>)}</select></label>}
+      <label className="full-field internal-fee-template-field"><span>Quick charge / Internal fee template</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose a priced charge…</option><optgroup label="Late-return policy">{policyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {money(template.amount)}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Late-return choices use this rental's contracted pricing and fill the amount, tax, and description automatically.</small></label>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
-      <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => setForm({ ...form, chargeType: event.target.value })}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
+      <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => chooseChargeType(event.target.value)}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee — $25 policy fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
       <label className="charge-amount-field"><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
       <label className="charge-description-field"><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
       <label className="checkbox-row"><input type="checkbox" checked={form.taxable} onChange={(event) => setForm({ ...form, taxable: event.target.checked })}/> Apply CT sales tax</label>

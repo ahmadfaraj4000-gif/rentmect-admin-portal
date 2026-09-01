@@ -1283,6 +1283,49 @@ summary:focus-visible {
   padding: 8px 14px !important;
 }
 
+/* The charge editor is rendered inside the narrow financial column on a
+   rental card. Its original desktop minimums were wider than that column and
+   pushed Amount and the submit button off-screen. */
+.rental-charge-manager.compact .rental-charge-form.portal-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+.rental-charge-manager.compact .rental-charge-form > *,
+.rental-charge-manager.compact .rental-charge-form label,
+.rental-charge-manager.compact .rental-charge-form input,
+.rental-charge-manager.compact .rental-charge-form select {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.rental-charge-manager.compact .rental-charge-form .manual-charge-heading,
+.rental-charge-manager.compact .rental-charge-form .full-field,
+.rental-charge-manager.compact .rental-charge-form .charge-name-field,
+.rental-charge-manager.compact .rental-charge-form .charge-description-field,
+.rental-charge-manager.compact .rental-charge-form .checkbox-row,
+.rental-charge-manager.compact .rental-charge-form > button {
+  grid-column: 1 / -1 !important;
+}
+
+.rental-charge-manager.compact .rental-charge-form .checkbox-row,
+.rental-charge-manager.compact .rental-charge-form > button {
+  justify-self: stretch !important;
+  width: 100% !important;
+}
+
+.rental-charge-manager.compact .internal-fee-template-field > small {
+  display: block !important;
+  margin-top: 5px !important;
+  line-height: 1.35 !important;
+  overflow-wrap: anywhere !important;
+}
+
 .charge-collection-actions {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -8750,6 +8793,128 @@ input[type="radio"] {
 
   .rental-charge-manager.compact .automatic-charge-fields label:first-child,
   .rental-charge-manager.compact .automatic-charge-totals .automatic-charge-primary {
+    grid-column: auto !important;
+  }
+
+  .rental-charge-manager.compact .rental-charge-form.portal-form {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rental-charge-manager.compact .rental-charge-form .manual-charge-heading,
+  .rental-charge-manager.compact .rental-charge-form .full-field,
+  .rental-charge-manager.compact .rental-charge-form .charge-name-field,
+  .rental-charge-manager.compact .rental-charge-form .charge-description-field,
+  .rental-charge-manager.compact .rental-charge-form .checkbox-row,
+  .rental-charge-manager.compact .rental-charge-form > button {
+    grid-column: auto !important;
+  }
+}
+
+.late-fee-decision-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1200 !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 20px !important;
+  background: rgba(8, 18, 12, 0.62) !important;
+}
+
+.late-fee-decision-dialog {
+  display: grid !important;
+  gap: 14px !important;
+  width: min(560px, 100%) !important;
+  max-height: min(720px, calc(100dvh - 40px)) !important;
+  overflow: auto !important;
+  padding: 22px !important;
+  border: 1px solid #d6a061 !important;
+  border-radius: 14px !important;
+  background: #fff !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28) !important;
+}
+
+.late-fee-decision-dialog header {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 11px !important;
+}
+
+.late-fee-decision-dialog header svg {
+  flex: 0 0 auto !important;
+  color: #a35d10 !important;
+}
+
+.late-fee-decision-dialog header div,
+.late-fee-decision-dialog header strong,
+.late-fee-decision-dialog header small {
+  display: block !important;
+  min-width: 0 !important;
+}
+
+.late-fee-decision-dialog header small {
+  margin-bottom: 3px !important;
+  color: #8a5b24 !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+}
+
+.late-fee-decision-dialog header strong {
+  color: #162219 !important;
+  font-size: 19px !important;
+  line-height: 1.25 !important;
+}
+
+.late-fee-decision-dialog p,
+.late-fee-decision-dialog > small {
+  margin: 0 !important;
+  color: #4c5a50 !important;
+  line-height: 1.5 !important;
+}
+
+.late-fee-decision-list {
+  display: grid !important;
+  gap: 7px !important;
+}
+
+.late-fee-decision-list span {
+  display: flex !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 10px 12px !important;
+  border: 1px solid #ead8c3 !important;
+  border-radius: 8px !important;
+  background: #fff9f1 !important;
+}
+
+.late-fee-decision-list em {
+  color: #7a3c00 !important;
+  font-style: normal !important;
+  font-weight: 850 !important;
+}
+
+.late-fee-decision-dialog footer {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 9px !important;
+}
+
+.late-fee-decision-dialog footer button {
+  width: 100% !important;
+  min-height: 42px !important;
+}
+
+.late-fee-decision-dialog footer button:first-child {
+  grid-column: 1 / -1 !important;
+}
+
+@media (max-width: 540px) {
+  .late-fee-decision-dialog footer {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .late-fee-decision-dialog footer button:first-child {
     grid-column: auto !important;
   }
 }

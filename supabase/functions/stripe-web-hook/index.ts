@@ -35,6 +35,7 @@ type CheckoutPayload = {
   dailyRate?: number | null;
   securityDeposit?: number | null;
   adminNotes?: string;
+  waiveLateFees?: boolean;
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
@@ -242,6 +243,15 @@ async function applyAdminRentalAmendment(req: Request, payload: CheckoutPayload)
     throw new HttpError("Rental dates and idempotency key are required.", 400);
   }
 
+  const { data: lateFeeCharges, error: lateFeeChargesError } = await adminClient!
+    .from("rental_charge_items")
+    .select("id, status, description, total_amount, stripe_checkout_session_id, stripe_payment_intent_id")
+    .eq("rental_id", payload.rentalId)
+    .eq("source_type", "late_return")
+    .in("status", ["pending", "checkout_open", "failed"])
+    .order("created_at", { ascending: true });
+  if (lateFeeChargesError) throw lateFeeChargesError;
+
   const { data: openCharge, error: openChargeError } = await adminClient!
     .from("rental_charge_items")
     .select("id, status, stripe_checkout_session_id, stripe_payment_intent_id")
@@ -285,6 +295,27 @@ async function applyAdminRentalAmendment(req: Request, payload: CheckoutPayload)
     if (checkout.status === "open") await stripe!.checkout.sessions.expire(checkout.id);
   }
 
+  if (payload.waiveLateFees === true) {
+    for (const lateFee of lateFeeCharges || []) {
+      if (lateFee.stripe_payment_intent_id?.startsWith("pi_")) {
+        const intent = await stripe!.paymentIntents.retrieve(lateFee.stripe_payment_intent_id);
+        if (["succeeded", "processing", "requires_capture"].includes(intent.status)) {
+          throw new HttpError("A late-fee payment is already processing or captured. Refresh before extending the rental.", 409);
+        }
+        if (["requires_payment_method", "requires_confirmation", "requires_action"].includes(intent.status)) {
+          await stripe!.paymentIntents.cancel(intent.id);
+        }
+      }
+      if (lateFee.stripe_checkout_session_id?.startsWith("cs_")) {
+        const checkout = await stripe!.checkout.sessions.retrieve(lateFee.stripe_checkout_session_id);
+        if (checkout.status === "complete" || checkout.payment_status === "paid") {
+          throw new HttpError("Stripe already received a late-fee payment. Refresh before extending the rental.", 409);
+        }
+        if (checkout.status === "open") await stripe!.checkout.sessions.expire(checkout.id);
+      }
+    }
+  }
+
   const userClient = authenticatedClient(req);
   const { data, error } = await userClient.rpc("admin_apply_rental_amendment", {
     p_rental_id: payload.rentalId,
@@ -300,6 +331,50 @@ async function applyAdminRentalAmendment(req: Request, payload: CheckoutPayload)
     p_idempotency_key: payload.idempotencyKey,
   });
   if (error || !data) throw new HttpError(error?.message || "The rental changes could not be applied.", 400);
+
+  const lateFeeDecision = payload.waiveLateFees === true ? "waive" : "keep";
+  for (const lateFee of lateFeeCharges || []) {
+    const description = lateFeeDecision === "waive"
+      ? `${String(lateFee.description || "Late-return charge.").replace(/\s*\[(?:AUTO-)?WAIVED[^\]]*\]\s*$/i, "")} [WAIVED BY ADMIN DURING RENTAL EXTENSION.]`
+      : lateFee.description;
+    const { error: lateFeeDecisionError } = await adminClient!
+      .from("rental_charge_items")
+      .update(lateFeeDecision === "waive" ? {
+        status: "waived",
+        description,
+        stripe_checkout_session_id: null,
+        stripe_payment_intent_id: null,
+        payment_provider: null,
+        last_admin_charge_error: null,
+        updated_at: new Date().toISOString(),
+      } : {
+        status: lateFee.status,
+        description,
+        stripe_checkout_session_id: lateFee.stripe_checkout_session_id,
+        stripe_payment_intent_id: lateFee.stripe_payment_intent_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", lateFee.id)
+      .in("status", ["pending", "checkout_open", "failed", "waived"]);
+    if (lateFeeDecisionError) throw lateFeeDecisionError;
+  }
+
+  if ((lateFeeCharges || []).length > 0) {
+    const { error: lateFeeAuditError } = await userClient.rpc("record_admin_audit_event", {
+      p_action: lateFeeDecision === "waive"
+        ? "rental.late_fees_waived_on_extension"
+        : "rental.late_fees_kept_on_extension",
+      p_entity_type: "rental",
+      p_entity_id: payload.rentalId,
+      p_metadata: {
+        decision: lateFeeDecision,
+        charge_ids: lateFeeCharges!.map((charge) => charge.id),
+        charge_count: lateFeeCharges!.length,
+        total_amount: lateFeeCharges!.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0),
+      },
+    });
+    if (lateFeeAuditError) throw lateFeeAuditError;
+  }
 
   const { data: settlement, error: settlementError } = await adminClient!.rpc(
     "sync_rental_remaining_balance",
@@ -333,6 +408,7 @@ async function applyAdminRentalAmendment(req: Request, payload: CheckoutPayload)
     ...data,
     settlement,
     balanceCharge,
+    lateFeeDecision: (lateFeeCharges || []).length > 0 ? lateFeeDecision : null,
     staleStripePaymentExpired: Boolean(
       openCharge?.stripe_checkout_session_id || openCharge?.stripe_payment_intent_id
     ),
