@@ -4354,17 +4354,82 @@ function PaymentsTab({ canViewFinancialSummary = false, paymentEvents, paymentFi
   </>;
 }
 
-function TollsTab({ notify }) {
+function tollRentalCandidates(transaction, rentals = [], assignments = [], search = '') {
+  const tollAt = new Date(transaction?.occurred_at || '');
+  const tollTime = tollAt.getTime();
+  const knownVehicleId = transaction?.vehicle_id || '';
+  const query = String(search || '').trim().toLowerCase();
+
+  return rentals
+    .filter((rental) => rental?.id && rental?.user_id && String(rental.status || '').toLowerCase() !== 'cancelled')
+    .map((rental) => {
+      const rentalAssignments = assignments.filter((assignment) => assignment.rental_id === rental.id);
+      const matchingAssignments = knownVehicleId
+        ? rentalAssignments.filter((assignment) => assignment.vehicle_id === knownVehicleId)
+        : [];
+      const pickupAt = parseBookingDateTime(rental.pickup_date, rental.pickup_time || '9:00 AM');
+      const scheduledReturnAt = parseBookingDateTime(rental.return_date, rental.return_time || '9:00 AM');
+      const inspectedAt = rental.inspection_completed_at ? new Date(rental.inspection_completed_at) : null;
+      const effectiveReturnAt = inspectedAt && Number.isFinite(inspectedAt.getTime()) ? inspectedAt : scheduledReturnAt;
+      const pickupTime = pickupAt?.getTime();
+      const returnTime = effectiveReturnAt?.getTime();
+      const insideBookedDates = Number.isFinite(tollTime) && Number.isFinite(pickupTime) && Number.isFinite(returnTime)
+        ? tollTime >= pickupTime && tollTime <= returnTime
+        : false;
+      const sameVehicle = Boolean(knownVehicleId) && (rental.vehicle_id === knownVehicleId || matchingAssignments.length > 0);
+      const exactPossession = Number.isFinite(tollTime) && matchingAssignments.some((assignment) => {
+        const assignedFrom = new Date(assignment.assigned_from).getTime();
+        const assignedUntil = assignment.assigned_until ? new Date(assignment.assigned_until).getTime() : Number.POSITIVE_INFINITY;
+        return Number.isFinite(assignedFrom) && tollTime >= assignedFrom && tollTime <= assignedUntil;
+      });
+      const distanceMs = !Number.isFinite(tollTime) || !Number.isFinite(pickupTime) || !Number.isFinite(returnTime)
+        ? Number.POSITIVE_INFINITY
+        : tollTime < pickupTime ? pickupTime - tollTime : tollTime > returnTime ? tollTime - returnTime : 0;
+      const relationship = exactPossession
+        ? 'Strongest match: same car and toll is inside the recorded possession dates'
+        : sameVehicle && insideBookedDates
+          ? 'Strong match: same car and toll is inside the booked dates; verify the possession record'
+        : !knownVehicleId && insideBookedDates
+          ? 'Toll is inside these rental dates; provider did not identify the car'
+          : sameVehicle
+            ? 'Same car; compare the toll time with pickup and return carefully'
+            : insideBookedDates
+              ? 'Dates overlap, but the provider car differs; correct the car before assigning'
+              : 'Nearby rental dates';
+      const searchable = [
+        rental.id,
+        rental.profiles?.full_name,
+        rental.profiles?.email,
+        rental.profiles?.phone,
+        rental.vehicles?.name,
+        rental.vehicles?.plate_number,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return { rental, pickupAt, effectiveReturnAt, insideBookedDates, exactPossession, sameVehicle, matchingAssignments, distanceMs, relationship, searchable };
+    })
+    .filter((candidate) => !query || candidate.searchable.includes(query))
+    .sort((a, b) => {
+      const confidenceA = a.exactPossession ? 0 : a.sameVehicle && a.insideBookedDates ? 1 : a.insideBookedDates ? 2 : a.sameVehicle ? 3 : 4;
+      const confidenceB = b.exactPossession ? 0 : b.sameVehicle && b.insideBookedDates ? 1 : b.insideBookedDates ? 2 : b.sameVehicle ? 3 : 4;
+      return confidenceA - confidenceB || a.distanceMs - b.distanceMs || String(b.rental.created_at || '').localeCompare(String(a.rental.created_at || ''));
+    });
+}
+
+function TollsTab({ rentals = [], notify }) {
   const [transactions, setTransactions] = useState([]);
   const [syncRuns, setSyncRuns] = useState([]);
   const [mappings, setMappings] = useState([]);
   const [fleet, setFleet] = useState([]);
+  const [vehicleAssignments, setVehicleAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [loadError, setLoadError] = useState('');
   const [connection, setConnection] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [transponderSelections, setTransponderSelections] = useState({});
+  const [rentalReviewId, setRentalReviewId] = useState('');
+  const [rentalSelections, setRentalSelections] = useState({});
+  const [rentalSearches, setRentalSearches] = useState({});
+  const [rentalVerificationNotes, setRentalVerificationNotes] = useState({});
   const [dateWindow, setDateWindow] = useState({
     fromDate: adminBookingDateOffset(-30),
     toDate: adminBookingDateOffset(0),
@@ -4381,7 +4446,7 @@ function TollsTab({ notify }) {
 
   async function loadTollspotData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [transactionsRes, runsRes, mappingsRes, fleetRes] = await Promise.all([
+    const [transactionsRes, runsRes, mappingsRes, fleetRes, assignmentsRes] = await Promise.all([
       withRequestDeadline(supabase
         .from('admin_tollspot_transactions')
         .select('*')
@@ -4401,14 +4466,19 @@ function TollsTab({ notify }) {
         .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
         .neq('id', '00000000-0000-4000-8000-000000000015')
         .order('name'), 'Toll fleet'),
+      withRequestDeadline(supabase
+        .from('rental_vehicle_assignments')
+        .select('rental_id,vehicle_id,assigned_from,assigned_until,source')
+        .order('assigned_from', { ascending: false }), 'Rental vehicle possession history'),
     ]);
-    const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error].filter(Boolean);
+    const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error, assignmentsRes.error].filter(Boolean);
     setLoadError(errors.map((error) => error.message).join(' '));
     if (transactionsRes.data) {
       setTransactions(transactionsRes.data.filter((transaction) => String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'));
     }
     if (runsRes.data) setSyncRuns(runsRes.data);
     if (mappingsRes.data) setMappings(mappingsRes.data);
+    if (assignmentsRes.data) setVehicleAssignments(assignmentsRes.data);
     if (fleetRes.data) {
       setFleet(fleetRes.data);
       if (!selectedVehicleId && fleetRes.data[0]) setSelectedVehicleId(fleetRes.data[0].id);
@@ -4498,6 +4568,33 @@ function TollsTab({ notify }) {
     await loadTollspotData({ silent: true });
   }
 
+  async function assignTollToRental(transaction) {
+    const rentalId = rentalSelections[transaction.id] || '';
+    const verificationNote = String(rentalVerificationNotes[transaction.id] || '').trim();
+    if (!rentalId) return notify('Choose the customer rental that was responsible for this toll.');
+    if (verificationNote.length < 10) return notify('Explain how you verified the rental using at least 10 characters.');
+
+    setBusy(`assign_rental:${transaction.id}`);
+    const { error } = await supabase.rpc('admin_assign_tollspot_transaction_to_rental', {
+      p_transaction_id: transaction.id,
+      p_rental_id: rentalId,
+      p_verification_note: verificationNote,
+    });
+    setBusy('');
+    if (error) {
+      notify(error.message || 'The toll could not be assigned.');
+      await loadTollspotData({ silent: true });
+      return;
+    }
+
+    const selected = rentals.find((rental) => rental.id === rentalId);
+    notify(`${money(transaction.total_amount)} toll assigned to ${selected?.profiles?.full_name || selected?.profiles?.email || 'the selected customer'} and added as a pending rental charge.`, 'success');
+    setRentalReviewId('');
+    setRentalSelections((current) => ({ ...current, [transaction.id]: '' }));
+    setRentalVerificationNotes((current) => ({ ...current, [transaction.id]: '' }));
+    await loadTollspotData({ silent: true });
+  }
+
   const selectedVehicle = fleet.find((item) => item.id === selectedVehicleId);
   const openStatuses = new Set(['received', 'needs_review', 'matched']);
   const visibleTransactions = transactions.filter((item) =>
@@ -4581,6 +4678,12 @@ function TollsTab({ notify }) {
         {visibleTransactions.map((transaction) => {
           const localVehicle = fleetById.get(transaction.vehicle_id);
           const missingVehicle = !transaction.vehicle_id;
+          const reviewOpen = rentalReviewId === transaction.id;
+          const candidateSearch = rentalSearches[transaction.id] || '';
+          const candidates = reviewOpen ? tollRentalCandidates(transaction, rentals, vehicleAssignments, candidateSearch) : [];
+          const displayedCandidates = candidates.slice(0, candidateSearch ? 50 : 12);
+          const selectedCandidate = candidates.find((candidate) => candidate.rental.id === rentalSelections[transaction.id]);
+          const canAssign = ['received', 'needs_review', 'matched'].includes(transaction.status);
           return <article key={transaction.id}>
             <div className="tollspot-transaction-heading">
               <div><strong>{money(transaction.total_amount)} • {transaction.agency || 'Toll agency'}</strong><span>{transaction.exit_location || transaction.entry_location || 'Location unavailable'} • {new Date(transaction.occurred_at).toLocaleString()}</span></div>
@@ -4589,15 +4692,56 @@ function TollsTab({ notify }) {
             <div className="tollspot-transaction-details">
               <span><strong>Fleet car:</strong> {transaction.vehicle_name || localVehicle?.name || 'Unidentified — do not charge'}</span>
               <span><strong>Plate:</strong> {transaction.license_plate || transaction.vehicle_plate_number || localVehicle?.plate_number || 'Not supplied'}</span>
-              <span><strong>Transponder:</strong> {transaction.masked_transponder || 'Not supplied'}</span>
+              <span><strong>Full transponder:</strong> {transaction.transponder_number ? <code>{transaction.transponder_number}</code> : 'Not supplied'}</span>
               <span><strong>Provider vehicle:</strong> {transaction.tollspot_vehicle_id ? `#${transaction.tollspot_vehicle_id}` : 'Not supplied'}</span>
               <span><strong>Rental/customer:</strong> {transaction.rental_id ? `${transaction.customer_name || transaction.customer_email || 'Customer'} • ${String(transaction.rental_id).slice(0, 8)}` : 'No possession match'}</span>
               <span><strong>Match:</strong> {transaction.match_method ? prettyStatus(transaction.match_method) : 'Unmatched'} • provider transaction #{transaction.tollspot_transaction_id}</span>
+              <span><strong>Toll/exit time:</strong> {formatEasternDateTime(transaction.occurred_at) || 'Not supplied'}</span>
+              <span><strong>Entry time:</strong> {formatEasternDateTime(transaction.entry_at) || 'Not supplied'}</span>
+              <span><strong>Provider posted:</strong> {formatEasternDateTime(transaction.posted_at) || 'Not supplied'}</span>
+              <span><strong>Route:</strong> {[transaction.entry_location, transaction.exit_location].filter(Boolean).join(' → ') || 'Not supplied'}</span>
               {transaction.review_reason && <span className="tollspot-review-reason">{transaction.review_reason}</span>}
             </div>
             {missingVehicle && transaction.transponder_number && <div className="tollspot-transponder-assignment">
-              <label><span>Identify transponder {transaction.masked_transponder}</span><select value={transponderSelections[transaction.id] || ''} onChange={(event) => setTransponderSelections((current) => ({ ...current, [transaction.id]: event.target.value }))}><option value="">Choose the physical fleet car…</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} • {vehicle.plate_number || 'no plate'}</option>)}</select></label>
+              <label><span>Identify full transponder {transaction.transponder_number}</span><select value={transponderSelections[transaction.id] || ''} onChange={(event) => setTransponderSelections((current) => ({ ...current, [transaction.id]: event.target.value }))}><option value="">Choose the physical fleet car…</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} • {vehicle.plate_number || 'no plate'}</option>)}</select></label>
               <button type="button" className="approve" disabled={Boolean(busy) || !transponderSelections[transaction.id]} onClick={() => invokeTollspot('assign_transponder', { transponderNumber: transaction.transponder_number, vehicleId: transponderSelections[transaction.id] })}>{busy === 'assign_transponder' ? 'Verifying…' : 'Verify car & reprocess'}</button>
+            </div>}
+            {canAssign && <div className="tollspot-rental-review-actions">
+              <button type="button" className="secondary-btn" disabled={Boolean(busy)} onClick={() => setRentalReviewId((current) => current === transaction.id ? '' : transaction.id)}>{reviewOpen ? 'Close rental review' : 'Assign to rental'}</button>
+              <small>Use this when automatic matching cannot determine the customer. Assignment creates the pending toll charge and records who made the decision.</small>
+            </div>}
+            {reviewOpen && <div className="tollspot-rental-review">
+              <div className="tollspot-review-evidence">
+                <strong>Match this exact toll</strong>
+                <span>{money(transaction.total_amount)} • {transaction.agency || 'Unknown agency'} • {formatEasternDateTime(transaction.occurred_at)}</span>
+                <span>Transponder: <code>{transaction.transponder_number || 'not supplied'}</code> • Plate: {transaction.license_plate || transaction.vehicle_plate_number || 'not supplied'}</span>
+                <span>Car: {transaction.vehicle_name || localVehicle?.name || 'provider did not identify it'} • Route: {[transaction.entry_location, transaction.exit_location].filter(Boolean).join(' → ') || 'not supplied'}</span>
+              </div>
+              <label className="tollspot-rental-search"><span>Search every rental</span><input type="search" placeholder="Customer, email, phone, rental ID, vehicle, or plate" value={candidateSearch} onChange={(event) => setRentalSearches((current) => ({ ...current, [transaction.id]: event.target.value }))}/></label>
+              <small className="tollspot-candidate-help">Candidates are ranked by matching car, whether the toll falls inside the booked dates, and closeness to pickup/return. {candidateSearch ? `Showing ${displayedCandidates.length} search results.` : `Showing the ${Math.min(12, candidates.length)} closest of ${candidates.length} eligible rentals; search to find any other rental.`}</small>
+              <div className="tollspot-rental-candidates">
+                {!displayedCandidates.length && <p className="muted">No eligible rentals match this search.</p>}
+                {displayedCandidates.map((candidate) => {
+                  const rental = candidate.rental;
+                  const selected = rentalSelections[transaction.id] === rental.id;
+                  const incompatibleVehicle = Boolean(transaction.vehicle_id) && !candidate.sameVehicle;
+                  return <button type="button" key={rental.id} className={selected ? 'selected' : ''} disabled={incompatibleVehicle} title={incompatibleVehicle ? 'The provider identified a different car. Verify or correct the car before assigning this rental.' : ''} onClick={() => setRentalSelections((current) => ({ ...current, [transaction.id]: rental.id }))}>
+                    <span className="tollspot-candidate-heading"><strong>{rental.profiles?.full_name || 'Customer name unavailable'}</strong><em>{prettyStatus(rental.status)}</em></span>
+                    <span>{rental.profiles?.email || 'No email'} • {rental.profiles?.phone || 'No phone'}</span>
+                    <span><strong>{rental.vehicles?.name || 'Vehicle unavailable'}</strong> • plate {rental.vehicles?.plate_number || 'not saved'}</span>
+                    <span>{formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
+                    <span className={candidate.sameVehicle && (candidate.insideBookedDates || candidate.exactPossession) ? 'strong-match' : ''}>{candidate.relationship}</span>
+                    {candidate.matchingAssignments.map((assignment) => <small key={`${assignment.vehicle_id}:${assignment.assigned_from}`}>Recorded possession of identified car: {formatEasternDateTime(assignment.assigned_from)} → {assignment.assigned_until ? formatEasternDateTime(assignment.assigned_until) : 'open-ended'} ({prettyStatus(assignment.source)})</small>)}
+                    <small>Rental ID: {rental.id}</small>
+                  </button>;
+                })}
+              </div>
+              {selectedCandidate && <div className="tollspot-selected-rental">
+                <strong>Selected: {selectedCandidate.rental.profiles?.full_name || selectedCandidate.rental.profiles?.email}</strong>
+                <span>{selectedCandidate.rental.vehicles?.name} • {formatRentalDate(selectedCandidate.rental.pickup_date, selectedCandidate.rental.pickup_time)} to {formatRentalDate(selectedCandidate.rental.return_date, selectedCandidate.rental.return_time)}</span>
+              </div>}
+              <label className="tollspot-verification-note"><span>How did you verify this customer and rental?</span><textarea rows="3" maxLength="500" placeholder="Example: Transponder 00811688812 is physically installed in Audi Q5 #225; customer had the vehicle when the toll occurred." value={rentalVerificationNotes[transaction.id] || ''} onChange={(event) => setRentalVerificationNotes((current) => ({ ...current, [transaction.id]: event.target.value.slice(0, 500) }))}/></label>
+              <button type="button" className="approve tollspot-assign-rental" disabled={Boolean(busy) || !rentalSelections[transaction.id] || String(rentalVerificationNotes[transaction.id] || '').trim().length < 10} onClick={() => assignTollToRental(transaction)}>{busy === `assign_rental:${transaction.id}` ? 'Assigning and creating charge…' : 'Confirm rental & create toll charge'}</button>
             </div>}
           </article>;
         })}
@@ -7207,7 +7351,7 @@ function SettingsTab({
     </Panel>}
 
     {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Hands-Off Operations">
-      <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle possession history, and adds one idempotent customer charge. Provider or Wheelbase records that cannot be connected to a Rent Me CT rental stay out of the admin toll list.</p>
+      <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle possession history, and adds one idempotent customer charge. Every provider toll remains visible; records that cannot be matched automatically stay in Needs Review for an administrator to verify.</p>
       <form className="portal-form settings-form" onSubmit={saveBillingAutomation}>
         <label className="checkbox-pill">
           <input type="checkbox" checked={billingAutomation.tollspot_automatic_sync_enabled !== false} onChange={(event) => setBillingAutomation((current) => ({ ...current, tollspot_automatic_sync_enabled: event.target.checked }))} />
@@ -7511,6 +7655,7 @@ function rentalActivityDescription(event) {
     agreement_signed: 'Rental agreement signed',
     agreement_signed_in_office: 'Rental agreement signed in office',
     tollspot_charge_automatically_added: 'Matched TollSpot charge added',
+    admin_tollspot_rental_assigned: 'TollSpot charge manually matched to this rental',
   };
   return labels[event.event_type] || prettyStatus(event.event_type);
 }
@@ -7523,9 +7668,10 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
       const actor = actorById.get(event.actor_id);
       const actorName = payload.actor_email || actor?.email || actor?.full_name || (event.actor_id === event.user_id ? 'customer' : 'system');
       const amount = Number(payload.amount || 0) || (['admin_saved_card_charge_succeeded', 'stripe_rental_payment_recorded'].includes(event.event_type) ? Number(payload.amount_total || 0) / 100 : 0);
+      const detail = event.event_type === 'admin_tollspot_rental_assigned' ? payload.verification_note : '';
       return <article key={event.id}>
         <History size={14}/>
-        <span><strong>{rentalActivityDescription(event)} by {actorName}</strong><small>{new Date(event.created_at).toLocaleString()}{amount > 0 ? ` • ${money(amount)}` : ''}</small></span>
+        <span><strong>{rentalActivityDescription(event)} by {actorName}</strong><small>{new Date(event.created_at).toLocaleString()}{amount > 0 ? ` • ${money(amount)}` : ''}{detail ? ` • ${detail}` : ''}</small></span>
       </article>;
     })}
   </div>;

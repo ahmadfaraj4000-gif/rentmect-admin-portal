@@ -9619,9 +9619,147 @@ input[type="radio"] {
   min-height: 2.4rem;
 }
 
+.tollspot-transaction-details code,
+.tollspot-review-evidence code {
+  color: #132f49;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
+}
+
+.tollspot-rental-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.tollspot-rental-review-actions small {
+  color: var(--muted, #607080);
+}
+
+.tollspot-rental-review {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(31, 104, 166, 0.24);
+  border-radius: 12px;
+  background: rgba(235, 246, 255, 0.62);
+}
+
+.tollspot-review-evidence,
+.tollspot-selected-rental {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.tollspot-review-evidence span,
+.tollspot-selected-rental span,
+.tollspot-candidate-help {
+  color: var(--muted, #607080);
+  font-size: 0.8rem;
+}
+
+.tollspot-rental-search,
+.tollspot-verification-note {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.tollspot-rental-search input,
+.tollspot-verification-note textarea {
+  width: 100%;
+}
+
+.tollspot-rental-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 0.65rem;
+  max-height: 32rem;
+  overflow: auto;
+  padding: 0.1rem;
+}
+
+.tollspot-rental-candidates > button {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(25, 58, 86, 0.16);
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+}
+
+.tollspot-rental-candidates > button:hover,
+.tollspot-rental-candidates > button.selected {
+  border-color: #1769aa;
+  box-shadow: 0 0 0 2px rgba(23, 105, 170, 0.13);
+}
+
+.tollspot-rental-candidates > button.selected {
+  background: #f1f8ff;
+}
+
+.tollspot-rental-candidates > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.tollspot-candidate-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tollspot-candidate-heading em {
+  color: var(--muted, #607080);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.tollspot-rental-candidates span,
+.tollspot-rental-candidates small {
+  overflow-wrap: anywhere;
+}
+
+.tollspot-rental-candidates .strong-match {
+  color: #087443;
+  font-weight: 800;
+}
+
+.tollspot-selected-rental {
+  padding: 0.75rem;
+  border-left: 4px solid #1769aa;
+  background: #fff;
+}
+
+.tollspot-assign-rental {
+  justify-self: start;
+}
+
 @media (max-width: 680px) {
   .tollspot-transponder-assignment {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .tollspot-rental-review-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tollspot-rental-candidates {
+    grid-template-columns: 1fr;
+  }
+
+  .tollspot-assign-rental {
+    justify-self: stretch;
   }
 }

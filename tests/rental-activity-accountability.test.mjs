@@ -11,6 +11,8 @@ test('rental card loads attributed audit events into its bottom activity timelin
   assert.match(source, /RentalActivityTimeline events=\{activityEvents\}/);
   assert.match(source, /by \{actorName\}/);
   assert.match(source, /rental_charge_waived/);
+  assert.match(source, /admin_tollspot_rental_assigned/);
+  assert.match(source, /payload\.verification_note/);
 });
 
 test('waiver endpoint closes collection paths and records actor-attributed activity', () => {
