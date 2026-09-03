@@ -6213,6 +6213,10 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
   const [vehicleActionBusy, setVehicleActionBusy] = useState({});
   const [vehicleStatusUndo, setVehicleStatusUndo] = useState({});
+  const [transponderMappings, setTransponderMappings] = useState([]);
+  const [transponderInputs, setTransponderInputs] = useState({});
+  const [transponderBusy, setTransponderBusy] = useState({});
+  const [transponderLoadError, setTransponderLoadError] = useState('');
   const normalizeVehicleField = (key, value) => {
     if (key === 'vin') return normalizeVinInput(value);
     if (key === 'plate_number') return normalizePlateInput(value);
@@ -6228,6 +6232,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
   const statusOptions = OPERATIONAL_VEHICLE_STATUS_OPTIONS;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0];
   const editingVehicle = vehicles.find((vehicle) => vehicle.id === editingVehicleId);
+  const transponderByVehicle = new Map(transponderMappings.map((mapping) => [mapping.vehicle_id, mapping]));
   const normalizedVehicleSearch = vehicleSearch.trim().toLowerCase();
   const visibleVehicles = vehicles.filter((vehicle) => {
     if (!normalizedVehicleSearch) return true;
@@ -6239,6 +6244,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
       vehicle.vehicle_type,
       vehicle.plate_number,
       vehicle.vin,
+      transponderInputs[vehicle.id],
       vehicle.status,
       ...(Array.isArray(vehicle.features) ? vehicle.features : []),
     ].filter(Boolean).some((value) => String(value).toLowerCase().includes(normalizedVehicleSearch));
@@ -6247,6 +6253,30 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
   useEffect(() => {
     if (!selectedVehicleId && vehicles[0]) setSelectedVehicleId(vehicles[0].id);
   }, [selectedVehicleId, vehicles]);
+
+  async function loadVehicleTransponders() {
+    const { data, error } = await withRequestDeadline(supabase
+      .from('tollspot_transponder_mappings')
+      .select('id,vehicle_id,transponder_number,verified_by,verified_at,updated_at')
+      .eq('active', true)
+      .order('verified_at', { ascending: false }), 'Vehicle transponders');
+    if (error) {
+      setTransponderLoadError(error.message || 'Verified transponders could not load.');
+      return false;
+    }
+    const mappings = data || [];
+    setTransponderMappings(mappings);
+    setTransponderInputs(Object.fromEntries(vehicles.map((vehicle) => [
+      vehicle.id,
+      mappings.find((mapping) => mapping.vehicle_id === vehicle.id)?.transponder_number || '',
+    ])));
+    setTransponderLoadError('');
+    return true;
+  }
+
+  useEffect(() => {
+    void loadVehicleTransponders();
+  }, []);
 
   useEffect(() => {
     if (!editingVehicle) return undefined;
@@ -6305,6 +6335,42 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
     }
   }
 
+  async function saveVehicleTransponder(vehicle) {
+    if (transponderBusy[vehicle.id]) return;
+    const mapping = transponderByVehicle.get(vehicle.id);
+    const nextTransponder = String(transponderInputs[vehicle.id] || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 200);
+    const currentTransponder = mapping?.transponder_number || '';
+    if (nextTransponder === currentTransponder) return notify(`${vehicle.name} already has this verified transponder.`, 'success');
+    if (!nextTransponder && currentTransponder && !window.confirm(`Clear transponder ${currentTransponder} from ${vehicle.name}? Future tolls using it will remain in Needs Review until it is assigned again.`)) return;
+
+    setTransponderBusy((current) => ({ ...current, [vehicle.id]: true }));
+    const { data, error } = await supabase.functions.invoke('tollspot-sync', {
+      body: {
+        action: 'set_vehicle_transponder',
+        vehicleId: vehicle.id,
+        transponderNumber: nextTransponder,
+      },
+    });
+    setTransponderBusy((current) => ({ ...current, [vehicle.id]: false }));
+    if (error || data?.error) {
+      let message = data?.error || error?.message || 'The transponder could not be saved.';
+      try {
+        const payload = await error?.context?.clone?.().json();
+        message = payload?.error || message;
+      } catch {
+        // Keep the function error already returned by Supabase.
+      }
+      notify(message);
+      await loadVehicleTransponders();
+      return;
+    }
+
+    notify(nextTransponder
+      ? `${vehicle.name} transponder ${nextTransponder} verified. ${data.reprocessed || 0} unresolved toll records reprocessed.`
+      : `${vehicle.name} transponder mapping cleared.`, 'success');
+    await loadVehicleTransponders();
+  }
+
   async function changeVehicleCondition(vehicle, nextStatus) {
     const previousStatus = operationalVehicleStatus(vehicle.status);
     if (previousStatus === nextStatus) return;
@@ -6361,6 +6427,7 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
         <span>{visibleVehicles.length} of {vehicles.length} vehicles</span>
         <button className="primary-btn add-vehicle-trigger" type="button" onClick={() => setAddVehicleOpen(true)}><Plus size={17}/> Add New Vehicle</button>
       </div>
+      {transponderLoadError && <div className="data-health-banner error"><AlertTriangle size={18}/><div><strong>Vehicle transponders could not load</strong><span>{transponderLoadError}</span></div><button type="button" onClick={loadVehicleTransponders}>Retry</button></div>}
       {visibleVehicles.length === 0 && <p className="muted list-empty-state">No vehicles match “{vehicleSearch.trim()}”.</p>}
       {visibleVehicles.map((v) => {
         const isSelected = selectedVehicle?.id === v.id;
@@ -6379,6 +6446,9 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
         const showMarkAvailable = conditionStatus === 'unavailable' && !scheduleStatus && !v.maintenance_lock_active;
         const showUndoStatus = canUndoStatus && !(showMarkAvailable && statusUndo.previousStatus === 'available');
         const vehicleImage = getAdminVehicleImage(v);
+        const transponderMapping = transponderByVehicle.get(v.id);
+        const transponderValue = transponderInputs[v.id] ?? transponderMapping?.transponder_number ?? '';
+        const transponderChanged = transponderValue !== (transponderMapping?.transponder_number || '');
         return <div className={`data-row vehicle-list-row ${isSelected ? 'selected' : ''}`} role="button" tabIndex={0} key={v.id} onClick={() => selectVehicle(v)} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') selectVehicle(v);
         }}>
@@ -6439,6 +6509,16 @@ function Vehicles({ vehicles, maintenanceSchedules = [], maintenanceServiceLogs 
                 runVehicleAction(v.id, 'publish', () => updateVehiclePublished(v.id, v.published === false));
               }}>{vehicleActionBusy[`${v.id}:publish`] ? 'Saving…' : v.published === false ? 'Publish' : 'Unpublish'}</button>
             </div>
+          </div>
+          <div className="vehicle-card-transponder" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <span className="vehicle-card-zone-label">Toll transponder</span>
+            <label><span className="sr-only">Full toll transponder for {v.name}</span><input type="text" autoComplete="off" maxLength="200" placeholder="Enter full transponder number" value={transponderValue} onChange={(event) => setTransponderInputs((current) => ({ ...current, [v.id]: event.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 200) }))}/></label>
+            <button type="button" className={transponderValue ? 'approve' : 'secondary-btn'} disabled={Boolean(transponderBusy[v.id]) || !transponderChanged} onClick={() => saveVehicleTransponder(v)}>{transponderBusy[v.id] ? 'Saving…' : !transponderValue && transponderMapping ? 'Clear mapping' : transponderMapping ? 'Update transponder' : 'Save transponder'}</button>
+            <small>{transponderChanged
+              ? 'Unsaved change — confirm the number physically before saving.'
+              : transponderMapping
+                ? `Verified ${formatEasternDateTime(transponderMapping.verified_at)}`
+                : 'Not identified yet — enter the complete physical transponder number when known.'}</small>
           </div>
         </div>;
       })}
