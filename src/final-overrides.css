@@ -9550,3 +9550,78 @@ input[type="radio"] {
 @media (max-width: 640px) {
   .payment-adjustment-choice { grid-template-columns: 1fr; }
 }
+.rental-charge-manager {
+  display: flex;
+  flex-direction: column;
+}
+
+.rental-charge-manager > * {
+  order: 2;
+}
+
+.rental-charge-manager > .rental-charge-heading {
+  order: 0;
+}
+
+.rental-charge-manager > .rental-charge-form {
+  order: 1;
+  margin-top: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+.rental-activity-timeline {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rental-activity-timeline article {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(25, 58, 86, 0.12);
+  border-radius: 10px;
+  background: rgba(248, 251, 253, 0.88);
+}
+
+.rental-activity-timeline article > svg {
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+}
+
+.rental-activity-timeline article span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.rental-activity-timeline article small {
+  color: var(--muted, #607080);
+}
+
+.tollspot-transponder-assignment {
+  display: flex;
+  align-items: end;
+  gap: 0.65rem;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(25, 58, 86, 0.12);
+}
+
+.tollspot-transponder-assignment label {
+  display: grid;
+  flex: 1;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.tollspot-transponder-assignment select {
+  min-height: 2.4rem;
+}
+
+@media (max-width: 680px) {
+  .tollspot-transponder-assignment {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

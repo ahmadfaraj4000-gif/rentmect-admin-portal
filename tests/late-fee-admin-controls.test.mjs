@@ -30,7 +30,7 @@ test('built-in late fee choices are immediately priced and taxable', () => {
   const templates = builtInLateFeeTemplates(rental);
   assert.deepEqual(templates.map((template) => [template.name, template.amount, template.chargeType, template.taxable]), [
     ['Late return fee - 30 minutes', 25, 'late_fee', true],
-    ['Late return - additional rental day', 52.10, 'late_fee', true],
+    ['Late return - additional rental day', 52.10, 'late_rental_day', true],
   ]);
 });
 
@@ -48,11 +48,18 @@ test('extension workflow requires an explicit keep-or-waive decision and reports
   assert.match(adminSource, /Existing late fees were waived/);
 });
 
-test('manual-charge dropdown includes immediately priced late-return choices', () => {
-  assert.match(adminSource, /optgroup label="Late-return policy"/);
-  assert.match(adminSource, /Late fee — \$25 policy fee/);
+test('manual-charge dropdown separates fixed late fee and whole-rental-day fee', () => {
+  assert.match(adminSource, /optgroup label="Rental agreement fees"/);
+  assert.match(adminSource, /Late fee — fixed \$25/);
+  assert.match(adminSource, /Late day — whole rental day/);
   assert.match(adminSource, /if \(chargeType === 'late_fee'\) \{\s*applyChargeTemplate\(policyTemplates\[0\]\)/);
-  assert.match(adminSource, /fill the amount, tax, and description automatically/);
+  assert.match(adminSource, /if \(chargeType === 'late_rental_day'\) \{\s*applyChargeTemplate\(policyTemplates\[1\]\)/);
+  assert.match(adminSource, /Fixed agreement fees fill automatically/);
+});
+
+test('manual charge form is visually ordered directly below its button', () => {
+  assert.match(adminCss, /> \.rental-charge-heading\s*\{[\s\S]*?order: 0/);
+  assert.match(adminCss, /> \.rental-charge-form\s*\{[\s\S]*?order: 1/);
 });
 
 test('compact manual-charge form keeps amount and submit controls inside the financial panel', () => {

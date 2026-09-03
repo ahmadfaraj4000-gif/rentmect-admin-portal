@@ -50,7 +50,7 @@ export function builtInLateFeeTemplates(rental) {
     {
       id: 'policy:late-rental-day',
       name: 'Late return - additional rental day',
-      chargeType: 'late_fee',
+      chargeType: 'late_rental_day',
       amount: lateDayAmount,
       taxable: true,
       description: `Additional rental day at the reservation's contracted daily amount of $${lateDayAmount.toFixed(2)}.`,

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { builtInLateFeeTemplates, isReturnWindowExtended } from './lib/lateFeePolicy.js';
+import { agreementFeeTemplates } from './lib/agreementFeeCatalog.js';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
@@ -4363,6 +4364,7 @@ function TollsTab({ notify }) {
   const [loadError, setLoadError] = useState('');
   const [connection, setConnection] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [transponderSelections, setTransponderSelections] = useState({});
   const [dateWindow, setDateWindow] = useState({
     fromDate: adminBookingDateOffset(-30),
     toDate: adminBookingDateOffset(0),
@@ -4403,11 +4405,7 @@ function TollsTab({ notify }) {
     const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error].filter(Boolean);
     setLoadError(errors.map((error) => error.message).join(' '));
     if (transactionsRes.data) {
-      setTransactions(transactionsRes.data.filter((transaction) =>
-        transaction.vehicle_id &&
-        transaction.rental_id &&
-        String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'
-      ));
+      setTransactions(transactionsRes.data.filter((transaction) => String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'));
     }
     if (runsRes.data) setSyncRuns(runsRes.data);
     if (mappingsRes.data) setMappings(mappingsRes.data);
@@ -4464,6 +4462,8 @@ function TollsTab({ notify }) {
     notify(
       action === 'health'
         ? `Connected to TollSpot API ${data.apiVersion}.`
+        : action === 'assign_transponder'
+          ? `Transponder verified. ${data.reprocessed || 0} matching toll records were reprocessed.`
         : action === 'sync_fleet'
           ? `${data.synced || 0} TollSpot fleet records synchronized.`
           : `${data.received || data.tolls?.received || 0} TollSpot charges checked.`,
@@ -4508,6 +4508,7 @@ function TollsTab({ notify }) {
         : item.status === statusFilter
   );
   const mappingByVehicle = new Map(mappings.map((mapping) => [mapping.vehicle_id, mapping]));
+  const fleetById = new Map(fleet.map((vehicle) => [vehicle.id, vehicle]));
   const latestRun = syncRuns[0];
 
   if (loading) return <Loading message="Loading TollSpot operations…" />;
@@ -4570,25 +4571,36 @@ function TollsTab({ notify }) {
       </div>
     </Panel>
 
-    <Panel title="Connected Rental Tolls" eyebrow="Rent Me CT Records Only">
-      <p className="muted">Only tolls connected to both a Rent Me CT fleet vehicle and rental appear here. Unmatched provider or Wheelbase activity is kept out of this screen.</p>
+    <Panel title="Toll Attribution Queue" eyebrow="Vehicle + Customer Verification">
+      <p className="muted">Every toll is visible. A customer charge is created only after the provider vehicle or verified transponder resolves to one fleet car and the toll time falls inside exactly one possession period.</p>
       <div className="filter-row tollspot-filter-row">
         {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{prettyStatus(status)}</button>)}
       </div>
       {!visibleTransactions.length && <p className="muted">No TollSpot transactions in this view.</p>}
       <div className="tollspot-transaction-list">
-        {visibleTransactions.map((transaction) => <article key={transaction.id}>
+        {visibleTransactions.map((transaction) => {
+          const localVehicle = fleetById.get(transaction.vehicle_id);
+          const missingVehicle = !transaction.vehicle_id;
+          return <article key={transaction.id}>
             <div className="tollspot-transaction-heading">
               <div><strong>{money(transaction.total_amount)} • {transaction.agency || 'Toll agency'}</strong><span>{transaction.exit_location || transaction.entry_location || 'Location unavailable'} • {new Date(transaction.occurred_at).toLocaleString()}</span></div>
               <span className={`fleet-status-badge ${transaction.status === 'matched' ? 'available' : transaction.status === 'needs_review' ? 'maintenance' : 'reserved'}`}>{prettyStatus(transaction.status)}</span>
             </div>
             <div className="tollspot-transaction-details">
-              <span>{transaction.license_plate || 'No plate'} {transaction.license_plate_state || ''}</span>
-              <span>{prettyStatus(transaction.transaction_type || 'tolls')}</span>
-              <span>Provider #{transaction.tollspot_transaction_id}</span>
+              <span><strong>Fleet car:</strong> {transaction.vehicle_name || localVehicle?.name || 'Unidentified — do not charge'}</span>
+              <span><strong>Plate:</strong> {transaction.license_plate || transaction.vehicle_plate_number || localVehicle?.plate_number || 'Not supplied'}</span>
+              <span><strong>Transponder:</strong> {transaction.masked_transponder || 'Not supplied'}</span>
+              <span><strong>Provider vehicle:</strong> {transaction.tollspot_vehicle_id ? `#${transaction.tollspot_vehicle_id}` : 'Not supplied'}</span>
+              <span><strong>Rental/customer:</strong> {transaction.rental_id ? `${transaction.customer_name || transaction.customer_email || 'Customer'} • ${String(transaction.rental_id).slice(0, 8)}` : 'No possession match'}</span>
+              <span><strong>Match:</strong> {transaction.match_method ? prettyStatus(transaction.match_method) : 'Unmatched'} • provider transaction #{transaction.tollspot_transaction_id}</span>
               {transaction.review_reason && <span className="tollspot-review-reason">{transaction.review_reason}</span>}
             </div>
-          </article>)}
+            {missingVehicle && transaction.transponder_number && <div className="tollspot-transponder-assignment">
+              <label><span>Identify transponder {transaction.masked_transponder}</span><select value={transponderSelections[transaction.id] || ''} onChange={(event) => setTransponderSelections((current) => ({ ...current, [transaction.id]: event.target.value }))}><option value="">Choose the physical fleet car…</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} • {vehicle.plate_number || 'no plate'}</option>)}</select></label>
+              <button type="button" className="approve" disabled={Boolean(busy) || !transponderSelections[transaction.id]} onClick={() => invokeTollspot('assign_transponder', { transponderNumber: transaction.transponder_number, vehicleId: transponderSelections[transaction.id] })}>{busy === 'assign_transponder' ? 'Verifying…' : 'Verify car & reprocess'}</button>
+            </div>}
+          </article>;
+        })}
       </div>
     </Panel>
   </section>;
@@ -7479,8 +7491,50 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
   </div>;
 }
 
+function rentalActivityDescription(event) {
+  const payload = event.event_payload || {};
+  const labels = {
+    rental_charge_waived: `${payload.charge_name || 'Rental charge'} waived`,
+    admin_rental_charge_waived: `${payload.charge_name || 'Rental charge'} waived`,
+    admin_saved_card_charge_succeeded: `${payload.charge_name || 'Saved-card charge'} payment completed`,
+    admin_local_payment_recorded: 'Rental payment completed',
+    admin_external_rental_charge_payment_recorded: `${payload.charge_name || 'Rental charge'} payment completed`,
+    stripe_rental_payment_recorded: 'Rental payment completed',
+    rental_extension_approved_pending_payment: 'Rental extension approved',
+    vehicle_switch_continuation_approved_pending_payment: 'Vehicle-switch extension approved',
+    rental_extension_rejected: 'Rental extension rejected',
+    admin_local_rental_extension_payment_recorded: 'Extension payment completed and new dates activated',
+    admin_local_vehicle_switch_payment_recorded: 'Vehicle-switch payment completed and continuation activated',
+    stripe_rental_extension_payment_recorded: 'Extension payment completed and new dates activated',
+    stripe_vehicle_switch_payment_recorded: 'Vehicle-switch payment completed and continuation activated',
+    rental_agreement_resign_required: 'Updated rental agreement signature required for the approved dates',
+    agreement_signed: 'Rental agreement signed',
+    agreement_signed_in_office: 'Rental agreement signed in office',
+    tollspot_charge_automatically_added: 'Matched TollSpot charge added',
+  };
+  return labels[event.event_type] || prettyStatus(event.event_type);
+}
+
+function RentalActivityTimeline({ events = [], actorById = new Map() }) {
+  if (!events.length) return null;
+  return <div className="rental-activity-timeline" aria-label="Audited rental activity">
+    {events.map((event) => {
+      const payload = event.event_payload || {};
+      const actor = actorById.get(event.actor_id);
+      const actorName = payload.actor_email || actor?.email || actor?.full_name || (event.actor_id === event.user_id ? 'customer' : 'system');
+      const amount = Number(payload.amount || 0) || (['admin_saved_card_charge_succeeded', 'stripe_rental_payment_recorded'].includes(event.event_type) ? Number(payload.amount_total || 0) / 100 : 0);
+      return <article key={event.id}>
+        <History size={14}/>
+        <span><strong>{rentalActivityDescription(event)} by {actorName}</strong><small>{new Date(event.created_at).toLocaleString()}{amount > 0 ? ` • ${money(amount)}` : ''}</small></span>
+      </article>;
+    })}
+  </div>;
+}
+
 function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [activityEvents, setActivityEvents] = useState([]);
+  const [activityActorById, setActivityActorById] = useState(new Map());
   const [needsActionModalOpen, setNeedsActionModalOpen] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
@@ -7498,6 +7552,21 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [extensionInsuranceRequestId, setExtensionInsuranceRequestId] = useState('');
+  const activityRefreshKey = `${rental.updated_at || ''}|${rentalCharges.map((item) => `${item.id}:${item.status}:${item.updated_at || ''}`).join(',')}|${extensionRequests.map((item) => `${item.id}:${item.status}:${item.updated_at || ''}`).join(',')}`;
+  useEffect(() => {
+    if (!detailsExpanded) return undefined;
+    let active = true;
+    (async () => {
+      const { data } = await supabase.from('rental_audit_events').select('*').eq('rental_id', rental.id).order('created_at', { ascending: false }).limit(250);
+      if (!active || !data) return;
+      setActivityEvents(data);
+      const actorIds = [...new Set(data.map((event) => event.actor_id).filter(Boolean))];
+      if (!actorIds.length) return setActivityActorById(new Map());
+      const { data: actors } = await supabase.from('profiles').select('id,email,full_name').in('id', actorIds);
+      if (active) setActivityActorById(new Map((actors || []).map((actor) => [actor.id, actor])));
+    })();
+    return () => { active = false; };
+  }, [detailsExpanded, rental.id, activityRefreshKey]);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
   const license = rentalLicense || reusableLicense;
@@ -7831,16 +7900,17 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     </div>
 
     <details className="rental-card-activity" open={activityNeedsAttention || undefined}>
-      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length} items</em><ChevronDown size={16}/></summary>
+      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length + activityEvents.length} items</em><ChevronDown size={16}/></summary>
       <div className="rental-card-activity-body">
         {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
           {stepCompletions.map((completion) => <button type="button" className="admin-completion-badge" key={completion.id} onClick={() => setAdminStepScope(completion.step_key)}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</button>)}
           {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
         </div>}
         {activeEmergencyException && <EmergencyExceptionBanner exception={activeEmergencyException} checklist={releaseChecklist} onResolve={(scope) => resolveEmergencyExceptionScope?.(activeEmergencyException.id, scope)} />}
+        <RentalActivityTimeline events={activityEvents} actorById={activityActorById} />
         <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} onManageInsurance={uploadAdminBookingDocument ? (request) => setExtensionInsuranceRequestId(request.id) : null} />
         {rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
-        {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && <small>No extension, incident, or admin-completion activity is attached to this rental.</small>}
+        {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && activityEvents.length === 0 && <small>No extension, payment, waiver, incident, or admin-completion activity is attached to this rental.</small>}
       </div>
     </details>
     </div>}
@@ -8911,22 +8981,24 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0 });
   const [externalCharge, setExternalCharge] = useState(null);
   const [form, setForm] = useState({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
-  const standardChargeTypes = new Set(['toll', 'add_on', 'cleaning', 'late_fee', 'damage', 'other']);
+  const standardChargeTypes = new Set(['toll', 'add_on', 'cleaning', 'late_fee', 'late_rental_day', 'damage', 'other']);
   const policyTemplates = builtInLateFeeTemplates(rental);
+  // Internal fee template rows remain available after the complete agreement catalog.
+  const agreementTemplates = agreementFeeTemplates(rental);
 
   function applyChargeTemplate(template) {
     if (!template) return;
     setForm({
       name: template.name || '',
       chargeType: template.chargeType || template.service_type || 'other',
-      amount: Number(template.amount || 0).toFixed(2),
+      amount: template.amount == null ? '' : Number(template.amount).toFixed(2),
       taxable: Boolean(template.taxable),
       description: template.description || '',
     });
   }
 
   function chooseInternalTemplate(templateId) {
-    const template = policyTemplates.find((item) => item.id === templateId)
+    const template = agreementTemplates.find((item) => item.id === templateId)
       || serviceFees.find((fee) => `service:${fee.id}` === templateId);
     applyChargeTemplate(template);
   }
@@ -8934,6 +9006,10 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   function chooseChargeType(chargeType) {
     if (chargeType === 'late_fee') {
       applyChargeTemplate(policyTemplates[0]);
+      return;
+    }
+    if (chargeType === 'late_rental_day') {
+      applyChargeTemplate(policyTemplates[1]);
       return;
     }
     setForm({ ...form, chargeType });
@@ -9108,9 +9184,9 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
     </>}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <div className="manual-charge-heading"><strong>Manual rental charge</strong><small>Start from an internal template or enter a one-off charge. Nothing is billed until you submit it for this reservation.</small></div>
-      <label className="full-field internal-fee-template-field"><span>Quick charge / Internal fee template</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose a priced charge…</option><optgroup label="Late-return policy">{policyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {money(template.amount)}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Late-return choices use this rental's contracted pricing and fill the amount, tax, and description automatically.</small></label>
+      <label className="full-field internal-fee-template-field"><span>Quick charge / Rental agreement fee</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose an agreement charge…</option><optgroup label="Rental agreement fees">{agreementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel || money(template.amount)}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Fixed agreement fees fill automatically. Variable or actual-cost items require the documented amount.</small></label>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
-      <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => chooseChargeType(event.target.value)}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee — $25 policy fee</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
+      <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => chooseChargeType(event.target.value)}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee — fixed $25</option><option value="late_rental_day">Late day — whole rental day</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
       <label className="charge-amount-field"><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
       <label className="charge-description-field"><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
       <label className="checkbox-row"><input type="checkbox" checked={form.taxable} onChange={(event) => setForm({ ...form, taxable: event.target.checked })}/> Apply CT sales tax</label>
