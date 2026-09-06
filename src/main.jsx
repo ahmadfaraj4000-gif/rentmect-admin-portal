@@ -7930,7 +7930,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     formatMoney: money,
   });
   const adminState = paymentAction
-    ? { label: paymentAction.label, tone: 'warning', next: paymentAction.next }
+    ? { label: paymentAction.label, tone: balanceDue > 0.005 ? 'payment-due' : 'warning', next: paymentAction.next }
     : baseAdminState;
   const nextAdminStep = progressSteps.find((step) => !step.complete && step.adminAction);
   const openRentalReports = rentalReports.filter((report) => ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase()));

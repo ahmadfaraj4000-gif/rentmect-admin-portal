@@ -3675,6 +3675,12 @@ input[type="radio"] {
   color: var(--ui-amber) !important;
 }
 
+.workflow-badge.payment-due {
+  border-color: #b91c1c !important;
+  background: #b91c1c !important;
+  color: #ffffff !important;
+}
+
 .workflow-badge.danger,
 .fleet-status-badge.rented,
 .fleet-status-badge.maintenance,
