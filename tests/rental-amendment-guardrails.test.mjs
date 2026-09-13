@@ -18,10 +18,12 @@ test('the fake booking-flow vehicle is excluded from replacement choices', () =>
   );
 });
 
-test('captured deposits cannot be edited and completed rentals need confirmation', () => {
-  assert.match(mainSource, /disabled=\{paymentCaptured\}/);
+test('deposit requirements can be overridden without implying a refund; completed rentals need confirmation', () => {
+  assert.match(mainSource, /a price decrease does not itself issue a refund/);
   assert.match(mainSource, /'partially_paid', 'partial'/);
-  assert.match(mainSource, /this deposit is locked/);
+  assert.match(mainSource, /Keep existing/);
+  assert.match(mainSource, /Use new deposit/);
+  assert.match(mainSource, /onPreview\(rental, candidate\)/);
   assert.match(mainSource, /Correct this completed rental/);
   assert.match(mainSource, /minimumReasonLength = completed \? 20 : 10/);
 });

@@ -6791,3 +6791,22 @@ body{
     font-weight:650;
     line-height:1.4;
 }
+
+/* Deposit decisions and confirmed refund receipts. */
+.deposit-swap-choice { padding: 24px; max-width: 620px; }
+.deposit-swap-amounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+.deposit-swap-amounts div { background: #f1f5f9; padding: 12px; border-radius: 10px; }
+.deposit-swap-amounts dt { font-size: 12px; color: #475569; }
+.deposit-swap-amounts dd { margin: 6px 0 0; font-weight: 750; font-size: 21px; color: #0f172a; }
+.deposit-swap-choice .modal-actions { flex-wrap: wrap; }
+.rental-refund-status { display: grid; gap: 8px; margin: 12px 0; }
+.refund-status-item { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; color: #334155; }
+.refund-status-item svg { flex-shrink: 0; margin-top: 2px; }
+.refund-status-item span { display: grid; gap: 4px; }
+.refund-status-item small { font-size: 12px; overflow-wrap: anywhere; }
+.refund-status-item.returned { background: #ecfdf5; border-color: #86efac; color: #166534; }
+.refund-status-item.pending { background: #fffbeb; border-color: #fcd34d; color: #854d0e; }
+.refund-status-item.failed { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+@media (max-width: 540px) { .deposit-swap-amounts { grid-template-columns: 1fr; } .deposit-swap-choice { padding: 16px; } }
+
+.rental-card-refund-badge { display: inline-flex; align-items: center; gap: 5px; color: #166534; background: #ecfdf5; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 700; }
