@@ -8484,7 +8484,7 @@ function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
 
 function RentalRefundStatus({ rental, refunds = [] }) {
   return <div className="rental-refund-status" aria-live="polite">
-    {Number(rental.security_deposit) !== Number(rental.base_security_deposit ?? rental.security_deposit) && <div className="refund-status-item override"><ShieldCheck size={17}/><span><strong>Rental deposit override: {money(rental.security_deposit)}</strong><small>Vehicle base deposit: {money(rental.base_security_deposit)}</small></span></div>}
+    {Number(rental.security_deposit) !== Number(rental.base_security_deposit ?? rental.security_deposit) && <div className="refund-status-item override"><ShieldCheck size={17}/><span><strong>Applied rental deposit: {money(rental.security_deposit)}</strong><small>Vehicle base deposit: {money(rental.base_security_deposit)}</small></span></div>}
     {refunds.filter((refund) => !refund.extension_request_id).map((refund) => {
       const state = String(refund.status || 'pending').toLowerCase();
       const displayState = refundDisplayState(state);
