@@ -43,8 +43,8 @@ test('collapsed Needs Action cards retain every blocker while leading with the f
 });
 
 test('payment debt overrides generic car-out guidance everywhere on the card', () => {
-  assert.match(source, /const paymentAction = getRentalPaymentAction/);
-  assert.match(source, /\? \{ label: paymentAction\.label, tone: 'warning', next: paymentAction\.next \}/);
+  assert.match(source, /const paymentAction = rental.status === 'cancelled' \? null : getRentalPaymentAction/);
+  assert.match(source, /\? \{ label: paymentAction\.label, tone: balanceDue > 0\.005 \? 'payment-due' : 'warning', next: paymentAction\.next \}/);
   assert.match(source, /if \(paymentAction\) needsActionReasons\.push\(paymentAction\.reason\)/);
 });
 

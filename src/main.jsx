@@ -1556,14 +1556,40 @@ function App() {
     }
 
     if (status === 'cancelled') {
+      if (options.refundDeposit) {
+        if (!requireStaffPermission('deposit.resolve', 'refund security deposits')
+          || !requireStaffPermission('payment.refund', 'refund payments')) return false;
+        try {
+          const { data, error } = await withPaymentProcessing('Cancelling the reservation and refunding the Stripe deposit…', () => supabase.functions.invoke('stripe-web-hook', {
+            body: { action: 'cancel_before_pickup_refund_deposit', rentalId: id, reason: options.reason },
+          }));
+          if (error || data?.error) {
+            let detail = data?.error || error?.message || 'Cancellation/refund could not be confirmed.';
+            if (error?.context) {
+              try { detail = (await error.context.clone().json())?.error || detail; } catch { /* preserve original error */ }
+            }
+            notify(detail, 'error');
+            return false;
+          }
+          notify(['released', 'succeeded'].includes(data?.status)
+            ? 'Reservation cancelled. Security deposit refunded to the original card.'
+            : 'Reservation cancelled. Stripe is processing the security deposit refund.', 'success');
+          return true;
+        } catch (error) {
+          notify(error.message || 'Cancellation/refund could not be confirmed. Refresh the booking before retrying.', 'error');
+          return false;
+        } finally {
+          await loadAllData({ silent: true });
+        }
+      }
       const { error } = await supabase.rpc('admin_cancel_rental', {
         p_rental_id: id,
         p_reason: options.reason || 'Cancelled by admin',
       });
-      if (error) return notify(error.message);
+      if (error) { notify(error.message, 'error'); return false; }
       applyLocalStatus();
       notify(rentalTransitionNotice(rental, 'cancelled'), 'success');
-      return;
+      return true;
     }
 
     const { error } = await supabase.from('rentals').update({ status }).eq('id', id);
@@ -1837,7 +1863,7 @@ function App() {
         }
       }
       console.error('Security deposit refund failed', { rentalId: rental.id, error, data, detail });
-      return notify(detail);
+      return notify(detail, 'error');
     }
 
     const nextStatus = data?.status === 'succeeded' || data?.status === 'released' ? 'released' : 'release_pending';
@@ -7809,7 +7835,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
   const canAdjustPaymentDeadline = rental.payment_status !== 'paid' && canCancel;
   const canRestoreCancelledRental = Boolean(restoreCancelledRental)
-    && rental.status === 'cancelled'
+    && rental.status === 'cancelled' && !rental.cancelled_before_pickup_at
     && !['paid', 'partially_paid', 'partial'].includes(String(rental.payment_status || 'pending').toLowerCase());
   const canCreateEmergencyException = Boolean(emergencyAuthorized)
     && !activeEmergencyException
@@ -7841,7 +7867,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const rentalBalanceDue = Number(openRentalBalance?.total_amount || 0);
   const outstandingRentalCharges = outstandingAdditionalCharges + rentalBalanceDue;
   const canReleaseDeposit = Boolean(releaseSecurityDeposit)
-    && rental.status === 'completed'
+    && (rental.status === 'completed' || (rental.status === 'cancelled' && rental.cancelled_before_pickup_at))
     && ['held', 'adjustment_refund_due'].includes(rental.deposit_status)
     && Number(rental.deposit_held_amount || rental.security_deposit || 0) > 0
     && outstandingRentalCharges <= 0.005;
@@ -7870,6 +7896,13 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const refundSources = refundableRentalSources(rental, rentalCharges, rentalRefunds, depositAllocations);
   const canRefundRentalPayment = Boolean(refundRentalPayment)
     && rental.payment_status === 'paid' && refundSources.length > 0;
+  const cancellationDepositFlow = canCancel && Boolean(releaseSecurityDeposit)
+    && rental.payment_provider === 'stripe' && Boolean(rental.paid_at)
+    && rental.starting_mileage == null && protectedDeposit > 0;
+  const cancellationRefundRemaining = refundSources.reduce((sum, source) => sum + source.maximum, 0);
+  const cancellationRefundPending = rentalRefunds.some((refund) => ['processing', 'pending'].includes(refund.status));
+  const cancellationCredit = Number(rental.cancellation_credit_amount || 0);
+  const cancelledBeforePickup = rental.status === 'cancelled' && Boolean(rental.cancelled_before_pickup_at);
   const customerName = rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable');
   const rentalReference = rental.reservation_number || rental.booking_number || rental.confirmation_code || String(rental.id || '').slice(0, 6).toUpperCase();
   const rentalDays = Math.max(1, Math.round(
@@ -7901,14 +7934,16 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const recordedExternalRefunds = externalPaymentActions
     .filter((action) => action.action_type === 'refund')
     .reduce((sum, action) => sum + Number(action.amount || 0), 0);
-  const paidAmount = Math.max(0, recordedPaymentAmount + paidRentalBalances - recordedRentalRefunds - recordedExternalRefunds);
+  const cancelledDepositReturned = cancelledBeforePickup ? Number(rental.deposit_released_amount || 0) : 0;
+  const paidAmount = Math.max(0, recordedPaymentAmount + paidRentalBalances - recordedRentalRefunds - recordedExternalRefunds - cancelledDepositReturned);
+  const currentInvoiceTotal = Math.max(0, initialPaymentTotal - cancellationCredit);
   const paymentHistory = buildRentalPaymentHistory(rental, rentalPayments, rentalCharges, rentalExtensions, initialPaymentTotal, externalPaymentActions, rentalRefunds, depositAllocations);
   const editableExternalPayments = paymentHistory.filter((payment) => payment.editable && payment.provider === 'external' && payment.amount > 0);
-  const invoiceBalanceDue = Math.max(0, initialPaymentTotal - paidAmount);
+  const invoiceBalanceDue = Math.max(0, currentInvoiceTotal - paidAmount);
   const balanceDue = Math.max(0, invoiceBalanceDue + outstandingAdditionalCharges);
-  const customerCreditDue = Math.max(0, paidAmount - initialPaymentTotal);
+  const customerCreditDue = Math.max(0, paidAmount - currentInvoiceTotal);
   const depositHeldAmount = protectedDeposit || 0;
-  const paymentAction = getRentalPaymentAction({
+  const paymentAction = rental.status === 'cancelled' ? null : getRentalPaymentAction({
     customerName,
     balanceDue,
     paymentStatus: rental.payment_status,
@@ -8081,7 +8116,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       </div>
 
       <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
-        <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
+        <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Refunded' : 'Deposit refund outstanding') : balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
         <dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
@@ -8089,20 +8124,22 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           {Number(rental.service_fee_total || 0) > 0 && <><dt>Booking fees</dt><dd>{money(rental.service_fee_total)}</dd></>}
           <dt>Refundable security deposit</dt><dd>{money(rental.security_deposit)}</dd>
           <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
-          <dt className="total-line">Total charges, including deposit</dt><dd className="total-line">{money(initialPaymentTotal + additionalChargeTotal)}</dd>
+          {cancellationCredit > 0 && <><dt>Cancellation credit — booking cancelled before pickup</dt><dd>−{money(cancellationCredit)}</dd></>}
+          <dt className="total-line">Total charges, including deposit</dt><dd className="total-line">{money(currentInvoiceTotal + additionalChargeTotal)}</dd>
           <dt>Net booking payments received</dt><dd>−{money(paidAmount)}</dd>
           <dt>Additional-charge payments received</dt><dd>−{money(additionalPaymentsReceived)}</dd>
-          {customerCreditDue > 0 && <><dt className="credit-line">Booking credit reserved for refund</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
+          {customerCreditDue > 0 && <><dt className="credit-line">{cancelledBeforePickup ? 'Security deposit refund outstanding' : 'Booking credit reserved for refund'}</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
         </dl>
-        <div className="refund-status-item rental-deposit-summary"><ShieldCheck size={17}/><span><strong>Security deposit: {money(depositHeldAmount)} held</strong><small>Required deposit of {money(rental.security_deposit)} is included in the total above.</small></span></div>
+        <div className="refund-status-item rental-deposit-summary"><ShieldCheck size={17}/><span><strong>Security deposit: {money(depositHeldAmount)} held</strong><small>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Returned to the original payment method.' : rental.deposit_status === 'release_pending' ? 'Stripe refund is processing.' : 'Booking cancelled. Refund this deposit to finish the financial closeout.') : `Required deposit of ${money(rental.security_deposit)} is included in the total above.`}</small></span></div>
         {Number(rental.manual_discount_amount || 0) > 0 && <small className="manual-discount-note"><Tag size={13}/> Reservation-only adjustment • {money(Number(rental.manual_discount_amount || 0) + Number(rental.manual_discount_tax_savings || 0))} total savings</small>}
         {rentalBalanceDue > 0 && <div className="rental-balance-callout"><CreditCard size={17}/><span><strong>{money(rentalBalanceDue)} remaining rental balance</strong><small>The original payment is credited. Stripe or an external payment collects only this remainder; no second deposit is added.</small><span className="rental-balance-actions"><button type="button" className="approve" onClick={() => setAdminStepScope('payment')}>Take payment</button><button type="button" onClick={() => setContactModal({ charge: openRentalBalance, rentalBalance: true })}>Send Stripe link</button>{chargeRentalSavedCard && <button type="button" onClick={() => chargeRentalSavedCard(openRentalBalance)}>Charge saved card</button>}</span></span></div>}
         {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
         <RentalRefundStatus rental={rental} refunds={rentalRefunds} />
         <div className="rental-financial-actions">
           {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
-          {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
+          {recordTestPayment && rental.status !== 'cancelled' && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
+          {cancellationDepositFlow && <button type="button" className="approve" onClick={() => setCancelModalOpen(true)}><DollarSign size={15}/> Cancel &amp; refund deposit</button>}
           {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
           {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <button type="button" onClick={() => setPaymentDetailsOpen(true)}><Pencil size={15}/> Edit Rental Payment Details</button>}
           {canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
@@ -8112,7 +8149,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
         </div>}
         <RentalChargeManager compact rental={rental} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} sendPaymentLink={(charge) => setContactModal({ charge })} notify={notify} />
-        {balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
+        {!cancellationDepositFlow && balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
       </aside>
     </div>
 
@@ -8213,9 +8250,14 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       {cancelModalOpen && <CancelRentalModal
         rental={rental}
         onCancel={() => setCancelModalOpen(false)}
-        onConfirm={(reason) => {
-          updateRentalStatus(rental.id, 'cancelled', { reason });
-          setCancelModalOpen(false);
+        refundDeposit={cancellationDepositFlow}
+        depositAmount={protectedDeposit}
+        rentalRefundRemaining={cancellationRefundRemaining}
+        rentalRefundPending={cancellationRefundPending}
+        onConfirm={async (reason) => {
+          const saved = await updateRentalStatus(rental.id, 'cancelled', { reason, refundDeposit: cancellationDepositFlow });
+          if (saved) setCancelModalOpen(false);
+          return saved;
         }}
       />}
       {restoreModalOpen && <RestoreCancelledRentalModal
@@ -9741,32 +9783,39 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
   </div>;
 }
 
-function CancelRentalModal({ rental, onCancel, onConfirm }) {
+function CancelRentalModal({ rental, onCancel, onConfirm, refundDeposit = false, depositAmount = 0, rentalRefundRemaining = 0, rentalRefundPending = false }) {
   const dialogRef = useDialogFocus(onCancel);
   const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const minimumReason = refundDeposit ? 5 : 3;
+  const refundBlocked = refundDeposit && (rentalRefundRemaining > 0.005 || rentalRefundPending);
   return <div className="admin-modal-backdrop" role="presentation">
-    <form ref={dialogRef} className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation" onSubmit={(event) => {
+    <form ref={dialogRef} className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation" onSubmit={async (event) => {
       event.preventDefault();
-      if (reason.trim().length >= 3) onConfirm(reason.trim());
+      if (submitting || refundBlocked || reason.trim().length < minimumReason) return;
+      setSubmitting(true);
+      try { await onConfirm(reason.trim()); } finally { setSubmitting(false); }
     }}>
       <div className="admin-modal-header danger">
         <XCircle size={20} />
         <div>
-          <strong>Cancel Rental?</strong>
+          <strong>{refundDeposit ? 'Cancel booking & refund deposit?' : 'Cancel Rental?'}</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || 'Client'}</span>
         </div>
-        <button type="button" className="admin-close-button" onClick={onCancel} aria-label="Close cancellation dialog"><X size={18}/></button>
+        <button type="button" className="admin-close-button" onClick={onCancel} disabled={submitting} aria-label="Close cancellation dialog"><X size={18}/></button>
       </div>
       <div className="cancel-warning">
-        <strong>This will cancel the reservation.</strong>
+        <strong>{refundDeposit ? `Return ${money(depositAmount)} to the original Stripe card and cancel this reservation.` : 'This will cancel the reservation.'}</strong>
+        {refundDeposit && <span>The vehicle was never picked up. The original invoice will receive a cancellation credit, so refunded rental charges will not become a new balance due. If Stripe cannot finish immediately, the booking stays cancelled with a visible deposit refund to retry.</span>}
+        {refundBlocked && <span role="alert">{rentalRefundPending ? 'The rental refund is still processing. Wait for it to finish before returning the deposit.' : `First use Refund to return the remaining ${money(rentalRefundRemaining)} rental payment. Then use this action to return the deposit and cancel.`}</span>}
         <span>The rental will no longer block the vehicle for this customer. Use this only when the booking should be stopped.</span>
       </div>
       <label className="field-label">Cancellation reason
-        <textarea value={reason} minLength="3" maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="For example: customer did not complete payment before the deadline." required />
+        <textarea value={reason} minLength={minimumReason} disabled={submitting} maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="For example: customer did not complete payment before the deadline." required />
       </label>
       <div className="mini-actions modal-actions">
-        <button type="button" onClick={onCancel}>Keep Rental</button>
-        <button type="submit" className="reject" disabled={reason.trim().length < 3}><XCircle size={14}/> Confirm Cancel</button>
+        <button type="button" onClick={onCancel} disabled={submitting}>Keep Rental</button>
+        <button type="submit" className="reject" disabled={submitting || refundBlocked || reason.trim().length < minimumReason}><XCircle size={14}/> {submitting ? 'Processing…' : refundDeposit ? `Cancel & refund ${money(depositAmount)}` : 'Confirm Cancel'}</button>
       </div>
     </form>
   </div>;

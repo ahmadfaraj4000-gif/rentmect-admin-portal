@@ -4,18 +4,19 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
+const cancellationCalculation = source.slice(source.indexOf('  const cancellationCredit ='), source.indexOf('  const customerName = rental.profiles?.full_name'));
 const calculation = source.slice(source.indexOf('  const additionalChargeTotal = trueAdditionalCharges'), source.indexOf('  const depositHeldAmount = protectedDeposit'));
-function summary(charges = [], overrides = {}) {
+function summary(charges = [], overrides = {}, recordedRentalRefunds = 0) {
   const context = vm.createContext({
     rental: { rental_total: 1079.14, tax_amount: 68.53, security_deposit: 300,
       paid_at: '2026-09-15', payment_amount_cents: 138492, ...overrides },
     trueAdditionalCharges: charges,
     outstandingAdditionalCharges: charges.filter((c) => !c.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(c.status)).reduce((n, c) => n + c.total_amount, 0),
-    rentalBalanceCharges: [], externalPaymentActions: [], recordedRentalRefunds: 0,
+    rentalBalanceCharges: [], externalPaymentActions: [], recordedRentalRefunds,
     rentalPayments: [], rentalCharges: charges, rentalExtensions: [], rentalRefunds: [], depositAllocations: [],
     buildRentalPaymentHistory: () => [],
   });
-  return vm.runInContext(`${calculation}\n({total: initialPaymentTotal + additionalChargeTotal, paidAmount, additionalPaymentsReceived, balanceDue, customerCreditDue});`, context);
+  return vm.runInContext(`${cancellationCalculation}\n${calculation}\n({total: currentInvoiceTotal + additionalChargeTotal, paidAmount, additionalPaymentsReceived, balanceDue, customerCreditDue});`, context);
 }
 const cents = (n) => Math.round(n * 100);
 
@@ -65,7 +66,8 @@ test('the actual summary markup presents one equation with a separate held-depos
     money: (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
     manualDiscountDescriptor: () => '$159.86 off rental',
     rental: { rental_total: 1079.14, pre_manual_discount_rental_total: 1239, manual_discount_amount: 159.86, tax_amount: 68.53, security_deposit: 300 },
-    additionalChargeTotal: 75.33, initialPaymentTotal: 1447.67, paidAmount: 1384.92,
+    additionalChargeTotal: 75.33, initialPaymentTotal: 1447.67, currentInvoiceTotal: 1447.67, paidAmount: 1384.92,
+    cancellationCredit: 0, cancelledBeforePickup: false,
     additionalPaymentsReceived: 75.33, customerCreditDue: 0, balanceDue: 62.75, depositHeldAmount: 300,
   });
   const Summary = vm.runInContext(transformed.code, context);
@@ -83,4 +85,21 @@ test('the actual summary markup presents one equation with a separate held-depos
   assert.match(html, /\$62\.75/);
   assert.match(html, /Security deposit: \$300\.00 held/);
   assert.doesNotMatch(html, /deposit refund is clear|due before deposit return/);
+});
+
+
+test('cancelled booking credits the invoice and tracks the $300 deposit until returned', () => {
+  const booking = { rental_total: 59, tax_amount: 3.75, security_deposit: 300,
+    payment_amount_cents: 36275, status: 'cancelled', cancelled_before_pickup_at: '2026-09-16',
+    cancellation_credit_amount: 362.75 };
+  const pending = summary([], booking, 62.75);
+  assert.equal(pending.total, 0);
+  assert.equal(pending.balanceDue, 0);
+  assert.equal(pending.customerCreditDue, 300);
+  assert.equal(pending.paidAmount, 300);
+  const returned = summary([], { ...booking, deposit_released_amount: 300 }, 62.75);
+  assert.equal(returned.total, 0);
+  assert.equal(returned.balanceDue, 0);
+  assert.equal(returned.customerCreditDue, 0);
+  assert.equal(returned.paidAmount, 0);
 });
