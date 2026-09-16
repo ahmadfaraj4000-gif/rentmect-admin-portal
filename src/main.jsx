@@ -455,6 +455,8 @@ function App() {
   const requestedAdminTab = initialAdminParams.get('tab') || '';
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [startupError, setStartupError] = useState('');
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [staffContext, setStaffContext] = useState({ staff_role: 'loading', can_manage_employee_permissions: false, permissions: {} });
   const [staffContextLoading, setStaffContextLoading] = useState(true);
@@ -728,38 +730,42 @@ function App() {
   }, [isAdminUser]);
 
   useEffect(() => {
-    async function init() {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session);
-      supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    let active = true;
+    let sessionEventReceived = false;
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      sessionEventReceived = true;
+      setSession(nextSession);
       setLoading(false);
-    }
-    init();
-  }, []);
+    });
+    void (async () => {
+      const { data, error } = await withRequestDeadline(supabase.auth.getSession(), 'Session verification', 12_000);
+      if (!active) return;
+      if (error && !sessionEventReceived) setStartupError(userFacingPortalError(error));
+      if (!error && !sessionEventReceived) setSession(data?.session || null);
+      setLoading(false);
+    })();
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, [startupAttempt]);
 
   useEffect(() => {
+    let active = true;
     async function checkAdminRole() {
       if (!session?.user) {
         setIsAdminUser(false);
         setAdminRoleChecking(false);
         return;
       }
-
       setAdminRoleChecking(true);
-      const { data, error } = await supabase.rpc('is_admin');
-
-      if (error) {
-        setIsAdminUser(false);
-        setAdminRoleChecking(false);
-        return;
-      }
-
-      setIsAdminUser(data === true);
+      const { data, error } = await withRequestDeadline(supabase.rpc('is_admin'), 'Admin access verification', 12_000);
+      if (!active) return;
+      if (error) setStartupError(userFacingPortalError(error));
+      else setIsAdminUser(data === true);
       setAdminRoleChecking(false);
     }
-
-    checkAdminRole();
-  }, [session?.user?.id]);
+    void checkAdminRole();
+    return () => { active = false; };
+  }, [session?.user?.id, startupAttempt]);
 
   useEffect(() => {
     if (isAdminUser) loadAllData({ force: false });
@@ -767,17 +773,20 @@ function App() {
 
   useEffect(() => {
     if (!isAdminUser) return;
+    let active = true;
     setStaffContextLoading(true);
     void (async () => {
-      const { data, error } = await supabase.rpc('get_admin_staff_context');
-      if (!error && data) {
-        setStaffContext(data);
+      const { data, error } = await withRequestDeadline(supabase.rpc('get_admin_staff_context'), 'Staff permissions', 12_000);
+      if (!active) return;
+      if (error || !data) {
+        setStartupError(userFacingPortalError(error, 'Staff permissions could not load. Please retry.'));
       } else {
-        setStaffContext({ staff_role: 'customer', can_manage_employee_permissions: false, permissions: {} });
+        setStaffContext(data);
       }
       setStaffContextLoading(false);
     })();
-  }, [isAdminUser, session?.user?.id]);
+    return () => { active = false; };
+  }, [isAdminUser, session?.user?.id, startupAttempt]);
 
   useEffect(() => {
     if (staffContext.staff_role !== 'employee') return;
@@ -1002,7 +1011,7 @@ function App() {
     event.preventDefault();
     setAuthMessage('');
     const { error } = await supabase.auth.signInWithPassword(authForm);
-    if (error) return setAuthMessage(error.message);
+    if (error) return setAuthMessage(userFacingPortalError(error));
   }
 
   async function handleAdminForgotPassword() {
@@ -3946,6 +3955,7 @@ function App() {
     setNavCollapsed((current) => !current);
   }
 
+  if (startupError) return <div className="loading-screen" role="alert"><h1>Unable to connect to the admin portal</h1><p>{startupError}</p><p>Your saved session has not been cleared. Retry when the connection is available.</p><button type="button" className="primary-btn" onClick={() => { setStartupError(''); setLoading(true); setStartupAttempt((attempt) => attempt + 1); }}>Retry connection</button></div>;
   if (loading || (session && (adminRoleChecking || (isAdminUser && staffContextLoading)))) return <Loading message={session ? 'Verifying admin access…' : 'Loading admin portal…'} />;
   if (!session) return <Login authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} authMessage={authMessage} showPassword={showAdminPassword} setShowPassword={setShowAdminPassword} handleForgotPassword={handleAdminForgotPassword} />;
   if (!isAdminUser) return <NotAdmin email={session.user.email} signOut={signOut} />;
