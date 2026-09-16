@@ -17,7 +17,14 @@ export function withRequestDeadline(request, label, deadlineMs = PORTAL_REQUEST_
 export async function withReadRetry(createRequest, label, deadlineMs = PORTAL_REQUEST_DEADLINE_MS) {
   let result;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    result = await withRequestDeadline(Promise.resolve().then(createRequest), label, deadlineMs);
+    const controller = new AbortController();
+    const request = Promise.resolve().then(() => {
+      const query = createRequest();
+      return typeof query?.abortSignal === 'function' ? query.abortSignal(controller.signal) : query;
+    });
+    result = await withRequestDeadline(request, label, deadlineMs);
+    // Stop the previous transport before retrying a timed-out PostgREST read.
+    if (result.timedOut) controller.abort();
     if (!result?.error) return result;
     const transient = result.timedOut || /failed to fetch|network|load failed|connection|timed out|timeout|502|503|504/i.test(result.error.message || '');
     if (!transient) return result;

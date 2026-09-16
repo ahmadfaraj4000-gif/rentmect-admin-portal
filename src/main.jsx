@@ -836,8 +836,9 @@ function App() {
     };
 
     const scheduleCalendarDatasetRefresh = (table) => {
-      window.clearTimeout(refreshTimers.get(table));
-      refreshTimers.set(table, window.setTimeout(() => refreshCalendarDataset(table), 350));
+      const timerKey = `domain:${calendarDomains[table]}`;
+      window.clearTimeout(refreshTimers.get(timerKey));
+      refreshTimers.set(timerKey, window.setTimeout(() => refreshCalendarDataset(table), 350));
     };
 
     const recoverCalendarSourceOfTruth = async ({ force = false } = {}) => {
@@ -898,7 +899,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_reports' }, () => scheduleDomainRefresh('workflow'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, () => scheduleDomainRefresh('workflow'))
       .subscribe();
-    calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 60 * 1000);
+    calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
     const recoverOnFocus = () => recoverCalendarSourceOfTruth();
     const recoverOnVisibility = () => {
       if (document.visibilityState === 'visible') recoverCalendarSourceOfTruth();
@@ -4461,7 +4462,7 @@ function TollsTab({ rentals = [], notify }) {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, refresh);
     });
     channel.subscribe();
-    const poll = window.setInterval(refresh, 60_000);
+    const poll = window.setInterval(refresh, 5 * 60_000);
     window.addEventListener('focus', refresh);
     window.addEventListener('online', refresh);
     document.addEventListener('visibilitychange', refresh);

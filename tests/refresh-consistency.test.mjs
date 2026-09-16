@@ -65,3 +65,19 @@ test('transient reads retry once while permission failures stay actionable', asy
   assert.match(denied.error.message, /permission/);
   delete globalThis.window;
 });
+
+test('timed-out database reads are aborted before another attempt starts', async () => {
+  globalThis.window = globalThis;
+  const signals = [];
+  try {
+    const result = await withReadRetry(() => {
+      if (signals.length) assert.equal(signals.at(-1).aborted, true);
+      return {
+        abortSignal(signal) { signals.push(signal); return new Promise(() => {}); },
+      };
+    }, 'Payments', 5);
+    assert.equal(signals.length, 2);
+    assert.ok(signals.every((signal) => signal.aborted));
+    assert.equal(result.timedOut, true);
+  } finally { delete globalThis.window; }
+});
