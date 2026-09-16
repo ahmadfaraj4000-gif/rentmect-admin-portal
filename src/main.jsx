@@ -1,3 +1,4 @@
+import { freshDomainLoad } from './lib/freshDomainLoad.js';
 import { refundableRentalSources, refundDisplayState } from './lib/rentalRefunds.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -49,7 +50,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { withRequestDeadline } from './requestDeadline';
+import { withRequestDeadline, withReadRetry } from './requestDeadline';
 import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInput';
 import { optimizeVehicleImage } from './lib/imageOptimizer';
 import { getVehiclePriceConfirmation } from './lib/vehiclePriceSafeguards';
@@ -473,6 +474,7 @@ function App() {
   });
   const loadedAdminDomainsRef = useRef(new Set());
   const adminDomainLoadsRef = useRef(new Map());
+  const requestedAdminDomainsRef = useRef(new Set());
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authMessage, setAuthMessage] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
@@ -757,7 +759,7 @@ function App() {
     }
 
     checkAdminRole();
-  }, [session]);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (isAdminUser) loadAllData({ force: false });
@@ -813,87 +815,15 @@ function App() {
     let lastRecoveryAt = 0;
     let recoveryInFlight = false;
 
-    const calendarLoaders = {
-      rentals: async () => {
-        const result = await supabase
-          .from('rentals')
-          .select('*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*)')
-          .order('created_at', { ascending: false });
-        if (!result.error) setRentals(result.data || []);
-        return result.error;
-      },
-      pending_bookings: async () => {
-        const result = await supabase
-          .from('pending_bookings')
-          .select('*')
-          .neq('status', 'converted')
-          .order('created_at', { ascending: false });
-        if (!result.error) setPendingBookings(result.data || []);
-        return result.error;
-      },
-      vehicle_availability_blocks: async () => {
-        const result = await supabase
-          .from('vehicle_availability_blocks')
-          .select('*, vehicles(*)')
-          .eq('active', true)
-          .order('start_date', { ascending: true });
-        if (!result.error) setAvailabilityBlocks(result.data || []);
-        return result.error;
-      },
-      vehicles: async () => {
-        const result = await supabase
-          .from('vehicles')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (!result.error) setVehicles(result.data || []);
-        return result.error;
-      },
-      vehicle_maintenance_schedules: async () => {
-        const result = await supabase
-          .from('vehicle_maintenance_schedules')
-          .select('*')
-          .order('service_type');
-        if (!result.error) setMaintenanceSchedules(result.data || []);
-        return result.error;
-      },
-      rental_emergency_exceptions: async () => {
-        const result = await supabase
-          .from('rental_emergency_exceptions')
-          .select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))')
-          .order('created_at', { ascending: false });
-        if (!result.error) setEmergencyExceptions(result.data || []);
-        return result.error;
-      },
+    const calendarDomains = {
+      rentals: 'core', pending_bookings: 'core', vehicles: 'core',
+      vehicle_availability_blocks: 'calendar',
+      vehicle_maintenance_schedules: 'core', rental_emergency_exceptions: 'core',
     };
-
-    const recordCalendarRefresh = (table, error) => {
-      setDataHealth((current) => {
-        const calendarLabels = {
-          rentals: 'Rentals',
-          pending_bookings: 'Booking holds',
-          vehicle_availability_blocks: 'Calendar blocks',
-          vehicles: 'Vehicles',
-          vehicle_maintenance_schedules: 'Maintenance schedules',
-          rental_emergency_exceptions: 'Emergency exceptions',
-        };
-        const label = calendarLabels[table];
-        const otherErrors = (current.errors || []).filter((item) => item.label !== label);
-        return {
-          ...current,
-          errors: error
-            ? [...otherErrors, { label, message: userFacingPortalError(error, `${label} could not refresh.`) }]
-            : otherErrors,
-          lastUpdated: new Date().toISOString(),
-        };
-      });
-    };
-
     const refreshCalendarDataset = async (table) => {
-      if (document.visibilityState === 'hidden' || backgroundRefreshInFlightRef.current) return;
-      const loader = calendarLoaders[table];
-      if (!loader) return;
-      const error = await loader();
-      recordCalendarRefresh(table, error);
+      if (document.visibilityState === 'hidden') return;
+      const domain = calendarDomains[table];
+      if (domain) await loadAdminDomain(domain, { force: true });
     };
 
     const scheduleCalendarDatasetRefresh = (table) => {
@@ -912,7 +842,10 @@ function App() {
       recoveryInFlight = true;
       lastRecoveryAt = now;
       try {
-        await Promise.all(Object.keys(calendarLoaders).map(refreshCalendarDataset));
+        const domains = [...requestedAdminDomainsRef.current].filter((domain) =>
+          ['core', 'calendar', 'payments', 'workflow', 'snapshot', 'customer-directory'].includes(domain)
+          || !loadedAdminDomainsRef.current.has(domain));
+        await Promise.all(domains.map((domain) => loadAdminDomain(domain, { force: true })));
       } finally {
         recoveryInFlight = false;
       }
@@ -951,20 +884,25 @@ function App() {
         scheduleDomainRefresh('snapshot');
         scheduleDomainRefresh('core');
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_documents' }, () => scheduleDomainRefresh('workflow'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_messages' }, () => scheduleDomainRefresh('workflow'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_reports' }, () => scheduleDomainRefresh('workflow'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, () => scheduleDomainRefresh('workflow'))
       .subscribe();
-    calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
+    calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 60 * 1000);
     const recoverOnFocus = () => recoverCalendarSourceOfTruth();
     const recoverOnVisibility = () => {
       if (document.visibilityState === 'visible') recoverCalendarSourceOfTruth();
     };
     window.addEventListener('focus', recoverOnFocus);
+    window.addEventListener('online', recoverOnFocus);
     document.addEventListener('visibilitychange', recoverOnVisibility);
 
     return () => {
       refreshTimers.forEach((timer) => window.clearTimeout(timer));
       window.clearInterval(calendarRecoveryPoll);
       window.removeEventListener('focus', recoverOnFocus);
+      window.removeEventListener('online', recoverOnFocus);
       document.removeEventListener('visibilitychange', recoverOnVisibility);
       supabase.removeChannel(calendarChannel);
       supabase.removeChannel(operationalChannel);
@@ -1106,7 +1044,7 @@ function App() {
       .filter(([, result]) => Boolean(result?.error))
       .map(([label, result]) => ({ label, message: userFacingPortalError(result.error, `${label} could not refresh.`) }));
     setDataHealth((current) => ({
-      refreshing: false,
+      refreshing: current.refreshing,
       errors: [...(current.errors || []).filter((item) => !attemptedLabels.has(item.label)), ...nextErrors],
       lastUpdated: new Date().toISOString(),
     }));
@@ -1114,32 +1052,33 @@ function App() {
   }
 
   async function loadDashboardSnapshot({ force = false } = {}) {
+    requestedAdminDomainsRef.current.add('snapshot');
     if (!force && loadedAdminDomainsRef.current.has('snapshot')) return;
-    if (adminDomainLoadsRef.current.has('snapshot')) return adminDomainLoadsRef.current.get('snapshot');
-    const request = (async () => {
+    setDataHealth((current) => ({ ...current, refreshing: true }));
+    return freshDomainLoad(adminDomainLoadsRef.current, 'snapshot', force, async () => {
       const [snapshotResult, depositTasksResult] = await Promise.all([
-        withRequestDeadline(supabase.rpc('get_admin_dashboard_snapshot'), 'Dashboard snapshot'),
-        withRequestDeadline(supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
+        withReadRetry(() => supabase.rpc('get_admin_dashboard_snapshot'), 'Dashboard snapshot'),
+        withReadRetry(() => supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
       ]);
       if (depositTasksResult.data) setDepositActionTasks(depositTasksResult.data);
       if (snapshotResult.error && /get_admin_dashboard_snapshot|schema cache|does not exist/i.test(snapshotResult.error.message || '')) {
+        recordAdminResults([['Dashboard snapshot', { error: null }], ['Deposit actions', depositTasksResult]]);
         await loadAdminDomain('core', { force });
         return;
       }
       if (snapshotResult.data) setDashboardSnapshot(snapshotResult.data);
       const errors = recordAdminResults([['Dashboard snapshot', snapshotResult], ['Deposit actions', depositTasksResult]]);
       if (!errors.length) loadedAdminDomainsRef.current.add('snapshot');
-    })().finally(() => adminDomainLoadsRef.current.delete('snapshot'));
-    adminDomainLoadsRef.current.set('snapshot', request);
-    return request;
+      else loadedAdminDomainsRef.current.delete('snapshot');
+    }).finally(() => setDataHealth((current) => ({ ...current, refreshing: adminDomainLoadsRef.current.size > 0 })));
   }
 
   async function loadAdminDomain(domain, { force = false } = {}) {
+    requestedAdminDomainsRef.current.add(domain);
     if (domain === 'snapshot') return loadDashboardSnapshot({ force });
     if (!force && loadedAdminDomainsRef.current.has(domain)) return;
-    if (adminDomainLoadsRef.current.has(domain)) return adminDomainLoadsRef.current.get(domain);
     setDataHealth((current) => ({ ...current, refreshing: true }));
-    const request = (async () => {
+    return freshDomainLoad(adminDomainLoadsRef.current, domain, force, async () => {
       let results = [];
       if (domain === 'customer-directory') {
         setCustomerDirectoryState((current) => ({ ...current, loading: true, error: '' }));
@@ -1163,12 +1102,12 @@ function App() {
         results = [['Customer directory', directoryResult]];
       } else if (domain === 'core') {
         const [vehiclesRes, rentalsRes, pendingBookingsRes, emergencyExceptionsRes, maintenanceSchedulesRes, depositTasksRes] = await Promise.all([
-          withRequestDeadline(supabase.from('vehicles').select('*').order('created_at', { ascending: false }), 'Vehicles'),
-          withRequestDeadline(supabase.from('rentals').select('*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*)').order('created_at', { ascending: false }), 'Rentals'),
-          withRequestDeadline(supabase.from('pending_bookings').select('*').neq('status', 'converted').order('created_at', { ascending: false }), 'Booking holds'),
-          withRequestDeadline(supabase.from('rental_emergency_exceptions').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Emergency exceptions'),
-          withRequestDeadline(supabase.from('vehicle_maintenance_schedules').select('*').order('service_type'), 'Maintenance schedules'),
-          withRequestDeadline(supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
+          withReadRetry(() => supabase.from('vehicles').select('*').order('created_at', { ascending: false }), 'Vehicles'),
+          withReadRetry(() => supabase.from('rentals').select('*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*)').order('created_at', { ascending: false }), 'Rentals'),
+          withReadRetry(() => supabase.from('pending_bookings').select('*').neq('status', 'converted').order('created_at', { ascending: false }), 'Booking holds'),
+          withReadRetry(() => supabase.from('rental_emergency_exceptions').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Emergency exceptions'),
+          withReadRetry(() => supabase.from('vehicle_maintenance_schedules').select('*').order('service_type'), 'Maintenance schedules'),
+          withReadRetry(() => supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
         ]);
         if (vehiclesRes.data) setVehicles(vehiclesRes.data);
         if (rentalsRes.data) setRentals(rentalsRes.data);
@@ -1179,11 +1118,11 @@ function App() {
         results = [['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes], ['Deposit actions', depositTasksRes]];
       } else if (domain === 'workflow') {
         const [documentsRes, messagesRes, reportsRes, extensionsRes, stepCompletionsRes] = await Promise.all([
-          withRequestDeadline(supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
-          withRequestDeadline(supabase.from('rental_messages').select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: true }), 'Messages'),
-          withRequestDeadline(supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Reports'),
-          withRequestDeadline(supabase.from('rental_extension_requests').select('*, rentals!rental_extension_requests_rental_id_fkey(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Extensions'),
-          withRequestDeadline(supabase.from('rental_step_completions').select('*').order('completed_at', { ascending: false }), 'Admin step completions'),
+          withReadRetry(() => supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
+          withReadRetry(() => supabase.from('rental_messages').select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: true }), 'Messages'),
+          withReadRetry(() => supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Reports'),
+          withReadRetry(() => supabase.from('rental_extension_requests').select('*, rentals!rental_extension_requests_rental_id_fkey(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Extensions'),
+          withReadRetry(() => supabase.from('rental_step_completions').select('*').order('completed_at', { ascending: false }), 'Admin step completions'),
         ]);
         if (documentsRes.data) setDocuments(documentsRes.data);
         if (messagesRes.data) setMessages(messagesRes.data);
@@ -1193,12 +1132,12 @@ function App() {
         results = [['Documents', documentsRes], ['Messages', messagesRes], ['Reports', reportsRes], ['Extensions', extensionsRes], ['Admin step completions', stepCompletionsRes]];
       } else if (domain === 'payments') {
         const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, externalActionsRes, reconciliationIssuesRes] = await Promise.all([
-          withRequestDeadline(supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
-          withRequestDeadline(supabase.from('rental_payments').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Payments'),
-          withRequestDeadline(supabase.from('rental_payment_refunds').select('*').order('created_at', { ascending: false }), 'Refunds'),
-          withRequestDeadline(supabase.from('rental_charge_items').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Additional charges'),
-          withRequestDeadline(supabase.from('rental_external_payment_actions').select('*').order('created_at', { ascending: false }), 'External payment adjustments'),
-          withRequestDeadline(supabase.from('stripe_reconciliation_issues').select('*').order('created_at', { ascending: false }).limit(500), 'Stripe reconciliation'),
+          withReadRetry(() => supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
+          withReadRetry(() => supabase.from('rental_payments').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Payments'),
+          withReadRetry(() => supabase.from('rental_payment_refunds').select('*').order('created_at', { ascending: false }), 'Refunds'),
+          withReadRetry(() => supabase.from('rental_charge_items').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Additional charges'),
+          withReadRetry(() => supabase.from('rental_external_payment_actions').select('*').order('created_at', { ascending: false }), 'External payment adjustments'),
+          withReadRetry(() => supabase.from('stripe_reconciliation_issues').select('*').order('created_at', { ascending: false }).limit(500), 'Stripe reconciliation'),
         ]);
         if (depositAllocationsRes.data) setDepositAllocations(depositAllocationsRes.data);
         if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
@@ -1210,26 +1149,26 @@ function App() {
         results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes], ['External payment adjustments', externalActionsRes], ['Stripe reconciliation', reconciliationIssuesRes]];
       } else if (domain === 'templates') {
         const [emailRes, smsRes] = await Promise.all([
-          withRequestDeadline(supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
-          withRequestDeadline(supabase.from('sms_templates').select('id,template_key,name,body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Text templates'),
+          withReadRetry(() => supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
+          withReadRetry(() => supabase.from('sms_templates').select('id,template_key,name,body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Text templates'),
         ]);
         if (emailRes.data) setCustomerEmailTemplates(emailRes.data);
         if (smsRes.data) setSmsTemplates(smsRes.data);
         results = [['Email templates', emailRes], ['Text templates', smsRes]];
       } else if (domain === 'calendar') {
-        const result = await withRequestDeadline(supabase.from('vehicle_availability_blocks').select('*, vehicles(*)').eq('active', true).order('start_date', { ascending: true }), 'Calendar blocks');
+        const result = await withReadRetry(() => supabase.from('vehicle_availability_blocks').select('*, vehicles(*)').eq('active', true).order('start_date', { ascending: true }), 'Calendar blocks');
         if (result.data) setAvailabilityBlocks(result.data);
         results = [['Calendar blocks', result]];
       } else if (domain === 'settings') {
         const [discountsRes, feesRes, promotionsRes, pricingRes, automationRes, bookingPageRes, bookingPolicyRes, permissionsRes] = await Promise.all([
-          withRequestDeadline(supabase.from('discount_codes').select('*').order('created_at', { ascending: false }), 'Discounts'),
-          withRequestDeadline(supabase.from('service_fees').select('*').order('created_at', { ascending: false }), 'Fees'),
-          withRequestDeadline(supabase.from('site_promotions').select('*').order('updated_at', { ascending: false }), 'Promotions'),
-          withRequestDeadline(supabase.from('under_25_pricing_settings').select('*').eq('id', true).maybeSingle(), 'Under-25 pricing'),
-          withRequestDeadline(supabase.from('billing_automation_settings').select('*').eq('id', true).maybeSingle(), 'Billing automation'),
-          withRequestDeadline(supabase.rpc('get_admin_booking_page_setting'), 'Booking page'),
-          withRequestDeadline(supabase.rpc('get_admin_booking_policy'), 'Booking rules'),
-          withRequestDeadline(supabase.from('employee_permissions').select('*').order('category').order('label'), 'Employee permissions'),
+          withReadRetry(() => supabase.from('discount_codes').select('*').order('created_at', { ascending: false }), 'Discounts'),
+          withReadRetry(() => supabase.from('service_fees').select('*').order('created_at', { ascending: false }), 'Fees'),
+          withReadRetry(() => supabase.from('site_promotions').select('*').order('updated_at', { ascending: false }), 'Promotions'),
+          withReadRetry(() => supabase.from('under_25_pricing_settings').select('*').eq('id', true).maybeSingle(), 'Under-25 pricing'),
+          withReadRetry(() => supabase.from('billing_automation_settings').select('*').eq('id', true).maybeSingle(), 'Billing automation'),
+          withReadRetry(() => supabase.rpc('get_admin_booking_page_setting'), 'Booking page'),
+          withReadRetry(() => supabase.rpc('get_admin_booking_policy'), 'Booking rules'),
+          withReadRetry(() => supabase.from('employee_permissions').select('*').order('category').order('label'), 'Employee permissions'),
         ]);
         if (discountsRes.data) setDiscountCodes(discountsRes.data);
         if (feesRes.data) setServiceFees(feesRes.data);
@@ -1241,19 +1180,18 @@ function App() {
         if (permissionsRes.data) setEmployeePermissions(permissionsRes.data);
         results = [['Discounts', discountsRes], ['Fees', feesRes], ['Promotions', promotionsRes], ['Under-25 pricing', pricingRes], ['Billing automation', automationRes], ['Booking page', bookingPageRes], ['Booking rules', bookingPolicyRes], ['Employee permissions', permissionsRes]];
       } else if (domain === 'audit') {
-        const result = await withRequestDeadline(supabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(750), 'Audit log');
+        const result = await withReadRetry(() => supabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(750), 'Audit log');
         if (result.data) setAuditLogs(result.data);
         results = [['Audit log', result]];
       } else if (domain === 'maintenance-history') {
-        const result = await withRequestDeadline(supabase.from('vehicle_maintenance_service_logs').select('*').order('completed_at', { ascending: false }).limit(500), 'Maintenance history');
+        const result = await withReadRetry(() => supabase.from('vehicle_maintenance_service_logs').select('*').order('completed_at', { ascending: false }).limit(500), 'Maintenance history');
         if (result.data) setMaintenanceServiceLogs(result.data);
         results = [['Maintenance history', result]];
       }
       const errors = recordAdminResults(results);
       if (!errors.length) loadedAdminDomainsRef.current.add(domain);
-    })().finally(() => adminDomainLoadsRef.current.delete(domain));
-    adminDomainLoadsRef.current.set(domain, request);
-    return request;
+      else loadedAdminDomainsRef.current.delete(domain);
+    }).finally(() => setDataHealth((current) => ({ ...current, refreshing: adminDomainLoadsRef.current.size > 0 })));
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
@@ -1262,8 +1200,11 @@ function App() {
       ...(ADMIN_TAB_DOMAINS[activeTab] || ['core']),
       ...loadedAdminDomainsRef.current,
     ])];
-    await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
-    if (!silent) setLoading(false);
+    try {
+      await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }
 
   async function loadAllDataLegacy({ silent = false } = {}) {
@@ -2095,7 +2036,7 @@ function App() {
       ));
     }
 
-    await loadAllData({ silent: true });
+    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
     const balanceRemaining = partialBalance ? Number(data?.balance_due || 0) : 0;
     if (balanceRemaining > 0.005) {
       notify(`${externalPaymentMethodLabel(paymentMethod)} installment of ${money(amount)} recorded. ${money(balanceRemaining)} remains due; payment and deposit are not complete.`, 'success');
@@ -2151,7 +2092,7 @@ function App() {
     });
     if (error) return notify(error.message);
     notify('Extension payment recorded and the rental return window is updated.', 'success');
-    loadAllData();
+    loadAllData({ silent: true });
   }
 
   async function cancelApprovedExtension(id) {
@@ -2334,11 +2275,11 @@ function App() {
     }
     if (data?.status === 'succeeded' || data?.status === 'paid') {
       if (data.charge) setRentalCharges((current) => current.map((item) => item.id === charge.id ? { ...item, ...data.charge } : item));
-      if (!options.deferRefresh) await loadAllData({ silent: true, domains: ['payments', 'snapshot'] });
+      if (!options.deferRefresh) await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
       if (!options.silent) notify('Saved card charged successfully. Stripe recorded the payment.', 'success');
       return true;
     }
-    if (!options.deferRefresh) await loadAllData({ silent: true, domains: ['payments', 'snapshot'] });
+    if (!options.deferRefresh) await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
     if (!options.silent) notify(data?.reason || 'The saved card could not be charged. The customer payment link remains available.');
     return false;
   }
@@ -2361,7 +2302,7 @@ function App() {
     if (data?.charge) {
       setRentalCharges((current) => current.map((item) => item.id === charge.id ? { ...item, ...data.charge } : item));
     }
-    await loadAllData({ silent: true, domains: ['payments', 'snapshot'] });
+    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
     if (data?.status === 'already_settled') {
       notify(data.reason || 'This charge was already settled.', 'success');
       return true;
@@ -2675,7 +2616,7 @@ function App() {
 
     setEditingVehicleId('');
     setEditVehicleForm(null);
-    loadAllData();
+    loadAllData({ silent: true });
     notify(`${vehicle?.name || 'Vehicle'} updated.`, 'success');
     return true;
   }
@@ -2694,7 +2635,7 @@ function App() {
     const { error } = await supabase.from('vehicles').delete().eq('id', id);
     if (error) return notify(error.message);
 
-    loadAllData();
+    loadAllData({ silent: true });
   }
 
   function generateDiscountCode() {
@@ -3457,7 +3398,7 @@ function App() {
     if (error) return notify(error.message);
 
     setReplyText('');
-    loadAllData();
+    loadAllData({ silent: true });
   }
 
   async function selectCommunicationThread(rental) {
@@ -3879,7 +3820,7 @@ function App() {
     }
     const wasPublished = vehicleForm.published;
     setVehicleForm(createEmptyVehicleForm());
-    await loadAllData();
+    await loadAllData({ silent: true });
     notify(wasPublished ? 'Vehicle added and published.' : 'Vehicle added as an unpublished draft.', 'success');
     return true;
   }
@@ -4419,6 +4360,9 @@ function tollRentalCandidates(transaction, rentals = [], assignments = [], searc
 
 function TollsTab({ rentals = [], notify }) {
   const [transactions, setTransactions] = useState([]);
+  const tollLoadsRef = useRef(new Map());
+  const vehicleConfigDirtyRef = useRef(false);
+  const [verifiedTransponders, setVerifiedTransponders] = useState([]);
   const [syncRuns, setSyncRuns] = useState([]);
   const [mappings, setMappings] = useState([]);
   const [fleet, setFleet] = useState([]);
@@ -4449,53 +4393,81 @@ function TollsTab({ rentals = [], notify }) {
 
   async function loadTollspotData({ silent = false } = {}) {
     if (!silent) setLoading(true);
-    const [transactionsRes, runsRes, mappingsRes, fleetRes, assignmentsRes] = await Promise.all([
-      withRequestDeadline(supabase
-        .from('admin_tollspot_transactions')
-        .select('*')
-        .order('occurred_at', { ascending: false })
-        .limit(500), 'Toll transactions'),
-      withRequestDeadline(supabase
-        .from('tollspot_sync_runs')
-        .select('*')
-        .order('started_at', { ascending: false })
-        .limit(30), 'Toll sync history'),
-      withRequestDeadline(supabase
-        .from('tollspot_vehicle_mappings')
-        .select('*')
-        .order('updated_at', { ascending: false }), 'Toll vehicle mappings'),
-      withRequestDeadline(supabase
-        .from('vehicles')
-        .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
-        .neq('id', '00000000-0000-4000-8000-000000000015')
-        .order('name'), 'Toll fleet'),
-      withRequestDeadline(supabase
-        .from('rental_vehicle_assignments')
-        .select('rental_id,vehicle_id,assigned_from,assigned_until,source')
-        .order('assigned_from', { ascending: false }), 'Rental vehicle possession history'),
-    ]);
-    const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error, assignmentsRes.error].filter(Boolean);
-    setLoadError(errors.map((error) => error.message).join(' '));
-    if (transactionsRes.data) {
-      setTransactions(transactionsRes.data.filter((transaction) => String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'));
-    }
-    if (runsRes.data) setSyncRuns(runsRes.data);
-    if (mappingsRes.data) setMappings(mappingsRes.data);
-    if (assignmentsRes.data) setVehicleAssignments(assignmentsRes.data);
-    if (fleetRes.data) {
-      setFleet(fleetRes.data);
-      if (!selectedVehicleId && fleetRes.data[0]) setSelectedVehicleId(fleetRes.data[0].id);
-    }
-    setLoading(false);
+    return freshDomainLoad(tollLoadsRef.current, 'tolls', true, async () => {
+      const [transactionsRes, runsRes, mappingsRes, fleetRes, assignmentsRes, transpondersRes] = await Promise.all([
+        withReadRetry(() => supabase
+          .from('admin_tollspot_transactions')
+          .select('*')
+          .order('occurred_at', { ascending: false })
+          .limit(500), 'Toll transactions'),
+        withReadRetry(() => supabase
+          .from('tollspot_sync_runs')
+          .select('*')
+          .order('started_at', { ascending: false })
+          .limit(30), 'Toll sync history'),
+        withReadRetry(() => supabase
+          .from('tollspot_vehicle_mappings')
+          .select('*')
+          .order('updated_at', { ascending: false }), 'Toll vehicle mappings'),
+        withReadRetry(() => supabase
+          .from('vehicles')
+          .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
+          .neq('id', '00000000-0000-4000-8000-000000000015')
+          .order('name'), 'Toll fleet'),
+        withReadRetry(() => supabase
+          .from('rental_vehicle_assignments')
+          .select('rental_id,vehicle_id,assigned_from,assigned_until,source')
+          .order('assigned_from', { ascending: false }), 'Rental vehicle possession history'),
+        withReadRetry(() => supabase.from('tollspot_transponder_mappings')
+          .select('vehicle_id,transponder_number,verified_at').eq('active', true), 'Verified transponders'),
+      ]);
+      const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error, assignmentsRes.error, transpondersRes.error].filter(Boolean);
+      setLoadError(errors.map((error) => error.message).join(' '));
+      if (transactionsRes.data) {
+        setTransactions(transactionsRes.data.filter((transaction) => String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'));
+      }
+      if (runsRes.data) setSyncRuns(runsRes.data);
+      if (mappingsRes.data) setMappings(mappingsRes.data);
+      if (transpondersRes.data) setVerifiedTransponders(transpondersRes.data);
+      if (assignmentsRes.data) setVehicleAssignments(assignmentsRes.data);
+      if (fleetRes.data) {
+        setFleet(fleetRes.data);
+        setSelectedVehicleId((current) => current || fleetRes.data[0]?.id || '');
+      }
+    }).finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    loadTollspotData();
+    void loadTollspotData();
+    let timer;
+    const refresh = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (document.visibilityState !== 'hidden') void loadTollspotData({ silent: true });
+      }, 350);
+    };
+    const channel = supabase.channel('admin-toll-live-status');
+    ['tollspot_transactions', 'tollspot_sync_runs', 'tollspot_vehicle_mappings', 'tollspot_transponder_mappings'].forEach((table) => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, refresh);
+    });
+    channel.subscribe();
+    const poll = window.setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(poll);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
     const vehicle = fleet.find((item) => item.id === selectedVehicleId);
-    if (!vehicle) return;
+    if (!vehicle || vehicleConfigDirtyRef.current) return;
     setVehicleConfig({
       tollspot_enabled: true,
       tollspot_vehicle_type: vehicle.tollspot_vehicle_type || '',
@@ -4567,6 +4539,7 @@ function TollsTab({ rentals = [], notify }) {
     }).eq('id', vehicle.id);
     setBusy('');
     if (error) return notify(error.message);
+    vehicleConfigDirtyRef.current = false;
     notify(`${vehicle.name} TollSpot settings saved.`, 'success');
     await loadTollspotData({ silent: true });
   }
@@ -4608,6 +4581,7 @@ function TollsTab({ rentals = [], notify }) {
         : item.status === statusFilter
   );
   const mappingByVehicle = new Map(mappings.map((mapping) => [mapping.vehicle_id, mapping]));
+  const transponderByVehicle = new Map(verifiedTransponders.map((mapping) => [mapping.vehicle_id, mapping]));
   const fleetById = new Map(fleet.map((vehicle) => [vehicle.id, vehicle]));
   const latestRun = syncRuns[0];
 
@@ -4650,15 +4624,15 @@ function TollsTab({ rentals = [], notify }) {
         <div className="tollspot-fleet-list">
           {fleet.map((vehicle) => {
             const mapping = mappingByVehicle.get(vehicle.id);
-            return <button type="button" key={vehicle.id} className={selectedVehicleId === vehicle.id ? 'selected' : ''} onClick={() => setSelectedVehicleId(vehicle.id)}>
+            return <button type="button" key={vehicle.id} className={selectedVehicleId === vehicle.id ? 'selected' : ''} onClick={() => { if (vehicle.id !== selectedVehicleId) { vehicleConfigDirtyRef.current = false; setSelectedVehicleId(vehicle.id); } }}>
               <span><strong>{vehicle.name}</strong><small>{vehicle.plate_number || 'No plate'} • {vehicle.vin ? `VIN …${vehicle.vin.slice(-5)}` : 'No VIN'}</small></span>
               <em>{mapping?.sync_status ? prettyStatus(mapping.sync_status) : vehicle.tollspot_enabled ? 'Pending' : 'Disabled'}</em>
             </button>;
           })}
         </div>
-        {selectedVehicle && <form className="portal-form tollspot-vehicle-config" onSubmit={saveVehicleConfig}>
-          <div className="vehicle-form-card-heading"><strong>{selectedVehicle.name}</strong><span>Provider-only enrollment settings</span></div>
-          <div className="automation-lock-note"><CheckCircle2 size={17}/><span><strong>TollSpot enabled</strong><small>Every real fleet vehicle is enrolled automatically.</small></span></div>
+        {selectedVehicle && <form className="portal-form tollspot-vehicle-config" onSubmit={saveVehicleConfig} onChange={() => { vehicleConfigDirtyRef.current = true; }}>
+          <div className="vehicle-form-card-heading"><strong>{selectedVehicle.name}</strong><span>Vehicle enrollment and verified transponder</span></div>
+          <div className="automation-lock-note"><ShieldCheck size={17}/><span><strong>{transponderByVehicle.has(selectedVehicle.id) ? `Verified transponder: ${transponderByVehicle.get(selectedVehicle.id).transponder_number}` : 'Transponder needs verification'}</strong><small>{transponderByVehicle.has(selectedVehicle.id) ? 'This saved mapping identifies the car for automatic rental matching.' : 'Enter the full physical transponder number in Vehicles → Toll transponder. Fleet enrollment alone does not verify a transponder.'}</small></span></div>
           <label>Provider vehicle type<select value={vehicleConfig.tollspot_vehicle_type} onChange={(event) => setVehicleConfig({ ...vehicleConfig, tollspot_vehicle_type: event.target.value })}><option value="">Choose type</option>{['SEDAN','SUV','TRUCK','MOTORCYCLE','RV','TRAILER'].map((value) => <option key={value} value={value}>{prettyStatus(value)}</option>)}</select></label>
           <label>Model year<input type="number" min="1900" max="2200" value={vehicleConfig.model_year} onChange={(event) => setVehicleConfig({ ...vehicleConfig, model_year: event.target.value })}/></label>
           <div className="tollspot-code-fields">
@@ -7894,6 +7868,9 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const additionalChargeTotal = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status !== 'waived')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const additionalPaymentsReceived = trueAdditionalCharges
+    .filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid')
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const initialPaymentTotal = Number(rental.rental_total || 0)
     + Number(rental.service_fee_total || 0)
     + Number(rental.tax_amount || 0)
@@ -8095,17 +8072,19 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
         <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
         <dl className="rental-payment-lines">
-          {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before adjustment</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
-          <dt>Rental</dt><dd>{money(rental.rental_total)}</dd>
+          {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
+          <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
           <dt>Tax</dt><dd>{money(rental.tax_amount || 0)}</dd>
+          {Number(rental.service_fee_total || 0) > 0 && <><dt>Booking fees</dt><dd>{money(rental.service_fee_total)}</dd></>}
+          <dt>Refundable security deposit</dt><dd>{money(rental.security_deposit)}</dd>
           <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
-          <dt className="total-line">Total rental cost</dt><dd className="total-line">{money(initialPaymentTotal)}</dd>
-          <dt>Net payments received</dt><dd>−{money(paidAmount)}</dd>
-          <dt>Deposit required</dt><dd>{money(rental.security_deposit)}</dd>
-          <dt>Deposit held</dt><dd>{money(depositHeldAmount)}</dd>
-          {customerCreditDue > 0 && <><dt className="credit-line">Customer credit due</dt><dd className="credit-line">{money(customerCreditDue)}</dd></>}
+          <dt className="total-line">Total charges, including deposit</dt><dd className="total-line">{money(initialPaymentTotal + additionalChargeTotal)}</dd>
+          <dt>Net booking payments received</dt><dd>−{money(paidAmount)}</dd>
+          <dt>Additional-charge payments received</dt><dd>−{money(additionalPaymentsReceived)}</dd>
+          {customerCreditDue > 0 && <><dt className="credit-line">Booking credit reserved for refund</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
         </dl>
+        <div className="refund-status-item rental-deposit-summary"><ShieldCheck size={17}/><span><strong>Security deposit: {money(depositHeldAmount)} held</strong><small>Required deposit of {money(rental.security_deposit)} is included in the total above.</small></span></div>
         {Number(rental.manual_discount_amount || 0) > 0 && <small className="manual-discount-note"><Tag size={13}/> Reservation-only adjustment • {money(Number(rental.manual_discount_amount || 0) + Number(rental.manual_discount_tax_savings || 0))} total savings</small>}
         {rentalBalanceDue > 0 && <div className="rental-balance-callout"><CreditCard size={17}/><span><strong>{money(rentalBalanceDue)} remaining rental balance</strong><small>The original payment is credited. Stripe or an external payment collects only this remainder; no second deposit is added.</small><span className="rental-balance-actions"><button type="button" className="approve" onClick={() => setAdminStepScope('payment')}>Take payment</button><button type="button" onClick={() => setContactModal({ charge: openRentalBalance, rentalBalance: true })}>Send Stripe link</button>{chargeRentalSavedCard && <button type="button" onClick={() => chargeRentalSavedCard(openRentalBalance)}>Charge saved card</button>}</span></span></div>}
         {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
@@ -8115,14 +8094,14 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           {recordTestPayment && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
           {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
           {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <button type="button" onClick={() => setPaymentDetailsOpen(true)}><Pencil size={15}/> Edit Rental Payment Details</button>}
-          {canReleaseDeposit && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
-          {canReleaseDeposit && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
+          {canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
+          {canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
         </div>
         {stripePaymentAttempts.length > 0 && <div className="stripe-attempt-block" role="status">
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
         </div>}
         <RentalChargeManager compact rental={rental} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} sendPaymentLink={(charge) => setContactModal({ charge })} notify={notify} />
-        {outstandingRentalCharges > 0 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(outstandingRentalCharges)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
+        {balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
       </aside>
     </div>
 
@@ -8145,7 +8124,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       {returnPanelOpen && <ReturnCompletionPanel rental={rental} onCancel={closeReturnPanel} onComplete={(inspection) => completeRentalReturn(rental, inspection)} />}
       {externalPaymentModalOpen && <ExternalPaymentModal
         rental={rental}
-        amountDue={rentalBalanceDue || initialPaymentTotal}
+        amountDue={rentalBalanceDue || invoiceBalanceDue}
         initialAmount={externalPaymentInitialAmount}
         balancePayment={rentalBalanceDue > 0}
         onCancel={() => {
@@ -8182,7 +8161,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       />}
       {adminStepScope && <AdminStepCompletionModal
         rental={rental}
-        amountDue={rentalBalanceDue || initialPaymentTotal}
+        amountDue={rentalBalanceDue || invoiceBalanceDue}
         scope={adminStepScope}
         complete={progressSteps.find((step) => step.key === adminStepScope)?.complete}
         rentalDocument={adminStepScope === 'license' ? license : adminStepScope === 'insurance' ? insurance : null}
@@ -8901,6 +8880,14 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [stripeAmount, setStripeAmount] = useState(() => Number(amountDue || 0).toFixed(2));
+  const previousAmountDueRef = useRef(Number(amountDue || 0));
+  useEffect(() => {
+    const nextDue = Number(amountDue || 0);
+    const previousDue = previousAmountDueRef.current;
+    setStripeAmount((current) => Number(current) === previousDue || Number(current) > nextDue
+      ? nextDue.toFixed(2) : current);
+    previousAmountDueRef.current = nextDue;
+  }, [amountDue]);
   const [depositDisposition, setDepositDisposition] = useState(rental.payment_status === 'paid' ? 'collected' : 'waived');
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [signatureName, setSignatureName] = useState(rental.profiles?.full_name || rental.customer_name_snapshot || '');
@@ -9335,7 +9322,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   }
   const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
   const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
-  const paidTotal = charges.filter((charge) => charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const paidTotal = charges.filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const automaticSources = new Set(['late_return', 'tollspot']);
   const automaticCharges = charges.filter((charge) => automaticSources.has(String(charge.source_type || '').toLowerCase()));
   const otherCharges = charges.filter((charge) => !automaticSources.has(String(charge.source_type || '').toLowerCase()));
@@ -9411,8 +9398,8 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   return <div className={`rental-charge-manager ${compact ? 'compact' : ''}`}>
     <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Automatic late-return charges and tolls, plus manual damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add manual charge</button></div>
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
-      <div><span><strong>{money(outstandingTotal)}</strong> due before deposit return</span>
-      <small>{money(paidTotal)} additional charges paid • deposit refund is {outstandingTotal > 0 ? 'locked' : 'clear'}</small></div>
+      <div><span><strong>Additional charges: {outstandingTotal > 0 ? `${money(outstandingTotal)} outstanding` : paidTotal > 0 ? 'Paid in full' : 'No balance due'}</strong></span>
+      <small>{money(paidTotal + outstandingTotal)} charged · {money(paidTotal)} paid · {money(outstandingTotal)} outstanding</small></div>
       {collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(chargingId || waivingId)} onClick={chargeAllCollectible}><CreditCard size={15}/>{chargingId === 'all-charges' ? ` Charging ${bulkProgress.completed}/${bulkProgress.total}…` : `Charge all · ${money(outstandingTotal)}`}</button>}
     </div>
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
@@ -10808,17 +10795,15 @@ function Notice({ notice, onDismiss }) {
 }
 
 function PortalDataHealth({ health, onRetry, audience = 'portal' }) {
-  if (!health?.errors?.length && !health?.refreshing) return null;
+  // Routine background refreshes use the toolbar indicator without moving the page.
+  if (!health?.errors?.length) return null;
   const lastUpdated = health.lastUpdated ? new Date(health.lastUpdated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-  if (!health.errors.length) {
-    return <div className="portal-data-health refreshing" role="status" aria-live="polite"><Clock size={18}/><span>Refreshing live data{lastUpdated ? ` • last updated ${lastUpdated}` : ''}…</span></div>;
-  }
   const labels = health.errors.map((item) => item.label);
   return <section className="portal-data-health error" role="alert" aria-live="assertive">
     <AlertTriangle size={20}/>
     <div>
-      <strong>Some {audience} data could not refresh</strong>
-      <span>{labels.join(', ')} may be incomplete{lastUpdated ? `. Last refresh attempt: ${lastUpdated}.` : '.'} Existing records have not been changed.</span>
+      <strong>{labels.join(', ')} could not refresh</strong>
+      <span>Showing the last loaded records. Background refresh will retry automatically.{lastUpdated ? ` Last attempt: ${lastUpdated}.` : ''}</span>
       <details><summary>View details</summary><ul>{health.errors.map((item) => <li key={item.label}><strong>{item.label}:</strong> {item.message} <button type="button" onClick={() => onRetry(item.label)} disabled={health.refreshing}>Retry section</button></li>)}</ul></details>
     </div>
     <button type="button" className="secondary-btn" onClick={() => health.errors.forEach((item) => onRetry(item.label))} disabled={health.refreshing}>{health.refreshing ? 'Retrying…' : 'Retry failed data'}</button>
@@ -10828,7 +10813,10 @@ function PortalDataHealth({ health, onRetry, audience = 'portal' }) {
 function userFacingPortalError(error, fallback = 'Something went wrong. Please try again.') {
   const message = String(error?.message || error || '').trim();
   if (!message) return fallback;
-  if (/failed to fetch|network|load failed|connection|timeout/i.test(message)) return 'The connection was interrupted. Check your internet connection and try again.';
+  if (/timed out|timeout/i.test(message)) return `${message} The last loaded records remain visible; automatic refresh will retry.`;
+  if (/permission denied|row-level security|\brls\b/i.test(message)) return 'Your staff account does not have access to this data. Ask an administrator to check permissions.';
+  if (/schema cache|relation .* does not exist|function .* does not exist/i.test(message)) return 'The database is missing a required update. An administrator needs to check the deployment.';
+  if (/failed to fetch|network|load failed|connection/i.test(message)) return 'The connection was interrupted. Check your internet connection and try again.';
   if (/jwt|token|session|not authenticated/i.test(message)) return 'Your secure session needs to be refreshed. Sign in again and retry.';
   if (/row-level security|\\brls\\b|schema cache|relation .* does not exist|function .* does not exist|policy/i.test(message)) return fallback;
   if (/duplicate key|already exists/i.test(message)) return 'That change was already recorded. Refresh to see the latest status.';

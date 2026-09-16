@@ -9828,3 +9828,25 @@ input[type="radio"] {
     justify-self: stretch;
   }
 }
+
+/* Keep the arithmetic readable at narrow widths and the held deposit separate. */
+.rental-card-financial .rental-payment-lines {
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+}
+.rental-card-financial .rental-payment-lines dd {
+  white-space: nowrap !important;
+  font-variant-numeric: tabular-nums;
+}
+.rental-deposit-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dce4e0;
+  border-radius: 10px;
+  background: #f5f8f6;
+}
+.rental-deposit-summary > svg { flex-shrink: 0; }
+.rental-deposit-summary span { display: grid; gap: 4px; }
+.rental-deposit-summary small { color: #617168; }

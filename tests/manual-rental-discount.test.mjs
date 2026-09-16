@@ -23,7 +23,7 @@ test('the preview keeps deposits separate and explains paid credits', () => {
 });
 
 test('manual discounts appear in payment summary and agreement snapshots', () => {
-  assert.match(mainSource, /Rental before adjustment/);
+  assert.match(mainSource, /Rental before discount/);
   assert.match(mainSource, /Manual Reservation Discount:/);
   assert.match(mainSource, /manual_discount_tax_savings/);
   assert.match(styles, /\.manual-discount-modal\.admin-modal/);
@@ -31,7 +31,7 @@ test('manual discounts appear in payment summary and agreement snapshots', () =>
 
 test('paid rental edits reopen only the remaining rental balance', () => {
   assert.match(mainSource, /remaining rental balance/i);
-  assert.match(mainSource, /Net payments received/);
+  assert.match(mainSource, /Net booking payments received/);
   assert.match(mainSource, /record_admin_rental_balance_payment|admin_record_external_balance/);
   assert.match(mainSource, /Charge saved card/);
   assert.match(mainSource, /Send Stripe link/);
