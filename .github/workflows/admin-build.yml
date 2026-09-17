@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify refund history integrity
+        run: node --test tests/external-refund-history.test.mjs tests/rental-refund-ledger.test.mjs
+
       - name: Build
         run: npm run build
 

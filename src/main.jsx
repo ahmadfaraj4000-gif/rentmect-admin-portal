@@ -994,7 +994,8 @@ function App() {
     rentalCharges,
     depositAllocations,
     stripeReconciliationIssues,
-  }), [rentals, rentalPayments, rentalRefunds, extensionRequests, rentalCharges, depositAllocations, stripeReconciliationIssues]);
+    externalPaymentActions,
+  }), [rentals, rentalPayments, rentalRefunds, extensionRequests, rentalCharges, depositAllocations, stripeReconciliationIssues, externalPaymentActions]);
 
   const filteredRentals = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -10220,6 +10221,67 @@ function externalPaymentMethodLabel(method) {
   }[method] || 'External';
 }
 
+function buildDepositRefundHistory(rental, depositAllocations = [], externalPaymentActions = []) {
+  const payments = [];
+  const depositRefundAllocations = depositAllocations.filter((allocation) => {
+    const status = String(allocation.status || '').toLowerCase();
+    return Number(allocation.amount_released || 0) - Number(allocation.external_receipt_refunded_amount || 0) > 0
+      || Boolean(allocation.refund_id)
+      || ['release_pending', 'failed'].includes(status);
+  });
+  depositRefundAllocations.forEach((allocation) => {
+    const allocationStatus = String(allocation.status || '').toLowerCase();
+    const amountReleased = Math.max(0, Number(allocation.amount_released || 0) - Number(allocation.external_receipt_refunded_amount || 0));
+    const status = amountReleased > 0
+      ? 'succeeded'
+      : allocationStatus === 'release_pending'
+        ? 'pending'
+        : allocationStatus === 'failed'
+          ? 'failed'
+          : 'review';
+    const provider = String(allocation.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
+    payments.push({
+      id: `deposit-refund-${allocation.id}`,
+      amount: amountReleased > 0 ? amountReleased : Number(allocation.amount_held || 0),
+      date: amountReleased > 0 ? allocation.refund_completed_at : allocation.refund_requested_at,
+      allowUnknownDate: true,
+      provider,
+      kind: 'refund',
+      status,
+      moneyReturned: amountReleased > 0 || status === 'succeeded',
+      method: [provider === 'stripe' ? 'Stripe' : 'External return', allocation.refund_id ? `Refund ${allocation.refund_id}` : ''].filter(Boolean).join(' • '),
+      label: 'Security deposit refund',
+    });
+  });
+
+  // External refunds already contain their deposit portion. Do not invent a
+  // second refund from the rental's historical aggregate, or date it using a
+  // later booking edit. Uncorroborated legacy totals remain visible for review.
+  const externallyRecordedDepositReturns = externalPaymentActions
+    .filter((action) => action.action_type === 'refund')
+    .reduce((sum, action) => sum + Number(action.deposit_amount_returned || 0), 0);
+  const legacyDepositReturn = Math.max(0, Number(rental?.deposit_released_amount || 0) - externallyRecordedDepositReturns);
+  if (depositAllocations.length === 0 && (legacyDepositReturn > 0.005 || rental?.deposit_refund_id)) {
+    const released = String(rental.deposit_status || '').toLowerCase() === 'released';
+    const hasRefundEvidence = Boolean(rental.deposit_refund_id || rental.deposit_released_at);
+    const provider = String(rental.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
+    payments.push({
+      id: `deposit-refund-${rental.id}`,
+      amount: legacyDepositReturn || Number(rental.security_deposit || 0),
+      date: rental.deposit_released_at || (rental.deposit_refund_id ? rental.deposit_release_attempted_at : null),
+      allowUnknownDate: true,
+      provider,
+      kind: 'refund',
+      status: !hasRefundEvidence ? 'review' : released ? 'succeeded' : rental.deposit_status === 'release_pending' ? 'pending' : 'review',
+      moneyReturned: hasRefundEvidence && released,
+      method: [hasRefundEvidence ? (provider === 'stripe' ? 'Stripe' : 'External return') : 'Historical deposit total; refund transaction not verified', rental.deposit_refund_id ? `Refund ${rental.deposit_refund_id}` : ''].filter(Boolean).join(' • '),
+      label: 'Security deposit refund',
+    });
+  }
+
+  return payments;
+}
+
 function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = [], extensionRequests = [], initialPaymentTotal = 0, externalPaymentActions = [], rentalRefunds = [], depositAllocations = []) {
   const refundedSources = new Set(externalPaymentActions
     .filter((action) => action.action_type === 'refund')
@@ -10352,7 +10414,7 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
       payments.push({
         id: `rental-refund-${refund.id}`,
         amount: Number(refund.amount || 0),
-        date: refund.updated_at || refund.created_at,
+        date: refund.created_at,
         provider: 'stripe',
         kind: 'refund',
         status,
@@ -10362,60 +10424,7 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
       });
     });
 
-  const depositRefundAllocations = depositAllocations.filter((allocation) => {
-    const status = String(allocation.status || '').toLowerCase();
-    return Number(allocation.amount_released || 0) > 0
-      || Boolean(allocation.refund_id)
-      || ['release_pending', 'released', 'failed'].includes(status);
-  });
-  depositRefundAllocations.forEach((allocation) => {
-    const allocationStatus = String(allocation.status || '').toLowerCase();
-    const status = allocationStatus === 'released'
-      ? 'succeeded'
-      : allocationStatus === 'release_pending'
-        ? 'pending'
-        : allocationStatus === 'failed'
-          ? 'failed'
-          : 'processing';
-    const amountReleased = Number(allocation.amount_released || 0);
-    const provider = String(allocation.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
-    payments.push({
-      id: `deposit-refund-${allocation.id}`,
-      amount: amountReleased > 0 ? amountReleased : Number(allocation.amount_held || 0),
-      date: allocation.updated_at || allocation.created_at,
-      provider,
-      kind: 'refund',
-      status,
-      moneyReturned: amountReleased > 0 || status === 'succeeded',
-      method: [provider === 'stripe' ? 'Stripe' : 'External return', allocation.refund_id ? `Refund ${allocation.refund_id}` : ''].filter(Boolean).join(' • '),
-      label: 'Security deposit refund',
-    });
-  });
-
-  // External refunds already contain their deposit portion. Do not invent a
-  // second refund from the rental's historical aggregate, or date it using a
-  // later booking edit. Uncorroborated legacy totals remain visible for review.
-  const externallyRecordedDepositReturns = externalPaymentActions
-    .filter((action) => action.action_type === 'refund')
-    .reduce((sum, action) => sum + Number(action.deposit_amount_returned || 0), 0);
-  const legacyDepositReturn = Math.max(0, Number(rental?.deposit_released_amount || 0) - externallyRecordedDepositReturns);
-  if (depositRefundAllocations.length === 0 && (legacyDepositReturn > 0.005 || rental?.deposit_refund_id)) {
-    const released = String(rental.deposit_status || '').toLowerCase() === 'released';
-    const hasRefundEvidence = Boolean(rental.deposit_refund_id || rental.deposit_released_at);
-    const provider = String(rental.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
-    payments.push({
-      id: `deposit-refund-${rental.id}`,
-      amount: legacyDepositReturn || Number(rental.security_deposit || 0),
-      date: rental.deposit_released_at || (rental.deposit_refund_id ? rental.deposit_release_attempted_at : null),
-      allowUnknownDate: true,
-      provider,
-      kind: 'refund',
-      status: !hasRefundEvidence ? 'review' : released ? 'succeeded' : rental.deposit_status === 'release_pending' ? 'pending' : 'review',
-      moneyReturned: hasRefundEvidence && released,
-      method: [hasRefundEvidence ? (provider === 'stripe' ? 'Stripe' : 'External return') : 'Historical deposit total; refund transaction not verified', rental.deposit_refund_id ? `Refund ${rental.deposit_refund_id}` : ''].filter(Boolean).join(' • '),
-      label: 'Security deposit refund',
-    });
-  }
+  payments.push(...buildDepositRefundHistory(rental, depositAllocations, externalPaymentActions));
 
   return payments
     .filter((payment) => Math.abs(payment.amount) > 0 && (payment.date || payment.allowUnknownDate))
@@ -11901,6 +11910,7 @@ function buildPaymentEvents({
   rentalCharges = [],
   depositAllocations = [],
   stripeReconciliationIssues = [],
+  externalPaymentActions = [],
 }) {
   const events = [];
   const rentalsById = new Map(rentals.map((rental) => [rental.id, rental]));
@@ -11991,7 +12001,7 @@ function buildPaymentEvents({
         cashImpact: -refundedAmount,
         outstandingAmount: 0,
         detail: [payment.deposit_refunded_at ? 'Deposit refund' : 'Payment refund', sourceDetail].filter(Boolean).join(' • '),
-        date: payment.deposit_refunded_at || payment.updated_at || payment.created_at,
+        date: payment.deposit_refunded_at || null,
       });
     }
   });
@@ -12013,7 +12023,7 @@ function buildPaymentEvents({
       cashImpact: succeeded ? -Number(refund.amount || 0) : 0,
       outstandingAmount: 0,
       detail: [refund.reason, shortPaymentReference(refund.stripe_refund_id, 'Refund')].filter(Boolean).join(' • '),
-      date: refund.updated_at || refund.created_at,
+      date: refund.created_at,
     });
   });
 
@@ -12071,23 +12081,7 @@ function buildPaymentEvents({
           detail: [paymentSourceDetail(rental), rental.deposit_release_error].filter(Boolean).join(' • '),
           date: rental.paid_at || rental.updated_at || rental.created_at,
         });
-        if (Number(rental.deposit_released_amount || 0) > 0) {
-          events.push({
-            id: `deposit-refund-${rental.id}`,
-            rentalId: rental.id,
-            customer,
-            vehicle,
-            type: 'refund',
-            typeLabel: 'Deposit Refund',
-            statusGroup: 'refunded',
-            displayStatus: depositStatus === 'released' ? 'refunded' : depositStatus,
-            amount: -Number(rental.deposit_released_amount || 0),
-            cashImpact: -Number(rental.deposit_released_amount || 0),
-            outstandingAmount: 0,
-            detail: [paymentSourceDetail(rental), rental.deposit_release_reason].filter(Boolean).join(' • '),
-            date: rental.deposit_released_at || rental.updated_at || rental.created_at,
-          });
-        }
+
       }
     });
 
@@ -12115,23 +12109,34 @@ function buildPaymentEvents({
       ].filter(Boolean).join(' • '),
       date: allocation.created_at,
     });
-    if (amountReleased > 0) {
+
+  });
+
+  externalPaymentActions.filter((action) => action.action_type === 'refund').forEach((action) => {
+    const { customer, vehicle } = contextFor(action, action.rental_id);
+    events.push({
+      id: `external-refund-${action.id}`, rentalId: action.rental_id, customer, vehicle,
+      type: 'refund', typeLabel: 'External Refund', statusGroup: 'refunded', displayStatus: 'recorded externally',
+      amount: -Number(action.amount || 0), cashImpact: -Number(action.amount || 0), outstandingAmount: 0,
+      detail: [`Recorded under: ${action.recorded_by_profile?.email || action.created_by || 'Account not available'}`, action.reason,
+        Number(action.deposit_amount_returned || 0) > 0 ? `Includes ${money(action.deposit_amount_returned)} deposit portion` : ''].filter(Boolean).join(' • '),
+      date: action.created_at,
+    });
+  });
+  rentals.forEach((rental) => {
+    const { customer, vehicle } = contextFor(rental, rental.id);
+    buildDepositRefundHistory(rental,
+      depositAllocations.filter((allocation) => allocation.holder_rental_id === rental.id),
+      externalPaymentActions.filter((action) => action.rental_id === rental.id)).forEach((refund) => {
       events.push({
-        id: `allocation-refund-${allocation.id}`,
-        rentalId: allocation.holder_rental_id,
-        customer,
-        vehicle,
-        type: 'refund',
-        typeLabel: 'Deposit Refund',
-        statusGroup: 'refunded',
-        displayStatus: rawStatus === 'released' ? 'refunded' : rawStatus,
-        amount: -amountReleased,
-        cashImpact: -amountReleased,
-        outstandingAmount: 0,
-        detail: [paymentSourceDetail(allocation), shortPaymentReference(allocation.refund_id, 'Refund')].filter(Boolean).join(' • '),
-        date: allocation.updated_at || allocation.created_at,
+        id: refund.id, rentalId: rental.id, customer, vehicle,
+        type: 'refund', typeLabel: 'Deposit Refund',
+        statusGroup: refund.status === 'succeeded' ? 'refunded' : refund.status === 'pending' ? 'pending' : 'failed',
+        displayStatus: refund.status === 'review' ? 'review needed' : refund.status,
+        amount: -refund.amount, cashImpact: refund.moneyReturned ? -refund.amount : 0, outstandingAmount: 0,
+        detail: refund.method, date: refund.date,
       });
-    }
+    });
   });
 
   extensionRequests

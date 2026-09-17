@@ -115,3 +115,28 @@ test('Stripe refund failure is reported as an error, never as processing or succ
   const f = fixture({ refundStatus: 'failed' });
   await assert.rejects(f.cancel(), /Stripe deposit refund failed/);
 });
+
+const settlementCode = transformSync('settlement.ts', source.slice(source.indexOf('async function updateRefundState('), source.indexOf('\nasync function releaseSecurityDeposit('))).code;
+test('Stripe settlement sends payment source and refund through one transactional RPC', async () => {
+  const calls = [];
+  const ctx = vm.createContext({ adminClient: { rpc: async (name, args) => { calls.push({ name, args }); return { data: { status: 'released' } }; } } });
+  vm.runInContext(settlementCode, ctx);
+  const result = await ctx.updateAllocationRefundState('rental', 'allocation', { id: 're_real', payment_intent: 'pi_original', status: 'succeeded', amount: 30000 }, 30000);
+  assert.equal(result.status, 'released');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'apply_stripe_deposit_refund');
+  assert.equal(calls[0].args.p_payment_intent_id, 'pi_original');
+  assert.equal(calls[0].args.p_amount, 300);
+});
+test('legacy deposit webhook with ambiguous funding cannot mark a rental refunded', async () => {
+  let writes = 0;
+  const ctx = vm.createContext({ adminClient: {
+    from: () => { const q = { select() { return q; }, eq() { return q; }, then(resolve) { return Promise.resolve({ data: [
+      { id: 'a', stripe_payment_intent_id: 'pi_original' }, { id: 'b', stripe_payment_intent_id: 'pi_original' },
+    ] }).then(resolve); } }; return q; },
+    rpc: async () => { writes++; return {}; },
+  } });
+  vm.runInContext(settlementCode, ctx);
+  await assert.rejects(ctx.updateRefundState('rental', { id: 're_real', payment_intent: 'pi_original', amount: 30000 }, 30000), /allocation reconciliation/);
+  assert.equal(writes, 0);
+});

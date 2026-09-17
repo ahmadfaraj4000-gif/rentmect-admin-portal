@@ -28,14 +28,14 @@ test('editing a booking does not change the recorded refund date', () => {
   assert.equal(history({ ...booking, updated_at: '2030-01-01' })[0].date, action.created_at);
 });
 test('unexplained legacy totals require review instead of claiming a new pending refund', () => {
-  const rows = history(booking, []);
+  const rows = history(booking, [], []);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, 'review');
   assert.equal(rows[0].date, null);
   assert.equal(rows[0].moneyReturned, false);
 });
 test('a real pending Stripe allocation remains visible alongside the separate external refund', () => {
-  const rows = history(booking, [action], [{ id: 'stripe', status: 'release_pending', payment_provider: 'stripe', amount_held: 300, amount_released: 0, refund_id: 're_real', updated_at: '2026-09-17T20:00:00Z' }]);
+  const rows = history(booking, [action], [{ id: 'stripe', status: 'release_pending', payment_provider: 'stripe', amount_held: 300, amount_released: 0, refund_id: 're_real', refund_requested_at: '2026-09-17T20:00:00Z', updated_at: '2026-09-18T20:00:00Z' }]);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].amount, 300);
   assert.equal(rows[0].status, 'pending');
@@ -49,4 +49,41 @@ test('legacy completed refunds retain their actual release date', () => {
 });
 test('missing staff profile preserves the recorded account identifier', () => {
   assert.match(history(booking, [{ ...action, recorded_by_profile: null }])[0].method, /Recorded under: staff-id/);
+});
+
+
+test('current allocations take precedence over a stale rental aggregate', () => {
+  assert.equal(history(booking, []).length, 0);
+});
+test('an external receipt deposit portion is not counted again as an allocation refund', () => {
+  const rows = history(booking, [action], [{ id: 'local', status: 'released', payment_provider: 'local',
+    amount_held: 282.04, amount_released: 282.04, external_receipt_refunded_amount: 282.04 }]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].amount, 700);
+});
+test('completed deposit refunds keep their event date after later allocation edits', () => {
+  const rows = history(booking, [], [{ id: 'stripe', status: 'released', payment_provider: 'stripe',
+    amount_held: 300, amount_released: 300, refund_id: 're_confirmed',
+    refund_completed_at: '2026-08-30T12:00:00Z', updated_at: '2026-09-17T20:00:00Z' }]);
+  assert.equal(rows[0].date, '2026-08-30T12:00:00Z');
+  assert.equal(rows[0].status, 'succeeded');
+});
+
+const eventCode = source.slice(source.indexOf('function buildPaymentEvents('), source.indexOf('function paymentEventMatchesFilter('));
+Object.assign(context, { normalizePaymentStatus: (s) => s, paymentSourceDetail: () => '', shortPaymentReference: (s) => s || '', formatRentalDate: () => '' });
+vm.runInContext(eventCode, context);
+test('Payments view and booking ledger agree: one external refund, no invented pending deposit', () => {
+  const events = context.buildPaymentEvents({ rentals: [booking],
+    externalPaymentActions: [{ ...action, rental_id: 'booking' }],
+    depositAllocations: [{ id: 'held', holder_rental_id: 'booking', status: 'held', amount_held: 300, amount_released: 0 }] });
+  const refunds = events.filter((event) => event.type === 'refund');
+  assert.equal(refunds.length, 1);
+  assert.equal(refunds[0].amount, -700);
+  assert.equal(refunds[0].date, action.created_at);
+});
+test('Payments view does not double-count a deposit returned inside an external receipt', () => {
+  const events = context.buildPaymentEvents({ rentals: [booking], externalPaymentActions: [{ ...action, rental_id: 'booking' }],
+    depositAllocations: [{ id: 'local', holder_rental_id: 'booking', status: 'released', payment_provider: 'local',
+      amount_held: 282.04, amount_released: 282.04, external_receipt_refunded_amount: 282.04 }] });
+  assert.equal(events.filter((event) => event.type === 'refund').length, 1);
 });
