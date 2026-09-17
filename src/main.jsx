@@ -1153,10 +1153,16 @@ function App() {
         if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
         if (rentalRefundsRes.data) setRentalRefunds(rentalRefundsRes.data);
         if (rentalChargesRes.data) setRentalCharges(rentalChargesRes.data);
-        if (externalActionsRes.data) setExternalPaymentActions(externalActionsRes.data);
+        const externalActorIds = [...new Set((externalActionsRes.data || []).map((action) => action.created_by).filter(Boolean))];
+        const externalActorsRes = externalActorIds.length
+          ? await withReadRetry(() => supabase.from('profiles').select('id,email,full_name').in('id', externalActorIds), 'Payment adjustment authors')
+          : { data: [], error: null };
+        if (externalActionsRes.data) setExternalPaymentActions(externalActionsRes.data.map((action) => ({
+          ...action, recorded_by_profile: (externalActorsRes.data || []).find((profile) => profile.id === action.created_by) || null,
+        })));
         if (reconciliationIssuesRes.data) setStripeReconciliationIssues(reconciliationIssuesRes.data);
         setPaymentLoadError([depositAllocationsRes.error, rentalPaymentsRes.error, rentalRefundsRes.error, rentalChargesRes.error, externalActionsRes.error, reconciliationIssuesRes.error].filter(Boolean).map((error) => error.message).join(' '));
-        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes], ['External payment adjustments', externalActionsRes], ['Stripe reconciliation', reconciliationIssuesRes]];
+        results = [['Deposits', depositAllocationsRes], ['Payments', rentalPaymentsRes], ['Refunds', rentalRefundsRes], ['Additional charges', rentalChargesRes], ['External payment adjustments', externalActionsRes], ['Payment adjustment authors', externalActorsRes], ['Stripe reconciliation', reconciliationIssuesRes]];
       } else if (domain === 'templates') {
         const [emailRes, smsRes] = await Promise.all([
           withReadRetry(() => supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
@@ -10320,8 +10326,15 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
       kind: 'refund',
       status: 'succeeded',
       moneyReturned: true,
-      method: [externalPaymentMethodLabel(action.original_method), action.external_reference].filter(Boolean).join(' • '),
-      label: `Money returned · ${action.reason}`,
+      method: [
+        externalPaymentMethodLabel(action.original_method),
+        `Recorded under: ${action.recorded_by_profile?.email || action.recorded_by_profile?.full_name || action.created_by || 'Account not available'}`,
+        `Reason: ${action.reason || 'Not recorded'}`,
+        Number(action.deposit_amount_returned || 0) > 0 ? `Includes ${money(action.deposit_amount_returned)} deposit portion` : '',
+        action.reference || action.external_reference,
+      ].filter(Boolean).join(' • '),
+      label: 'External refund recorded',
+      statusLabel: 'Recorded externally',
       editable: false,
     }));
 
@@ -10379,25 +10392,34 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
     });
   });
 
-  if (depositRefundAllocations.length === 0 && (Number(rental?.deposit_released_amount || 0) > 0 || rental?.deposit_refund_id)) {
+  // External refunds already contain their deposit portion. Do not invent a
+  // second refund from the rental's historical aggregate, or date it using a
+  // later booking edit. Uncorroborated legacy totals remain visible for review.
+  const externallyRecordedDepositReturns = externalPaymentActions
+    .filter((action) => action.action_type === 'refund')
+    .reduce((sum, action) => sum + Number(action.deposit_amount_returned || 0), 0);
+  const legacyDepositReturn = Math.max(0, Number(rental?.deposit_released_amount || 0) - externallyRecordedDepositReturns);
+  if (depositRefundAllocations.length === 0 && (legacyDepositReturn > 0.005 || rental?.deposit_refund_id)) {
     const released = String(rental.deposit_status || '').toLowerCase() === 'released';
+    const hasRefundEvidence = Boolean(rental.deposit_refund_id || rental.deposit_released_at);
     const provider = String(rental.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
     payments.push({
       id: `deposit-refund-${rental.id}`,
-      amount: Number(rental.deposit_released_amount || rental.security_deposit || 0),
-      date: rental.deposit_released_at || rental.updated_at,
+      amount: legacyDepositReturn || Number(rental.security_deposit || 0),
+      date: rental.deposit_released_at || (rental.deposit_refund_id ? rental.deposit_release_attempted_at : null),
+      allowUnknownDate: true,
       provider,
       kind: 'refund',
-      status: released ? 'succeeded' : 'pending',
-      moneyReturned: released || Number(rental.deposit_released_amount || 0) > 0,
-      method: [provider === 'stripe' ? 'Stripe' : 'External return', rental.deposit_refund_id ? `Refund ${rental.deposit_refund_id}` : ''].filter(Boolean).join(' • '),
+      status: !hasRefundEvidence ? 'review' : released ? 'succeeded' : rental.deposit_status === 'release_pending' ? 'pending' : 'review',
+      moneyReturned: hasRefundEvidence && released,
+      method: [hasRefundEvidence ? (provider === 'stripe' ? 'Stripe' : 'External return') : 'Historical deposit total; refund transaction not verified', rental.deposit_refund_id ? `Refund ${rental.deposit_refund_id}` : ''].filter(Boolean).join(' • '),
       label: 'Security deposit refund',
     });
   }
 
   return payments
-    .filter((payment) => Math.abs(payment.amount) > 0 && payment.date)
-    .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+    .filter((payment) => Math.abs(payment.amount) > 0 && (payment.date || payment.allowUnknownDate))
+    .sort((left, right) => (right.date ? new Date(right.date).getTime() : 0) - (left.date ? new Date(left.date).getTime() : 0));
 }
 
 function RentalPaymentHistory({ payments = [] }) {
@@ -10408,13 +10430,13 @@ function RentalPaymentHistory({ payments = [] }) {
     </div>
     {payments.length > 0
       ? <ol className={payments.length > 4 ? 'is-scrollable' : ''} tabIndex={payments.length > 4 ? 0 : undefined} aria-label={payments.length > 4 ? `All ${payments.length} payment and refund transactions; scroll for older transactions` : undefined}>{payments.map((payment) => {
-        const refundStatus = payment.status === 'succeeded'
+        const refundStatus = payment.statusLabel || (payment.status === 'review' ? 'Review needed' : payment.status === 'succeeded'
           ? 'Refunded'
           : payment.status === 'failed'
             ? 'Refund failed'
-            : 'Refund pending';
+            : 'Refund pending');
         return <li key={payment.id} className={payment.kind === 'refund' ? `is-refund is-${payment.status}` : ''}>
-          <time dateTime={payment.date}>{formatEasternDateTime(payment.date)}</time>
+          <time dateTime={payment.date || undefined}>{payment.date ? formatEasternDateTime(payment.date) : 'Date not recorded'}</time>
           <strong className={payment.kind === 'refund' ? 'is-refund' : ''}>{payment.kind === 'refund' && payment.moneyReturned ? '−' : ''}{money(payment.amount)}</strong>
           <span className={`rental-payment-source ${payment.kind === 'refund' ? `refund ${payment.status}` : payment.provider}`}>{payment.kind === 'refund' ? refundStatus : payment.provider === 'stripe' ? 'Stripe' : 'External'}</span>
           <small>{[payment.label, payment.method].filter(Boolean).join(' • ')}</small>
