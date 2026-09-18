@@ -19,7 +19,7 @@ export function refundableRentalSources(rental, charges = [], refunds = [], allo
       && !['failed', 'cancelled', 'canceled'].includes(String(refund.status).toLowerCase()))
       .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
     const protectedDeposit = allocations.filter((allocation) => allocation.stripe_payment_intent_id === source.paymentIntentId
-      && allocation.status !== 'released').reduce((sum, allocation) =>
+      && (allocation.status !== 'released' || Number(allocation.amount_applied || 0) > 0)).reduce((sum, allocation) =>
       sum + Math.max(0, Number(allocation.amount_held || 0) - Number(allocation.amount_released || 0)), 0);
     const released = allocations.filter((allocation) => allocation.stripe_payment_intent_id === source.paymentIntentId)
       .reduce((sum, allocation) => sum + Number(allocation.amount_released || 0), 0);

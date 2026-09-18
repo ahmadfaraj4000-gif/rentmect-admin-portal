@@ -87,3 +87,14 @@ test('Payments view does not double-count a deposit returned inside an external 
       amount_held: 282.04, amount_released: 282.04, external_receipt_refunded_amount: 282.04 }] });
   assert.equal(events.filter((event) => event.type === 'refund').length, 1);
 });
+
+test('deposit-applied fuel is not new cash and pending refund displays only the remainder', () => {
+ const fuel={id:'fuel',rental_id:'booking',charge_type:'fuel',name:'Fuel',status:'paid',payment_provider:'deposit',payment_amount_cents:0,total_amount:56.38,paid_at:'2026-09-18T19:00:00Z'};
+ const allocations=[{id:'a',holder_rental_id:'booking',status:'release_pending',payment_provider:'stripe',amount_held:300,amount_applied:56.38,amount_released:0,refund_reserved_amount:243.62,refund_requested_at:'2026-09-18T19:00:00Z'}];
+ const history=context.buildRentalPaymentHistory({...booking,deposit_released_amount:0},[],[fuel],[],0,[],[],allocations);
+ assert.equal(history.find(x=>x.kind==='refund').amount,243.62);
+ assert.equal(history.find(x=>x.provider==='deposit').amount,56.38);
+ const events=context.buildPaymentEvents({rentals:[{...booking,deposit_released_amount:0}],rentalCharges:[fuel],depositAllocations:allocations});
+ assert.equal(events.find(x=>x.id==='charge-fuel').cashImpact,0);
+ assert.equal(events.find(x=>x.id==='charge-fuel').outstandingAmount,0);
+});

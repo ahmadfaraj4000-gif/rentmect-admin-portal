@@ -1,3 +1,4 @@
+import { depositSettlementPreview } from './lib/depositSettlement.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
 import { refundableRentalSources, refundDisplayState } from './lib/rentalRefunds.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -1841,18 +1842,21 @@ function App() {
     return true;
   }
 
-  async function releaseSecurityDeposit(rental) {
+  async function releaseSecurityDeposit(rental, settlement = null) {
     if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
-    if (!rental?.id) return;
-    const amount = Number(rental.deposit_held_amount || rental.security_deposit || 0);
-    const confirmed = window.confirm(`Refund ${money(amount)} of the captured Stripe payment to this customer now?`);
+    if (!rental?.id) return false;
+    if (settlement && !requireStaffPermission('charge.manage', 'apply deposits to charges')) return false;
+    const amount = Number(settlement?.expectedRefund ?? rental.deposit_held_amount ?? rental.security_deposit ?? 0);
+    const confirmed = settlement || window.confirm(`Refund ${money(amount)} of the captured Stripe payment to this customer now?`);
     if (!confirmed) return;
 
     const { data, error } = await withPaymentProcessing('Reconciling Stripe and returning the security deposit…', () => supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'release_deposit',
+        ...(settlement ? { action: 'settle_deposit_charges' } : {}),
         rentalId: rental.id,
-        reason: 'Released manually from the admin portal.',
+        ...(settlement || {}),
+        reason: settlement?.reason || 'Released manually from the admin portal.',
       },
     }));
     if (error || data?.error) {
@@ -1870,7 +1874,9 @@ function App() {
         }
       }
       console.error('Security deposit refund failed', { rentalId: rental.id, error, data, detail });
-      return notify(detail, 'error');
+      notify(detail, 'error');
+      await loadAllData({ silent: true });
+      return false;
     }
 
     const nextStatus = data?.status === 'succeeded' || data?.status === 'released' ? 'released' : 'release_pending';
@@ -1882,7 +1888,8 @@ function App() {
       deposit_released_at: nextStatus === 'released' ? new Date().toISOString() : item.deposit_released_at,
     } : item));
     notify(nextStatus === 'released' ? 'Security deposit refund submitted successfully.' : 'Security deposit refund is processing.', 'success');
-    loadAllData({ silent: true });
+    await loadAllData({ silent: true });
+    return true;
   }
 
   async function refundRentalPayment(rental, refund) {
@@ -4235,6 +4242,29 @@ function DepositActionPanel({ tasks = [], rentals = [], depositAllocations = [],
       return saved;
     }} />}
   </>;
+}
+
+function DepositChargeSettlementModal({ preview, onCancel, onConfirm }) {
+  const [reason, setReason] = useState('Apply outstanding return charges to the security deposit.');
+  const [saving, setSaving] = useState(false);
+  const dialogRef = useDialogFocus(() => { if (!saving) onCancel(); });
+  return <div className="admin-modal-backdrop deposit-action-modal-backdrop"><div ref={dialogRef} className="admin-modal compact-modal deposit-action-modal" role="dialog" aria-modal="true" aria-labelledby="deposit-settlement-title">
+    <h3 id="deposit-settlement-title">Apply charges &amp; refund remainder</h3>
+    <p>The listed charges will be paid from the held deposit. The remainder will be refunded to the original card.</p>
+    <dl className="rental-payment-lines"><dt>Deposit held</dt><dd>{money(preview.deposit)}</dd>
+      {preview.charges.map((charge) => <React.Fragment key={charge.id}><dt>{charge.name} (including tax)</dt><dd>−{money(charge.total_amount)}</dd></React.Fragment>)}
+      <dt><strong>Refund to customer</strong></dt><dd><strong>{money(preview.expectedRefund)}</strong></dd>
+    </dl>
+    <div className="portal-form"><label><span>Reason</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} disabled={saving}/></label></div>
+    <p className="muted">No additional card charge is made. If the refund cannot finish, the recorded deductions remain and you can retry the remainder from Refund Deposit.</p>
+    <div className="button-row end-row"><button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Cancel</button>
+      <button type="button" className="approve" disabled={saving || reason.trim().length < 5} onClick={async () => {
+        if (saving || reason.trim().length < 5) return;
+        setSaving(true);
+        try { await onConfirm({ chargeIds: preview.chargeIds, expectedApplied: preview.expectedApplied, expectedRefund: preview.expectedRefund, reason: reason.trim() }); }
+        finally { setSaving(false); }
+      }}>{saving ? 'Settling deposit…' : `Apply ${money(preview.expectedApplied)} & refund ${money(preview.expectedRefund)}`}</button></div>
+  </div></div>;
 }
 
 function ExternalDepositReleaseModal({ rental, onCancel, onConfirm }) {
@@ -7779,6 +7809,7 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
 }
 
 function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+  const [depositSettlementOpen, setDepositSettlementOpen] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [activityEvents, setActivityEvents] = useState([]);
   const [activityActorById, setActivityActorById] = useState(new Map());
@@ -7875,11 +7906,11 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const outstandingRentalCharges = outstandingAdditionalCharges + rentalBalanceDue;
   const canReleaseDeposit = Boolean(releaseSecurityDeposit)
     && (rental.status === 'completed' || (rental.status === 'cancelled' && rental.cancelled_before_pickup_at))
-    && ['held', 'adjustment_refund_due'].includes(rental.deposit_status)
+    && (['held', 'adjustment_refund_due'].includes(rental.deposit_status) || (rental.deposit_status === 'release_pending' && !rental.deposit_refund_id))
     && Number(rental.deposit_held_amount || rental.security_deposit || 0) > 0
     && outstandingRentalCharges <= 0.005;
   const hasStripeDepositAllocation = depositAllocations.some((item) =>
-    item.payment_provider === 'stripe' && ['held', 'refund_due_inspection', 'failed'].includes(item.status)
+    item.payment_provider === 'stripe' && ['held', 'refund_due_inspection', 'failed', 'release_pending'].includes(item.status)
   ) || (depositAllocations.length === 0 && rental.payment_provider === 'stripe');
   const hasLocalDepositAllocation = depositAllocations.some((item) =>
     item.payment_provider === 'local' && ['held', 'refund_due_inspection', 'failed'].includes(item.status)
@@ -7893,7 +7924,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       !['released'].includes(String(allocation.status || '').toLowerCase())
     )
     .reduce((sum, allocation) =>
-      sum + Math.max(0, Number(allocation.amount_held || 0) - Number(allocation.amount_released || 0)), 0);
+      sum + Math.max(0, Number(allocation.amount_held || 0) - Number(allocation.amount_released || 0) - Number(allocation.amount_applied || 0)), 0);
   const fallbackProtectedDeposit = ['held', 'adjustment_refund_due', 'release_pending', 'transferred']
     .includes(String(rental.deposit_status || '').toLowerCase())
     ? Number(rental.deposit_held_amount || rental.security_deposit || 0)
@@ -7916,11 +7947,16 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
     (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
       / 86_400_000
   ));
+  const depositSettlement = releaseSecurityDeposit && chargeRentalSavedCard
+    ? depositSettlementPreview(rental, depositAllocations, rentalCharges) : null;
   const additionalChargeTotal = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status !== 'waived')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const additionalPaymentsReceived = trueAdditionalCharges
-    .filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid')
+    .filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid' && charge.payment_provider !== 'deposit')
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const depositAppliedToCharges = trueAdditionalCharges
+    .filter((charge) => charge.status === 'paid' && charge.payment_provider === 'deposit')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const initialPaymentTotal = Number(rental.rental_total || 0)
     + Number(rental.service_fee_total || 0)
@@ -8135,6 +8171,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           <dt className="total-line">Total charges, including deposit</dt><dd className="total-line">{money(currentInvoiceTotal + additionalChargeTotal)}</dd>
           <dt>Net booking payments received</dt><dd>−{money(paidAmount)}</dd>
           <dt>Additional-charge payments received</dt><dd>−{money(additionalPaymentsReceived)}</dd>
+          {depositAppliedToCharges > 0 && <><dt>Paid from security deposit</dt><dd>−{money(depositAppliedToCharges)}</dd></>}
           {customerCreditDue > 0 && <><dt className="credit-line">{cancelledBeforePickup ? 'Security deposit refund outstanding' : 'Booking credit reserved for refund'}</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
         </dl>
@@ -8143,7 +8180,14 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
         {rentalBalanceDue > 0 && <div className="rental-balance-callout"><CreditCard size={17}/><span><strong>{money(rentalBalanceDue)} remaining rental balance</strong><small>The original payment is credited. Stripe or an external payment collects only this remainder; no second deposit is added.</small><span className="rental-balance-actions"><button type="button" className="approve" onClick={() => setAdminStepScope('payment')}>Take payment</button><button type="button" onClick={() => setContactModal({ charge: openRentalBalance, rentalBalance: true })}>Send Stripe link</button>{chargeRentalSavedCard && <button type="button" onClick={() => chargeRentalSavedCard(openRentalBalance)}>Charge saved card</button>}</span></span></div>}
         {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
         <RentalRefundStatus rental={rental} refunds={rentalRefunds} />
+        {depositSettlementOpen && depositSettlement && <DepositChargeSettlementModal preview={depositSettlement}
+          onCancel={() => setDepositSettlementOpen(false)} onConfirm={async (details) => {
+            const saved = await releaseSecurityDeposit(rental, details);
+            if (saved) setDepositSettlementOpen(false);
+            return saved;
+          }} />}
         <div className="rental-financial-actions">
+          {depositSettlement && <button type="button" className="approve" onClick={() => setDepositSettlementOpen(true)}><DollarSign size={15}/> Apply charges &amp; refund remainder</button>}
           {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
           {recordTestPayment && rental.status !== 'cancelled' && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
           {cancellationDepositFlow && <button type="button" className="approve" onClick={() => setCancelModalOpen(true)}><DollarSign size={15}/> Cancel &amp; refund deposit</button>}
@@ -8156,7 +8200,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
         </div>}
         <RentalChargeManager compact rental={rental} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} sendPaymentLink={(charge) => setContactModal({ charge })} notify={notify} />
-        {!cancellationDepositFlow && balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be collected or waived before the deposit can be refunded.</strong></span></div>}
+        {!cancellationDepositFlow && balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be settled before the deposit can be refunded.{depositSettlement ? " You can apply these charges to the deposit and refund the remainder." : ""}</strong></span></div>}
       </aside>
     </div>
 
@@ -9450,7 +9494,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
 
   function renderChargeRow(charge) {
     return <div className="extension-action-row manual-charge-row" key={charge.id}>
-      <div><span>{charge.name} • {prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
+      <div><span>{charge.name} • {charge.payment_provider === 'deposit' ? 'Paid from deposit' : prettyStatus(charge.status)}</span><small>{prettyStatus(charge.charge_type)} • {money(charge.amount)}{Number(charge.tax_amount) > 0 ? ` + ${money(charge.tax_amount)} tax` : ''} • {money(charge.total_amount)} total</small>{charge.last_admin_charge_error && <small className="form-error">Last card attempt: {charge.last_admin_charge_error}</small>}</div>
       {renderChargeActions(charge)}
     </div>;
   }
@@ -9485,7 +9529,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
           </div>
           <div className="automatic-charge-card-footer">
             <small>{charge.description || (charge.source_type === 'tollspot' ? 'Exact TollSpot match added automatically.' : 'Late-return assessment added automatically.')}</small>
-            <span className={`workflow-badge ${charge.status === 'paid' ? 'success' : charge.status === 'waived' ? '' : 'warning'}`}>{prettyStatus(charge.status)}</span>
+            <span className={`workflow-badge ${charge.status === 'paid' ? 'success' : charge.status === 'waived' ? '' : 'warning'}`}>{charge.payment_provider === 'deposit' ? 'Paid from deposit' : prettyStatus(charge.status)}</span>
             {renderChargeActions(charge)}
           </div>
         </article>)}
@@ -9514,7 +9558,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
             </div>
             <div className="automatic-charge-card-footer">
               <small>{charge.description || (charge.source_type === 'tollspot' ? 'Exact TollSpot match added automatically.' : 'Late-return assessment added automatically.')}</small>
-              <span className={`workflow-badge ${charge.status === 'paid' ? 'success' : charge.status === 'waived' ? '' : 'warning'}`}>{prettyStatus(charge.status)}</span>
+              <span className={`workflow-badge ${charge.status === 'paid' ? 'success' : charge.status === 'waived' ? '' : 'warning'}`}>{charge.payment_provider === 'deposit' ? 'Paid from deposit' : prettyStatus(charge.status)}</span>
               {renderChargeActions(charge)}
             </div>
           </article>)}
@@ -10242,7 +10286,7 @@ function buildDepositRefundHistory(rental, depositAllocations = [], externalPaym
     const provider = String(allocation.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
     payments.push({
       id: `deposit-refund-${allocation.id}`,
-      amount: amountReleased > 0 ? amountReleased : Number(allocation.amount_held || 0),
+      amount: amountReleased > 0 ? amountReleased : Number(allocation.refund_reserved_amount ?? (Number(allocation.amount_held || 0) - Number(allocation.amount_applied || 0))),
       date: amountReleased > 0 ? allocation.refund_completed_at : allocation.refund_requested_at,
       allowUnknownDate: true,
       provider,
@@ -10323,7 +10367,7 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
     .filter((charge) => String(charge.status || '').toLowerCase() === 'paid')
     .filter((charge) => !matchesCanonicalPayment(charge))
     .map((charge) => {
-      const provider = String(charge.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
+      const provider = charge.payment_provider === 'deposit' ? 'deposit' : String(charge.payment_provider || '').toLowerCase() === 'stripe' ? 'stripe' : 'external';
       const chargeType = String(charge.charge_type || '').toLowerCase();
       const automatic = ['late_return', 'tollspot'].includes(String(charge.source_type || '').toLowerCase());
       return {
@@ -10333,7 +10377,7 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
           : Number(charge.total_amount || 0),
         date: charge.paid_at || charge.updated_at || charge.created_at,
         provider,
-        method: provider === 'external' ? externalPaymentMethodLabel(charge.external_payment_method) : '',
+        method: provider === 'deposit' ? 'Applied from held security deposit; no new payment collected' : provider === 'external' ? externalPaymentMethodLabel(charge.external_payment_method) : '',
         label: chargeType === 'rental_amendment'
           ? 'Rental balance'
           : `${automatic ? 'Automatic charge' : 'Manual charge'} · ${charge.name || prettyStatus(chargeType || 'Add-on')}`,
@@ -10447,7 +10491,7 @@ function RentalPaymentHistory({ payments = [] }) {
         return <li key={payment.id} className={payment.kind === 'refund' ? `is-refund is-${payment.status}` : ''}>
           <time dateTime={payment.date || undefined}>{payment.date ? formatEasternDateTime(payment.date) : 'Date not recorded'}</time>
           <strong className={payment.kind === 'refund' ? 'is-refund' : ''}>{payment.kind === 'refund' && payment.moneyReturned ? '−' : ''}{money(payment.amount)}</strong>
-          <span className={`rental-payment-source ${payment.kind === 'refund' ? `refund ${payment.status}` : payment.provider}`}>{payment.kind === 'refund' ? refundStatus : payment.provider === 'stripe' ? 'Stripe' : 'External'}</span>
+          <span className={`rental-payment-source ${payment.kind === 'refund' ? `refund ${payment.status}` : payment.provider}`}>{payment.kind === 'refund' ? refundStatus : payment.provider === 'stripe' ? 'Stripe' : payment.provider === 'deposit' ? 'Deposit applied' : 'External'}</span>
           <small>{[payment.label, payment.method].filter(Boolean).join(' • ')}</small>
         </li>;
       })}</ol>
@@ -12197,7 +12241,7 @@ function buildPaymentEvents({
         statusGroup,
         displayStatus: charge.status || 'pending',
         amount: statusGroup === 'partially_paid' && recordedPayment > 0 ? recordedPayment : totalDue,
-        cashImpact: paidAmount,
+        cashImpact: charge.payment_provider === 'deposit' ? 0 : paidAmount,
         outstandingAmount: ['pending', 'failed'].includes(statusGroup) ? Math.max(0, totalDue - paidAmount) : 0,
         detail: [
           charge.name,
@@ -12257,6 +12301,7 @@ function normalizeLedgerStatus(status) {
 }
 function paymentSourceDetail(source) {
   const provider = String(source?.payment_provider || '').trim();
+  if (provider === 'deposit') return 'Paid from security deposit — no new payment collected';
   const reference = shortPaymentReference(
     source?.stripe_payment_intent_id || source?.stripe_checkout_session_id,
     source?.stripe_payment_intent_id ? 'Payment' : 'Checkout'

@@ -68,7 +68,7 @@ test('the actual summary markup presents one equation with a separate held-depos
     rental: { rental_total: 1079.14, pre_manual_discount_rental_total: 1239, manual_discount_amount: 159.86, tax_amount: 68.53, security_deposit: 300 },
     additionalChargeTotal: 75.33, initialPaymentTotal: 1447.67, currentInvoiceTotal: 1447.67, paidAmount: 1384.92,
     cancellationCredit: 0, cancelledBeforePickup: false,
-    additionalPaymentsReceived: 75.33, customerCreditDue: 0, balanceDue: 62.75, depositHeldAmount: 300,
+    depositAppliedToCharges: 0, additionalPaymentsReceived: 75.33, customerCreditDue: 0, balanceDue: 62.75, depositHeldAmount: 300,
   });
   const Summary = vm.runInContext(transformed.code, context);
   const html = renderToStaticMarkup(React.createElement(Summary));
