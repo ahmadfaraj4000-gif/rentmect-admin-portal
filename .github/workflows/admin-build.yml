@@ -39,7 +39,7 @@ jobs:
         run: npm ci
 
       - name: Verify refund history integrity
-        run: node --test tests/auth-refresh-recovery.test.mjs tests/refresh-consistency.test.mjs tests/external-refund-history.test.mjs tests/rental-refund-ledger.test.mjs tests/deposit-charge-settlement.test.mjs tests/payment-summary-calculation.test.mjs
+        run: node --test tests/admin-refresh-scope.test.mjs tests/auth-refresh-recovery.test.mjs tests/refresh-consistency.test.mjs tests/external-refund-history.test.mjs tests/rental-refund-ledger.test.mjs tests/deposit-charge-settlement.test.mjs tests/payment-summary-calculation.test.mjs
 
       - name: Build
         run: npm run build

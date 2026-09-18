@@ -1,5 +1,6 @@
 import { depositSettlementPreview } from './lib/depositSettlement.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
+import { adminRefreshDomains } from './lib/adminRefreshDomains.js';
 import { refundableRentalSources, refundDisplayState } from './lib/rentalRefunds.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -478,6 +479,7 @@ function App() {
   const loadedAdminDomainsRef = useRef(new Set());
   const adminDomainLoadsRef = useRef(new Map());
   const requestedAdminDomainsRef = useRef(new Set());
+  const domainInvalidationsRef = useRef(new Map());
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authMessage, setAuthMessage] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
@@ -488,6 +490,8 @@ function App() {
     if (readActiveReturnRentalId()) return 'rentals';
     return ADMIN_TAB_KEYS.has(requestedAdminTab) ? requestedAdminTab : 'dashboard';
   });
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
   const [isMobileAdminNav, setIsMobileAdminNav] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [navCollapsed, setNavCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [paymentFilter, setPaymentFilter] = useState('all');
@@ -798,7 +802,7 @@ function App() {
   }, [activeTab, staffContext]);
 
   useEffect(() => {
-    if (!isAdminUser || activeTab === 'dashboard') return;
+    if (!isAdminUser) return;
     (ADMIN_TAB_DOMAINS[activeTab] || ['core']).forEach((domain) => {
       // Customer records must be current whenever an admin opens either place
       // where a renter can be selected. Do not trust a session-long domain cache.
@@ -833,7 +837,8 @@ function App() {
     const refreshCalendarDataset = async (table) => {
       if (document.visibilityState === 'hidden') return;
       const domain = calendarDomains[table];
-      if (domain) await loadAdminDomain(domain, { force: true });
+      if (domain) scheduleDomainRefresh(domain);
+      if (domain === 'core') scheduleDomainRefresh('snapshot');
     };
 
     const scheduleCalendarDatasetRefresh = (table) => {
@@ -853,9 +858,7 @@ function App() {
       recoveryInFlight = true;
       lastRecoveryAt = now;
       try {
-        const domains = [...requestedAdminDomainsRef.current].filter((domain) =>
-          ['core', 'calendar', 'payments', 'workflow', 'snapshot', 'customer-directory'].includes(domain)
-          || !loadedAdminDomainsRef.current.has(domain));
+        const domains = adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
         await Promise.all(domains.map((domain) => loadAdminDomain(domain, { force: true })));
       } finally {
         recoveryInFlight = false;
@@ -863,6 +866,11 @@ function App() {
     };
 
     const scheduleDomainRefresh = (domain) => {
+      domainInvalidationsRef.current.set(domain, (domainInvalidationsRef.current.get(domain) || 0) + 1);
+      if (!adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current).includes(domain)) {
+        loadedAdminDomainsRef.current.delete(domain);
+        return;
+      }
       const timerKey = `domain:${domain}`;
       window.clearTimeout(refreshTimers.get(timerKey));
       refreshTimers.set(timerKey, window.setTimeout(() => {
@@ -1068,6 +1076,7 @@ function App() {
     if (!force && loadedAdminDomainsRef.current.has('snapshot')) return;
     setDataHealth((current) => ({ ...current, refreshing: true }));
     return freshDomainLoad(adminDomainLoadsRef.current, 'snapshot', force, async () => {
+      const readGeneration = domainInvalidationsRef.current.get('snapshot') || 0;
       const [snapshotResult, depositTasksResult] = await Promise.all([
         withReadRetry(() => supabase.rpc('get_admin_dashboard_snapshot'), 'Dashboard snapshot'),
         withReadRetry(() => supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
@@ -1080,7 +1089,7 @@ function App() {
       }
       if (snapshotResult.data) setDashboardSnapshot(snapshotResult.data);
       const errors = recordAdminResults([['Dashboard snapshot', snapshotResult], ['Deposit actions', depositTasksResult]]);
-      if (!errors.length) loadedAdminDomainsRef.current.add('snapshot');
+      if (!errors.length && readGeneration === (domainInvalidationsRef.current.get('snapshot') || 0)) loadedAdminDomainsRef.current.add('snapshot');
       else loadedAdminDomainsRef.current.delete('snapshot');
     }).finally(() => setDataHealth((current) => ({ ...current, refreshing: adminDomainLoadsRef.current.size > 0 })));
   }
@@ -1091,6 +1100,7 @@ function App() {
     if (!force && loadedAdminDomainsRef.current.has(domain)) return;
     setDataHealth((current) => ({ ...current, refreshing: true }));
     return freshDomainLoad(adminDomainLoadsRef.current, domain, force, async () => {
+      const readGeneration = domainInvalidationsRef.current.get(domain) || 0;
       let results = [];
       if (domain === 'customer-directory') {
         setCustomerDirectoryState((current) => ({ ...current, loading: true, error: '' }));
@@ -1145,9 +1155,9 @@ function App() {
       } else if (domain === 'payments') {
         const [depositAllocationsRes, rentalPaymentsRes, rentalRefundsRes, rentalChargesRes, externalActionsRes, reconciliationIssuesRes] = await Promise.all([
           withReadRetry(() => supabase.from('rental_deposit_allocations').select('*').order('created_at', { ascending: false }), 'Deposits'),
-          withReadRetry(() => supabase.from('rental_payments').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Payments'),
+          withReadRetry(() => supabase.from('rental_payments').select('*').order('created_at', { ascending: false }), 'Payments'),
           withReadRetry(() => supabase.from('rental_payment_refunds').select('*').order('created_at', { ascending: false }), 'Refunds'),
-          withReadRetry(() => supabase.from('rental_charge_items').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Additional charges'),
+          withReadRetry(() => supabase.from('rental_charge_items').select('*').order('created_at', { ascending: false }), 'Additional charges'),
           withReadRetry(() => supabase.from('rental_external_payment_actions').select('*').order('created_at', { ascending: false }), 'External payment adjustments'),
           withReadRetry(() => supabase.from('stripe_reconciliation_issues').select('*').order('created_at', { ascending: false }).limit(500), 'Stripe reconciliation'),
         ]);
@@ -1207,17 +1217,14 @@ function App() {
         results = [['Maintenance history', result]];
       }
       const errors = recordAdminResults(results);
-      if (!errors.length) loadedAdminDomainsRef.current.add(domain);
+      if (!errors.length && readGeneration === (domainInvalidationsRef.current.get(domain) || 0)) loadedAdminDomainsRef.current.add(domain);
       else loadedAdminDomainsRef.current.delete(domain);
     }).finally(() => setDataHealth((current) => ({ ...current, refreshing: adminDomainLoadsRef.current.size > 0 })));
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
     if (!silent) setLoading(true);
-    const requestedDomains = domains || [...new Set([
-      ...(ADMIN_TAB_DOMAINS[activeTab] || ['core']),
-      ...loadedAdminDomainsRef.current,
-    ])];
+    const requestedDomains = domains || adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
     try {
       await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
     } finally {
@@ -3968,12 +3975,6 @@ function App() {
     }
   }
 
-  function prefetchAdminTab(key) {
-    (ADMIN_TAB_DOMAINS[key] || ['core']).forEach((domain) => {
-      void loadAdminDomain(domain);
-    });
-  }
-
   function retryAdminSection(label) {
     const domainByLabel = {
       'Dashboard snapshot': 'snapshot',
@@ -4018,7 +4019,7 @@ function App() {
               <CalendarClock size={20}/><span>New Booking</span>
             </button>}
             {adminTabs.map(({ key, label, icon: Icon }) => (
-              <button key={key} type="button" className={activeTab === key ? 'active' : ''} onMouseEnter={() => prefetchAdminTab(key)} onFocus={() => prefetchAdminTab(key)} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
+              <button key={key} type="button" className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon size={20}/><span>{label}</span>
               </button>
             ))}
@@ -4038,7 +4039,7 @@ function App() {
           </button>
           <nav className="side-nav" id="admin-primary-navigation">
             {adminTabs.map(({ key, label, icon: Icon }) => (
-              <button key={key} className={activeTab === key ? 'active' : ''} onMouseEnter={() => prefetchAdminTab(key)} onFocus={() => prefetchAdminTab(key)} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
+              <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon size={18}/><span>{label}</span>
               </button>
             ))}
