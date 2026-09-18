@@ -9371,6 +9371,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
   const policyTemplates = builtInLateFeeTemplates(rental);
   // Internal fee template rows remain available after the complete agreement catalog.
   const agreementTemplates = agreementFeeTemplates(rental);
+  const purchaseTemplates = [{ id: 'renter_insurance_purchase', name: 'Renter Insurance Purchase', chargeType: 'add_on', amount: null, taxable: true, description: '', pricingLabel: 'Enter purchase amount' }];
 
   function applyChargeTemplate(template) {
     if (!template) return;
@@ -9385,6 +9386,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
 
   function chooseInternalTemplate(templateId) {
     const template = agreementTemplates.find((item) => item.id === templateId)
+      || purchaseTemplates.find((item) => item.id === templateId)
       || serviceFees.find((fee) => `service:${fee.id}` === templateId);
     applyChargeTemplate(template);
   }
@@ -9570,7 +9572,7 @@ function RentalChargeManager({ rental, charges = [], serviceFees = [], addRental
     </>}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <div className="manual-charge-heading"><strong>Manual rental charge</strong><small>Start from an internal template or enter a one-off charge. Nothing is billed until you submit it for this reservation.</small></div>
-      <label className="full-field internal-fee-template-field"><span>Quick charge / Rental agreement fee</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose an agreement charge…</option><optgroup label="Rental agreement fees">{agreementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel || money(template.amount)}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Fixed agreement fees fill automatically. Variable or actual-cost items require the documented amount.</small></label>
+      <label className="full-field internal-fee-template-field"><span>Quick charge / Rental agreement fee</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose an agreement charge…</option><optgroup label="Rental agreement fees">{agreementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel || money(template.amount)}</option>)}</optgroup><optgroup label="Purchases">{purchaseTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Fixed agreement fees fill automatically. Variable or actual-cost items require the documented amount.</small></label>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
       <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => chooseChargeType(event.target.value)}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee — fixed $25</option><option value="late_rental_day">Late day — whole rental day</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
       <label className="charge-amount-field"><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
