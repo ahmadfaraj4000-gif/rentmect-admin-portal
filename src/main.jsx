@@ -1,3 +1,5 @@
+import { ReturnEvidencePicker, SavedReturnEvidence } from './ReturnEvidence.jsx';
+import { needsReturnEvidenceReport } from './lib/returnEvidence.js';
 import { depositSettlementPreview } from './lib/depositSettlement.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
 import { adminRefreshDomains } from './lib/adminRefreshDomains.js';
@@ -1723,11 +1725,11 @@ function App() {
     if (!requireStaffPermission('rental.return', 'complete rental returns')) return false;
     if (!rental?.id) return;
 
-    if (inspection.damageFound) {
+    if (needsReturnEvidenceReport(inspection)) {
       const photoPaths = [];
       for (const file of inspection.files || []) {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-        const path = `${rental.user_id || 'admin'}/return-damage/${rental.id}/${Date.now()}-${safeName}`;
+        const path = `${rental.user_id || 'admin'}/return-damage/${rental.id}/${crypto.randomUUID()}-${safeName}`;
         const { error: uploadError } = await supabase.storage
           .from(DOCUMENT_BUCKET)
           .upload(path, file, { upsert: false });
@@ -1742,7 +1744,7 @@ function App() {
         status: 'open',
         description: inspection.damageNote || 'Damage found during admin return inspection.',
         report_type: 'admin_return_damage',
-        issue_type: inspection.issueType || 'damage',
+        issue_type: inspection.damageFound ? inspection.issueType || 'damage' : 'other',
         photo_paths: photoPaths,
         deposit_held_amount: Number(rental.security_deposit || 0),
         admin_notes: inspection.damageNote || '',
@@ -1755,7 +1757,7 @@ function App() {
       if (reportError) return notify(reportError.message);
       if (report) setReports((current) => [report, ...current]);
 
-      const issueLabel = prettyStatus(inspection.issueType || 'damage').toLowerCase();
+      const issueLabel = inspection.damageFound ? prettyStatus(inspection.issueType || 'damage').toLowerCase() : 'deposit';
       const customerMessage = [
         `RETURN REVIEW OPENED: Rent Me CT opened a ${issueLabel} review for your returned rental.`,
         'Your security deposit is being held while the review is completed.',
@@ -10133,6 +10135,7 @@ function DamageReportList({ reports = [] }) {
       <div className="damage-report-row" key={report.id}>
         <span>{prettyStatus(report.status || 'open')}</span>
         <small>{report.description || 'Damage report open for this rental.'}</small>
+        <SavedReturnEvidence paths={report.photo_paths}/>
       </div>
     ))}
   </div>;
@@ -10181,6 +10184,7 @@ function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
       <strong>{report.rentals?.vehicles?.name || 'Vehicle'} • {prettyStatus(report.issue_type || report.report_type || 'Damage')}</strong>
       <span>{report.profiles?.full_name || report.user_id || 'Customer'} • {prettyStatus(report.status || 'open')}</span>
       <small>{report.rentals ? `${formatRentalDate(report.rentals.pickup_date, report.rentals.pickup_time)} → ${formatRentalDate(report.rentals.return_date, report.rentals.return_time)}` : 'No rental attached'}</small>
+      <SavedReturnEvidence paths={report.photo_paths}/>
       <div className="damage-case-form">
         <textarea value={form.description} maxLength="1000" onChange={(event) => update('description', limitText(event.target.value, 1000))} placeholder="Damage description" />
         <textarea value={form.admin_notes} maxLength="1500" onChange={(event) => update('admin_notes', limitText(event.target.value, 1500))} placeholder="Admin notes, estimate details, customer communication..." />
@@ -10718,10 +10722,19 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       setMileageError('Add a note explaining the damage or deposit hold.');
       return;
     }
+    if (inspection.files.length && !inspection.damageFound && inspection.depositDecision !== 'hold') {
+      setMileageError('Choose Hold deposit to save this evidence for review, or remove the selected files.');
+      return;
+    }
     setSaving(true);
-    const completed = await onComplete(inspection);
-    setSaving(false);
-    if (completed) onCancel();
+    try {
+      const completed = await onComplete(inspection);
+      if (completed) onCancel();
+    } catch (error) {
+      setMileageError(error.message || 'Unable to complete the return. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const update = (key, value) => setInspection((current) => ({ ...current, [key]: value }));
@@ -10795,8 +10808,8 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
           <textarea value={inspection.damageNote} maxLength="1000" onChange={(event) => update('damageNote', limitText(event.target.value, 1000))} placeholder="Clearly describe the damage, where it is located, when it was found, and any customer explanation..." />
           <small>These notes are saved to the damage case and used during the deposit review.</small>
         </label>
-        <label className="field-label return-evidence-upload"><span>Damage photos or documents</span><input type="file" multiple accept="image/*,application/pdf" onChange={(event) => update('files', Array.from(event.target.files || []))} /></label>
       </>}
+      {(inspection.damageFound || inspection.depositDecision === 'hold' || inspection.files.length > 0) && <ReturnEvidencePicker files={inspection.files} disabled={saving} setFiles={(change) => setInspection((current) => ({ ...current, files: change(current.files) }))}/>}
     <div className="modal-actions">
       <button type="button" onClick={onCancel}>Cancel</button>
       <button type="submit" className="approve" disabled={saving}><CheckCircle2 size={14}/> {saving ? 'Closing...' : 'Close Rental'}</button>
