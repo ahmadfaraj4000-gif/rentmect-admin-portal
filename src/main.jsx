@@ -2514,7 +2514,7 @@ function App() {
       p_customer_status: customerStatus,
       p_block_reason: reason,
     });
-    if (error) return notify(error.message);
+    if (error) { notify(error.message); return false; }
     setProfiles((current) => current.map((profile) => profile.id === userId ? data : profile));
     setRentals((current) => current.map((rental) =>
       rental.user_id === userId ? { ...rental, profiles: { ...(rental.profiles || {}), ...data } } : rental
@@ -2522,7 +2522,8 @@ function App() {
     setReports((current) => current.map((report) =>
       report.user_id === userId ? { ...report, profiles: { ...(report.profiles || {}), ...data } } : report
     ));
-    notify(customerStatus === 'blocked' ? 'Customer blocked.' : customerStatus === 'good' ? 'Customer unblocked.' : 'Customer marked for review.', 'success');
+    notify(customerStatus === 'blocked' ? 'Customer blocked. Their email and phone cannot be reused for signup or rentals.' : customerStatus === 'good' ? 'Customer block removed.' : 'Customer marked for review.', 'success');
+    return true;
   }
 
   async function updateCustomerProfile(userId, updates) {
@@ -4092,7 +4093,7 @@ function App() {
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && (!loadedAdminDomainsRef.current.has('core') || !loadedAdminDomainsRef.current.has('payments')) && <Panel title="Rental data is not ready" eyebrow="Reservations"><p role="status">{dataHealth.refreshing ? 'Loading rentals and payment records…' : 'Rental or payment records could not load. Use Retry failed data above to reconnect. Balances and rental counts will appear after loading succeeds.'}</p></Panel>}
         {activeTab === 'rentals' && loadedAdminDomainsRef.current.has('core') && loadedAdminDomainsRef.current.has('payments') && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
-        {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
+        {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} setCustomerStatus={setCustomerStatus} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
@@ -5322,7 +5323,7 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
   </>;
 }
 
-function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify, updateCustomerProfile, deleteCustomerProfile }) {
+function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory, rentals, documentsByUserId, documents, reports, openDocument, emailTemplates, smsTemplates, notify, setCustomerStatus, updateCustomerProfile, deleteCustomerProfile }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [contactCustomerId, setContactCustomerId] = useState('');
@@ -5418,6 +5419,7 @@ function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory,
       reports={reports.filter((report) => report.user_id === selectedCustomer.id)}
       openDocument={openDocument}
       onUpdate={updateCustomerProfile}
+      onSetStatus={setCustomerStatus}
       onDelete={deleteCustomerProfile}
       onClose={() => setSelectedCustomerId('')}
     />}
@@ -5605,13 +5607,17 @@ function splitCustomerName(value) {
   };
 }
 
-function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onUpdate, onDelete, onClose }) {
+function CustomerDetailsModal({ profile, rentals, documents, reports, openDocument, onUpdate, onSetStatus, onDelete, onClose }) {
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const [openAgreementId, setOpenAgreementId] = useState('');
   const [mode, setMode] = useState('details');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [blockReason, setBlockReason] = useState(profile.block_reason || '');
+  const [blockSaving, setBlockSaving] = useState(false);
+  const [blockError, setBlockError] = useState('');
+  const blocked = Boolean(profile.blocked_customer || profile.customer_status === 'blocked');
   const nameParts = splitCustomerName(profile.full_name);
   const [editForm, setEditForm] = useState({
     firstAndMiddleName: nameParts.firstAndMiddleName,
@@ -5680,6 +5686,20 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
     }
   }
 
+  async function saveBlockStatus(event) {
+    event.preventDefault();
+    setBlockSaving(true);
+    setBlockError('');
+    try {
+      const saved = await onSetStatus(profile.id, blocked ? 'good' : 'blocked', blockReason.trim());
+      if (!saved) setBlockError('Customer status could not be saved. Please try again.');
+    } catch (error) {
+      setBlockError(error instanceof Error ? error.message : 'Customer status could not be saved.');
+    } finally {
+      setBlockSaving(false);
+    }
+  }
+
   async function confirmCustomerDeletion(event) {
     event.preventDefault();
     setSaving(true);
@@ -5722,6 +5742,20 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
             </div>
             {profile.identity_verification_error_code === 'identity_results_access_required' && <small>Stripe received the submission, but the restricted results could not be retrieved. Do not ask the customer to resubmit until the Stripe results access is checked.</small>}
           </div>
+        </section>
+
+        <section className="customer-details-section">
+          <h3>Rental access</h3>
+          <p>{blocked ? 'This customer is blocked. Their saved email addresses and phone numbers cannot be used to create another account or rent.' : 'Block a customer at any time, including after a rental has ended. Their email and phone will also be blocked from new accounts and rentals.'}</p>
+          <p className="muted">Existing returns and outstanding charges can still be handled. Blocking does not cancel or refund existing rentals.</p>
+          <form className="customer-edit-form" onSubmit={saveBlockStatus}>
+            {blocked && profile.block_reason && <p><strong>Reason:</strong> {profile.block_reason}</p>}
+            {!blocked && <label><span>Reason for blocking</span><textarea value={blockReason} onChange={(event) => setBlockReason(event.target.value)} maxLength={1000} required disabled={blockSaving} /></label>}
+            {blockError && <p className="form-error" role="alert">{blockError}</p>}
+            <button className={blocked ? 'secondary-btn' : 'reject'} type="submit" disabled={blockSaving || (!blocked && !blockReason.trim())}>
+              {blockSaving ? 'Saving…' : blocked ? 'Unblock customer' : 'Block customer'}
+            </button>
+          </form>
         </section>
 
         <section className="customer-details-section">
@@ -11957,7 +11991,7 @@ function customerRiskProfile(profile, rentals, documents, reports) {
   const chargebacks = rentals.reduce((sum, r) => sum + Number(r.chargeback_count || 0), 0);
   const depositsHeld = rentals.reduce((sum, r) => sum + Number(r.deposit_held_amount || 0), 0);
   const depositsReleased = rentals.reduce((sum, r) => sum + Number(r.deposit_released_amount || 0), 0);
-  const blocked = profile.blocked_customer || rentals.some((r) => r.blocked_customer);
+  const blocked = profile.blocked_customer || profile.customer_status === 'blocked' || rentals.some((r) => r.blocked_customer);
   const score = (blocked ? 6 : 0) + late * 2 + rejectedDocs + openReports * 2 + chargebacks * 3 + (depositsHeld > 0 ? 1 : 0);
   const level = score >= 6 ? 'high' : score >= 3 ? 'medium' : 'low';
   const summary = blocked ? 'Blocked customer flag is active.' : score === 0 ? 'Clean history based on available records.' : 'Review history before approving another rental.';
