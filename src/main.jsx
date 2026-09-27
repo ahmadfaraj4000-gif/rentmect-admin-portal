@@ -2831,18 +2831,14 @@ function App() {
   async function saveUnder25Pricing(event) {
     event?.preventDefault();
     if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
-    const depositValue = Number(under25Pricing.deposit_adjustment_value || 0);
     const markup = Number(under25Pricing.rental_markup_percentage || 0);
-    if (depositValue < 0 || (under25Pricing.deposit_adjustment_type === 'percentage' && depositValue > 100)) {
-      return notify('Deposit adjustment must be between 0 and 100 percent, or a positive dollar amount.');
-    }
     if (markup < 0 || markup > 100) return notify('Rental markup must be between 0 and 100 percent.');
 
     setUnder25PricingSaving(true);
     const payload = {
-      deposit_adjustment_enabled: Boolean(under25Pricing.deposit_adjustment_enabled),
-      deposit_adjustment_type: under25Pricing.deposit_adjustment_type === 'percentage' ? 'percentage' : 'fixed',
-      deposit_adjustment_value: depositValue,
+      deposit_adjustment_enabled: true,
+      deposit_adjustment_type: 'fixed',
+      deposit_adjustment_value: 200,
       rental_markup_percentage: markup,
       updated_at: new Date().toISOString(),
       updated_by: session?.user?.id || null,
@@ -2857,26 +2853,6 @@ function App() {
     if (error) return notify(error.message);
     setUnder25Pricing(data);
     notify('Under-25 pricing updated.', 'success');
-  }
-
-  async function removeUnder25DepositAdjustment() {
-    if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
-    setUnder25PricingSaving(true);
-    const { data, error } = await supabase
-      .from('under_25_pricing_settings')
-      .update({
-        deposit_adjustment_enabled: false,
-        deposit_adjustment_value: 0,
-        updated_at: new Date().toISOString(),
-        updated_by: session?.user?.id || null,
-      })
-      .eq('id', true)
-      .select('*')
-      .single();
-    setUnder25PricingSaving(false);
-    if (error) return notify(error.message);
-    setUnder25Pricing(data);
-    notify('Under-25 deposit adjustment removed. Vehicle deposits now apply without an age adjustment.', 'success');
   }
 
   async function saveBillingAutomation(event) {
@@ -4099,7 +4075,7 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
-        {activeTab === 'settings' && <SettingsTab employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} removeUnder25DepositAdjustment={removeUnder25DepositAdjustment} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
         </>}
       </main>
       {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
@@ -7394,7 +7370,6 @@ function SettingsTab({
   under25Pricing,
   setUnder25Pricing,
   saveUnder25Pricing,
-  removeUnder25DepositAdjustment,
   under25PricingSaving,
   billingAutomation,
   setBillingAutomation,
@@ -7544,23 +7519,7 @@ function SettingsTab({
       <Panel title="Under-25 Pricing" eyebrow="Age-Based Pricing">
         <p className="muted">These adjustments apply on top of each vehicle’s own daily rate and refundable deposit. Changes apply to newly priced rentals; paid rentals keep their captured terms.</p>
         <form className="portal-form settings-form" onSubmit={saveUnder25Pricing}>
-          <label className="checkbox-pill">
-            <input type="checkbox" checked={under25Pricing.deposit_adjustment_enabled !== false} onChange={(event) => setUnder25Pricing((current) => ({ ...current, deposit_adjustment_enabled: event.target.checked }))} />
-            Add an under-25 deposit adjustment
-          </label>
-          <div className="form-row">
-            <label>
-              <span>Deposit adjustment type</span>
-              <select disabled={under25Pricing.deposit_adjustment_enabled === false} value={under25Pricing.deposit_adjustment_type || 'fixed'} onChange={(event) => setUnder25Pricing((current) => ({ ...current, deposit_adjustment_type: event.target.value }))}>
-                <option value="fixed">Fixed dollar amount</option>
-                <option value="percentage">Percentage of vehicle deposit</option>
-              </select>
-            </label>
-            <label>
-              <span>{under25Pricing.deposit_adjustment_type === 'percentage' ? 'Deposit increase percentage' : 'Deposit increase amount'}</span>
-              <input disabled={under25Pricing.deposit_adjustment_enabled === false} type="number" min="0" max={under25Pricing.deposit_adjustment_type === 'percentage' ? 100 : MONEY_MAX} step="0.01" inputMode="decimal" value={under25Pricing.deposit_adjustment_value ?? 0} onChange={(event) => setUnder25Pricing((current) => ({ ...current, deposit_adjustment_value: event.target.value }))} />
-            </label>
-          </div>
+          <p className="muted">Refundable deposit: the amount set on the vehicle for renters 25 and older. Renters ages 21–24 pay the vehicle deposit plus $200.</p>
           <label>
             <span>Under-25 rental markup percentage</span>
             <input type="number" min="0" max="100" step="0.01" inputMode="decimal" value={under25Pricing.rental_markup_percentage ?? 0} onChange={(event) => setUnder25Pricing((current) => ({ ...current, rental_markup_percentage: event.target.value }))} />
@@ -7571,7 +7530,6 @@ function SettingsTab({
           </div>
           <div className="button-row">
             <button className="primary-btn" disabled={under25PricingSaving}>{under25PricingSaving ? 'Saving…' : 'Save Under-25 Pricing'}</button>
-            <button type="button" className="reject" disabled={under25PricingSaving || under25Pricing.deposit_adjustment_enabled === false} onClick={removeUnder25DepositAdjustment}>Remove Deposit Adjustment</button>
           </div>
         </form>
       </Panel>
