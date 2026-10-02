@@ -73,10 +73,10 @@ test('Extend rental is available on active and overdue rentals and hidden after 
   }
 });
 
-test('the familiar Edit button extends started rentals and edits unstarted reservations',async()=>{
+test('Edit remains for unstarted reservations while started rentals use Extend rental',async()=>{
   const line=source.split('\n').find(line=>line.includes('<Pencil size={14}/> Edit</button>'));
   const code=await transformWithOxc(`function Action(){return <>${line}</>}; Action;`,'edit-action.jsx',{jsx:{runtime:'classic'}});
-  for (const [status,expected] of [['active','extension'],['rented','extension'],['overdue','extension'],['ready_for_pickup','edit'],['cancelled',null],['return_initiated',null]]) {
+  for (const [status,expected] of [['active',null],['rented',null],['overdue',null],['ready_for_pickup','edit'],['cancelled',null],['return_initiated',null]]) {
     const calls=[];
     const Action=vm.runInNewContext(code.code,{...helpers,Pencil:()=>null,tripStartIsLocked,rental:{...rental,status},detailed:true,
       setExtensionOpen:()=>calls.push('extension'),setEditRentalOpen:()=>calls.push('edit')});

@@ -8140,7 +8140,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
           {!canMarkActive && !canCompleteReturn && nextAdminStep && <button type="button" className="approve primary-action" onClick={() => setAdminStepScope(nextAdminStep.key)}><ArrowRight size={15}/> Manage {nextAdminStep.label}</button>}
         </div>
         <div className="rental-card-secondary-actions">
-          {detailed && rental.status !== 'cancelled' && (!tripStartIsLocked(rental) || (['active', 'rented', 'overdue'].includes(rental.status) && !rental.inspection_completed_at)) && <button type="button" onClick={() => tripStartIsLocked(rental) ? setExtensionOpen(true) : setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
+          {detailed && rental.status !== 'cancelled' && !tripStartIsLocked(rental) && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
           {detailed && previewRentalAmendment && applyRentalAmendment && (tripStartIsLocked(rental) || rental.status === 'completed') && <button type="button" onClick={() => setSwapOpen(true)}><Car size={14}/> Swap vehicle</button>}
           {detailed && previewRentalAmendment && applyRentalAmendment && ['active', 'rented', 'overdue'].includes(rental.status) && !rental.inspection_completed_at && <button type="button" onClick={() => setExtensionOpen(true)}><CalendarClock size={14}/> Extend rental</button>}
           <button type="button" onClick={() => setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
