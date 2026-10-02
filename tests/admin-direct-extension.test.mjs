@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { transformWithOxc } from 'vite';
+import { tripStartIsLocked } from '../src/lib/rentalTripStart.js';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const component = source.slice(source.indexOf('function AdminRentalExtensionModal('), source.indexOf('function VehicleSwapModal('));
@@ -69,5 +70,23 @@ test('Extend rental is available on active and overdue rentals and hidden after 
   for (const [status,visible] of [['active',true],['rented',true],['overdue',true],['completed',false],['cancelled',false],['return_initiated',false],['ready_for_pickup',false]]) {
     const Action=vm.runInNewContext(code.code,{...helpers,rental:{...rental,status},detailed:true,previewRentalAmendment:()=>{},applyRentalAmendment:()=>{},setExtensionOpen:()=>{}});
     assert.equal(renderToStaticMarkup(React.createElement(Action)).includes('Extend rental'),visible,status);
+  }
+});
+
+test('the familiar Edit button extends started rentals and edits unstarted reservations',async()=>{
+  const line=source.split('\n').find(line=>line.includes('<Pencil size={14}/> Edit</button>'));
+  const code=await transformWithOxc(`function Action(){return <>${line}</>}; Action;`,'edit-action.jsx',{jsx:{runtime:'classic'}});
+  for (const [status,expected] of [['active','extension'],['rented','extension'],['overdue','extension'],['ready_for_pickup','edit'],['cancelled',null],['return_initiated',null]]) {
+    const calls=[];
+    const Action=vm.runInNewContext(code.code,{...helpers,Pencil:()=>null,tripStartIsLocked,rental:{...rental,status},detailed:true,
+      setExtensionOpen:()=>calls.push('extension'),setEditRentalOpen:()=>calls.push('edit')});
+    const tree=Action();
+    const button=find(tree,e=>e.type==='button');
+    if (expected===null) assert.equal(button,undefined,status);
+    else {
+      assert.match(renderToStaticMarkup(tree),/> Edit<\/button>/);
+      button.props.onClick();
+      assert.deepEqual(calls,[expected],status);
+    }
   }
 });
