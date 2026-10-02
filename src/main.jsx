@@ -2209,6 +2209,14 @@ function App() {
 
   async function previewRentalAmendment(rental, form) {
     if (!requireStaffPermission('rental.edit', 'edit rental details')) return null;
+    if (form.operation === 'extension') {
+      const { data, error } = await supabase.rpc('admin_preview_rental_extension', {
+        p_rental_id: rental.id, p_return_date: form.returnDate, p_return_time: form.returnTime,
+        p_daily_rate: Number(form.dailyRate), p_reason: form.reason.trim(),
+      });
+      if (error) throw error;
+      return data;
+    }
     if (form.operation === 'swap') {
       const { data, error } = await supabase.rpc('admin_preview_vehicle_swap', swapRpcArguments(rental, form));
       if (error) throw error;
@@ -2232,7 +2240,7 @@ function App() {
     if (!requireStaffPermission('rental.edit', 'edit rental details')) return false;
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: {
-        action: form.operation === 'swap' ? 'admin_apply_vehicle_swap' : 'admin_apply_rental_amendment',
+        action: form.operation === 'swap' ? 'admin_apply_vehicle_swap' : form.operation === 'extension' ? 'admin_apply_rental_extension' : 'admin_apply_rental_amendment',
         effectiveAt: form.operation === 'swap' ? easternDateTimeInputToIso(form.effectiveAt) : undefined,
         swapKind: form.swapKind,
         expectedRevision: form.revision,
@@ -2263,6 +2271,10 @@ function App() {
     await loadAllData({ silent: true });
     const amendment = data?.amendment;
     const settlement = data?.settlement;
+    if (form.operation === 'extension') {
+      notify(`Rental extended through ${formatRentalDate(form.returnDate, form.returnTime)}. ${money(settlement?.balance_due ?? data?.total_due ?? 0)} remains due. Use Take payment or Send Stripe link to collect it. The updated agreement needs a signature.`, 'success');
+      return data;
+    }
     const lateFeeResult = data?.lateFeeDecision === 'waive'
       ? ' Existing late fees were waived.'
       : data?.lateFeeDecision === 'keep'
@@ -7803,6 +7815,7 @@ function rentalActivityDescription(event) {
     admin_external_rental_charge_payment_recorded: `${payload.charge_name || 'Rental charge'} payment completed`,
     stripe_rental_payment_recorded: 'Rental payment completed',
     rental_extension_approved_pending_payment: 'Rental extension approved',
+    admin_rental_extension_applied: `Admin extended rental through ${formatRentalDate(payload.return_date, payload.return_time)} · ${money(payload.extension_total)} added · ${payload.reason || ''}`,
     vehicle_switch_continuation_approved_pending_payment: 'Vehicle-switch extension approved',
     rental_extension_rejected: 'Rental extension rejected',
     admin_local_rental_extension_payment_recorded: 'Extension payment completed and new dates activated',
@@ -7851,6 +7864,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
+  const [extensionOpen, setExtensionOpen] = useState(false);
   const [rentalAccount, setRentalAccount] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
   const [paymentDetailsOpen, setPaymentDetailsOpen] = useState(false);
@@ -8128,6 +8142,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
         <div className="rental-card-secondary-actions">
           {detailed && rental.status !== 'cancelled' && !tripStartIsLocked(rental) && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
           {detailed && previewRentalAmendment && applyRentalAmendment && (tripStartIsLocked(rental) || rental.status === 'completed') && <button type="button" onClick={() => setSwapOpen(true)}><Car size={14}/> Swap vehicle</button>}
+          {detailed && previewRentalAmendment && applyRentalAmendment && ['active', 'rented', 'overdue'].includes(rental.status) && !rental.inspection_completed_at && <button type="button" onClick={() => setExtensionOpen(true)}><CalendarClock size={14}/> Extend rental</button>}
           <button type="button" onClick={() => setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' })}><MessageCircle size={14}/> Contact</button>
           <details className="rental-overflow-menu">
@@ -8362,6 +8377,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
       />}
       {detailsExpanded && rentalAccount?.pricing_periods?.length > 0 && <section className="rental-amendment-preview"><strong>Agreed pricing periods</strong>{rentalAccount.pricing_periods.map((period) => <p key={period.id}>{formatEasternDateTime(period.starts_at)} → {formatEasternDateTime(period.ends_at)}: {money(period.daily_rate)}/day · {money(Number(period.rental_amount) + Number(period.tax_amount))} including tax</p>)}{rentalAccount.swaps.map((swap) => <p key={swap.id}>Swap effective {formatEasternDateTime(swap.effective_at)} · recorded {formatEasternDateTime(swap.recorded_at)} · {swap.reason}</p>)}</section>}
       {swapOpen && createPortal(<VehicleSwapModal rental={rental} vehicles={vehicles} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => setSwapOpen(false)} />, document.body)}
+      {extensionOpen && createPortal(<AdminRentalExtensionModal rental={rental} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => { setExtensionOpen(false); setDetailsExpanded(true); }} />, document.body)}
       {editRentalOpen && createPortal(<RentalAmendmentModal
         rental={rental}
         vehicles={vehicles}
@@ -8644,6 +8660,56 @@ function swapRpcArguments(rental, form) {
     p_swap_kind: form.swapKind, p_reason: form.reason.trim(),
     p_daily_rate: form.swapKind === 'customer_request' ? Number(form.dailyRate) : null,
   };
+}
+
+function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
+  const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
+  const reviewRef = useRef(null);
+  const [form, setForm] = useState({ operation: 'extension', vehicleId: rental.vehicle_id,
+    returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: String(rental.vehicles?.daily_rate ?? ''), reason: '' });
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(() => crypto.randomUUID());
+  useEffect(() => { if (preview) reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [preview]);
+  function change(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setPreview(null); setError(''); setKey(crypto.randomUUID());
+  }
+  async function review(event) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { setPreview(await onPreview(rental, form)); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  async function save() {
+    setBusy(true); setError('');
+    try {
+      if (await onApply(rental, { ...form, revision: preview.revision }, key)) onCancel();
+    } catch (e) { setPreview(null); setError(e.message); }
+    finally { setBusy(false); }
+  }
+  return <div className="admin-modal-backdrop rental-amendment-backdrop">
+    <form ref={dialogRef} className="admin-modal rental-amendment-modal" role="dialog" aria-modal="true" aria-label="Extend rental" onSubmit={review}>
+      <header className="admin-modal-header"><CalendarClock size={22}/><div><strong>Extend rental</strong><span>{rental.vehicles?.name} · Current return: {formatRentalDate(rental.return_date, rental.return_time)}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={busy} aria-label="Close"><X size={18}/></button></header>
+      <div className="rental-amendment-scroll">
+        <fieldset disabled={busy} className="rental-amendment-grid vehicle-swap-fields">
+          <label><span>New return date</span><input type="date" required min={rental.return_date} value={form.returnDate} onChange={(e) => change('returnDate', e.target.value)}/></label>
+          <label><span>New return time (Eastern)</span><select value={form.returnTime} onChange={(e) => change('returnTime', e.target.value)}>{calendarTimeOptions(form.returnTime).map((time) => <option key={time}>{time}</option>)}</select></label>
+          <label><span>Agreed daily rate for added dates</span><input type="number" required min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label>
+          <label className="wide"><span>Reason and customer agreement</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
+        </fieldset>
+        <p>The rate applies only to the added dates. You can enter an agreed courtesy rate. Each started 24-hour extension period is billed as a full day.</p>
+        {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review extension</strong>
+          <p>{formatEasternDateTime(preview.starts_at)} → {formatEasternDateTime(preview.ends_at)} · {preview.extension_days} billed day{preview.extension_days === 1 ? '' : 's'} at {money(preview.daily_rate)}/day{Number(preview.markup_percentage) > 0 ? ` plus the existing ${preview.markup_percentage}% age surcharge` : ''}</p>
+          <div className="rental-amendment-ledger"><span>Previous unpaid balance <strong>{money(preview.previous_balance)}</strong></span><span>Added dates, including tax <strong>{money(preview.extension_total)}</strong></span><span>Total due after extension <strong>{money(preview.total_due)}</strong></span><span>Deposit held separately <strong>{money(preview.deposit_held)}</strong></span></div>
+          <p>Confirming updates the booked return immediately and adds these charges to the rental balance. Use Take payment or Send Stripe link afterward. The customer must sign the updated agreement.</p>
+        </section>}
+        {error && <p role="alert" className="form-error">{error}</p>}
+      </div>
+      <footer className="rental-amendment-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Confirm extension'}</button> : <button className="primary-btn" disabled={busy}>{busy ? 'Reviewing…' : 'Review extension'}</button>}</footer>
+    </form>
+  </div>;
 }
 
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
