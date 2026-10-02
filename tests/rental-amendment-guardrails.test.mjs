@@ -6,7 +6,7 @@ const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), '
 
 test('admin rental edits use the guarded preview and Stripe-safe apply path', () => {
   assert.match(mainSource, /supabase\.rpc\('admin_preview_rental_amendment'/);
-  assert.match(mainSource, /action: 'admin_apply_rental_amendment'/);
+  assert.match(mainSource, /action: form\.operation === 'swap' \? 'admin_apply_vehicle_swap' : 'admin_apply_rental_amendment'/);
   assert.match(mainSource, /Review Changes/);
   assert.match(mainSource, /Apply Rental Changes/);
 });

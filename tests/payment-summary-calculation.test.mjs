@@ -6,14 +6,14 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const cancellationCalculation = source.slice(source.indexOf('  const cancellationCredit ='), source.indexOf('  const customerName = rental.profiles?.full_name'));
 const calculation = source.slice(source.indexOf('  const additionalChargeTotal = trueAdditionalCharges'), source.indexOf('  const depositHeldAmount = protectedDeposit'));
-function summary(charges = [], overrides = {}, recordedRentalRefunds = 0) {
+function summary(charges = [], overrides = {}, recordedRentalRefunds = 0, rentalAccount = null, rentalExtensions = []) {
   const context = vm.createContext({
     rental: { rental_total: 1079.14, tax_amount: 68.53, security_deposit: 300,
       paid_at: '2026-09-15', payment_amount_cents: 138492, ...overrides },
     trueAdditionalCharges: charges,
     outstandingAdditionalCharges: charges.filter((c) => !c.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(c.status)).reduce((n, c) => n + c.total_amount, 0),
-    rentalBalanceCharges: [], externalPaymentActions: [], recordedRentalRefunds,
-    rentalPayments: [], rentalCharges: charges, rentalExtensions: [], rentalRefunds: [], depositAllocations: [],
+    rentalBalanceCharges: [], externalPaymentActions: [], recordedRentalRefunds, rentalAccount,
+    rentalPayments: [], rentalCharges: charges, rentalExtensions, rentalRefunds: [], depositAllocations: [],
     buildRentalPaymentHistory: () => [],
   });
   return vm.runInContext(`${cancellationCalculation}\n${calculation}\n({total: currentInvoiceTotal + additionalChargeTotal, paidAmount, additionalPaymentsReceived, balanceDue, customerCreditDue});`, context);
@@ -102,4 +102,18 @@ test('cancelled booking credits the invoice and tracks the $300 deposit until re
   assert.equal(returned.balanceDue, 0);
   assert.equal(returned.customerCreditDue, 0);
   assert.equal(returned.paidAmount, 0);
+});
+
+const extendedRental = { rental_total: 676, tax_amount: 42.93, security_deposit: 300, payment_amount_cents: 65415 };
+const paidExtension = { request_kind: 'same_vehicle_extension', status: 'activated', payment_status: 'paid', extension_total_amount: 208.45 };
+test('paying a $208.45 extension leaves the $156.33 previous balance due', () => {
+  const result = summary([], extendedRental, 0, null, [paidExtension]);
+  assert.equal(cents(result.paidAmount), 86260);
+  assert.equal(cents(result.balanceDue), 15633);
+});
+test('the account screen uses the server ledger after refunds and adds only unpaid extras', () => {
+  const result = summary([{ total_amount: 20, status: 'pending' }], extendedRental, 0,
+    { invoice_total: 1018.93, net_paid: 842.60 }, [paidExtension]);
+  assert.equal(cents(result.paidAmount), 84260);
+  assert.equal(cents(result.balanceDue), 19633);
 });
