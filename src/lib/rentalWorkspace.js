@@ -15,7 +15,7 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
   let selectedId = '';
   let disposed = false;
   let generation = 0;
-  let state = { rows: [], counts: {}, total: 0, offset: 0, loading: false, error: '', selectedId: '', detailLoading: false, detailError: '', detailReady: false };
+  let state = { rows: [], counts: {}, total: 0, offset: 0, loading: true, error: '', selectedId: '', detailLoading: false, detailError: '', detailReady: false };
   const emit = (patch) => { if (!disposed) { state = { ...state, ...patch }; changed(state); } };
   async function list(params = current, force = false) {
     if (!params || disposed) return;
