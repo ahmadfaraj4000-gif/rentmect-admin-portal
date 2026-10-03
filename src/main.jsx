@@ -4,6 +4,7 @@ import { depositSettlementPreview } from './lib/depositSettlement.js';
 import { tripStartIsLocked, replacementRentalForm } from './lib/rentalTripStart.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
 import { adminRefreshDomains } from './lib/adminRefreshDomains.js';
+import { useVehicleAvailability } from './useVehicleAvailability.js';
 import { useRentalWorkspace } from './useRentalWorkspace.js';
 import { replaceRentalRecords } from './lib/rentalWorkspace.js';
 import { refundableRentalSources, refundDisplayState } from './lib/rentalRefunds.js';
@@ -8731,11 +8732,29 @@ function swapRpcArguments(rental, form) {
   };
 }
 
+function RentalAvailabilityNotice({ availability, vehicleId }) {
+  const row = availability.rows.find((item) => item.vehicle_id === vehicleId);
+  if (availability.loading) return <p role="status">Checking vehicle availability…</p>;
+  if (availability.error) return <p role="alert" className="form-error">{availability.error} <button type="button" onClick={availability.retry}>Retry availability</button></p>;
+  if (!availability.ready) return <p className="muted">Choose the dates and times to check availability.</p>;
+  if (!row) return <p className="muted">Choose a replacement vehicle. Each option shows availability for the swap dates.</p>;
+  return <div aria-live="polite">
+    <p className={row.available ? 'muted' : 'form-error'}><strong>{row.available ? 'Available for these dates' : 'Unavailable for these dates'}</strong></p>
+    {row.conflicts.map((conflict, index) => <p key={`${conflict.source_id}-${index}`}>{conflict.reason}{conflict.starts_at ? `: ${formatEasternDateTime(conflict.starts_at)} → ${formatEasternDateTime(conflict.ends_at)}` : ''}</p>)}
+    {row.next_reservation && <p>Next reservation: {formatEasternDateTime(row.next_reservation.starts_at)} → {formatEasternDateTime(row.next_reservation.ends_at)}. This rental must end at least three hours before that pickup.</p>}
+    <small>Availability is checked again when you confirm.</small>
+  </div>;
+}
+
 function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const reviewRef = useRef(null);
   const [form, setForm] = useState({ operation: 'extension', vehicleId: rental.vehicle_id,
     returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: String(rental.vehicles?.daily_rate ?? ''), reason: '' });
+  const availability = useVehicleAvailability(supabase, rental.id,
+    parseBookingDateTime(rental.return_date, rental.return_time)?.toISOString(),
+    parseBookingDateTime(form.returnDate, form.returnTime)?.toISOString(), rental.vehicle_id);
+  const availabilityReady = availability.ready && availability.rows.some((row) => row.vehicle_id === rental.vehicle_id && row.available);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -8746,12 +8765,15 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
     setPreview(null); setError(''); setKey(crypto.randomUUID());
   }
   async function review(event) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    if (!availabilityReady) { setError('Choose available dates and a vehicle before reviewing.'); return; }
+    setBusy(true); setError('');
     try { setPreview(await onPreview(rental, form)); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
   async function save() {
+    if (!availabilityReady) { setPreview(null); setError('Availability must be checked before saving.'); return; }
     setBusy(true); setError('');
     try {
       if (await onApply(rental, { ...form, revision: preview.revision }, key)) onCancel();
@@ -8769,6 +8791,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
           <label className="wide"><span>Reason and customer agreement</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <p>The rate applies only to the added dates. You can enter an agreed courtesy rate. Each started 24-hour extension period is billed as a full day.</p>
+        <RentalAvailabilityNotice availability={availability} vehicleId={rental.vehicle_id} />
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review extension</strong>
           <p>{formatEasternDateTime(preview.starts_at)} → {formatEasternDateTime(preview.ends_at)} · {preview.extension_days} billed day{preview.extension_days === 1 ? '' : 's'} at {money(preview.daily_rate)}/day{Number(preview.markup_percentage) > 0 ? ` plus the existing ${preview.markup_percentage}% age surcharge` : ''}</p>
           <div className="rental-amendment-ledger"><span>Previous unpaid balance <strong>{money(preview.previous_balance)}</strong></span><span>Added dates, including tax <strong>{money(preview.extension_total)}</strong></span><span>Total due after extension <strong>{money(preview.total_due)}</strong></span><span>Deposit held separately <strong>{money(preview.deposit_held)}</strong></span></div>
@@ -8776,7 +8799,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
         </section>}
         {error && <p role="alert" className="form-error">{error}</p>}
       </div>
-      <footer className="rental-amendment-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Confirm extension'}</button> : <button className="primary-btn" disabled={busy}>{busy ? 'Reviewing…' : 'Review extension'}</button>}</footer>
+      <footer className="rental-amendment-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy || !availabilityReady} onClick={save}>{busy ? 'Saving…' : 'Confirm extension'}</button> : <button className="primary-btn" disabled={busy || !availabilityReady}>{busy ? 'Reviewing…' : 'Review extension'}</button>}</footer>
     </form>
   </div>;
 }
@@ -8784,6 +8807,9 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const [form, setForm] = useState({ operation: 'swap', vehicleId: '', effectiveAt: '', swapKind: 'emergency', dailyRate: '', reason: '' });
+  const availability = useVehicleAvailability(supabase, rental.id,
+    easternDateTimeInputToIso(form.effectiveAt), parseBookingDateTime(rental.return_date, rental.return_time)?.toISOString());
+  const availabilityReady = availability.ready && availability.rows.some((row) => row.vehicle_id === form.vehicleId && row.available);
   const [preview, setPreview] = useState(null);
   const reviewRef = useRef(null);
   useEffect(() => { if (preview) reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [preview]);
@@ -8795,12 +8821,15 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
     setPreview(null); setError(''); setKey(crypto.randomUUID());
   }
   async function review(event) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    if (!availabilityReady) { setError('Choose available dates and a vehicle before reviewing.'); return; }
+    setBusy(true); setError('');
     try { setPreview(await onPreview(rental, form)); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
   async function save() {
+    if (!availabilityReady) { setPreview(null); setError('Availability must be checked before saving.'); return; }
     setBusy(true); setError('');
     try {
       const result = await onApply(rental, { ...form, revision: preview.revision }, key);
@@ -8813,13 +8842,14 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
       <header className="admin-modal-header"><Car size={22}/><div><strong>Swap vehicle</strong><span>Original rental: {formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={busy} aria-label="Close"><X size={18}/></button></header>
       <div className="rental-amendment-scroll">
         <fieldset disabled={busy} className="rental-amendment-grid vehicle-swap-fields">
-          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
+          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id} disabled={!availability.ready || !availability.rows.some((row) => row.vehicle_id === v.id && row.available)}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : 'Choose swap time first'}</option>)}</select></label>
           <label><span>Swap reason</span><select value={form.swapKind} onChange={(e) => change('swapKind', e.target.value)}><option value="emergency">Emergency replacement</option><option value="maintenance">Maintenance replacement</option><option value="customer_request">Customer requested change</option></select></label>
           <label><span>Actual agreed swap time (Eastern)</span><input type="datetime-local" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>
           {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><input type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
           <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <p>The effective time records when the customer changed vehicles. The entry time is recorded separately when saved.</p>
+        <RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} />
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong>
           {preview.periods.map((period, i) => <p key={i}>{formatEasternDateTime(period.from)} → {formatEasternDateTime(period.until)}: {money(period.old_rate)} → {money(period.new_rate)} per day</p>)}
           <div className="rental-amendment-ledger"><span>Previous unpaid balance <strong>{money(preview.previous_balance)}</strong></span><span>Charge adjustment, including tax <strong>{money(preview.total_delta)}</strong></span><span>Balance after swap <strong>{money(preview.balance_due)}</strong></span><span>Deposit held separately <strong>{money(preview.deposit_held)}</strong></span></div>
@@ -8828,7 +8858,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
         </section>}
         {error && <p role="alert" className="form-error">{error}</p>}
       </div>
-      <footer className="rental-amendment-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Confirm swap'}</button> : <button className="primary-btn" disabled={busy}>{busy ? 'Reviewing…' : 'Review swap'}</button>}</footer>
+      <footer className="rental-amendment-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy || !availabilityReady} onClick={save}>{busy ? 'Saving…' : 'Confirm swap'}</button> : <button className="primary-btn" disabled={busy || !availabilityReady}>{busy ? 'Reviewing…' : 'Review swap'}</button>}</footer>
     </form>
   </div>;
 }
