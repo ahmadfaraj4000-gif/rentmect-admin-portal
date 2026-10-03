@@ -18,14 +18,24 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   useEffect(() => { setOffset(0); }, [filter, focusId]);
   useEffect(() => {
     const controller = createRentalWorkspace({
+      inline: true,
       readList: async (params) => {
-        const { data, error } = await withReadRetry(() => client.rpc('admin_rental_list', {
-          p_filter: params.filter, p_search: params.search, p_offset: params.offset,
-          p_limit: RENTAL_PAGE_SIZE, p_rental_id: params.focusId || null,
-        }), 'Rental list');
-        if (error) throw error;
-        if (!data || !Array.isArray(data.rows)) throw new Error('Rental list response was incomplete. Please retry.');
-        return data;
+        let result;
+        const rows = [];
+        // Preserve the existing archive "Load 25 more" interaction. Other
+        // filters show all matching cards, without loading other filters.
+        do {
+          const { data, error } = await withReadRetry(() => client.rpc('admin_rental_list', {
+            p_filter: params.filter, p_search: params.search, p_offset: rows.length,
+            p_limit: RENTAL_PAGE_SIZE, p_rental_id: params.focusId || null,
+          }), 'Rental list');
+          if (error) throw error;
+          if (!data || !Array.isArray(data.rows)) throw new Error('Rental list response was incomplete. Please retry.');
+          result = data;
+          rows.push(...data.rows);
+          if (!data.rows.length) break;
+        } while (rows.length < result.total && (params.filter !== 'archive' || rows.length < params.offset + RENTAL_PAGE_SIZE));
+        return { ...result, rows, offset: params.offset };
       },
       readDetail: async (id) => {
         const [{ data, error }] = await Promise.all([

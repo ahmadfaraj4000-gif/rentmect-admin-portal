@@ -112,3 +112,84 @@ test('record refresh removes deleted charges and keeps unrelated rentals', () =>
     [{ id: 'new', rental_id: 'r1' }], 'r1');
   assert.deepEqual(result.map((x) => x.id), ['other', 'new']);
 });
+
+test('inline cards hydrate only the current filter before exposing its rows', async () => {
+  const pending = deferred(); const detailReads = [];
+  const { workspace, hydrated } = setup({ inline: true, readDetail: async (id) => {
+    detailReads.push(id); await pending.promise; return { rental: { id } };
+  } });
+  const loading = workspace.list(params());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(workspace.getState().rows.length, 0);
+  assert.deepEqual(detailReads, ['needs_action']);
+  pending.resolve(); await loading;
+  assert.deepEqual(hydrated.map((data) => data.rental.id), ['needs_action']);
+  assert.equal(workspace.getState().rows[0].id, 'needs_action');
+  await workspace.open('needs_action');
+  assert.equal(detailReads.length, 1, 'inline expansion uses the complete cached record');
+});
+
+test('late inline data from a previous filter never hydrates the visible cards', async () => {
+  const pending = deferred();
+  const { workspace, hydrated } = setup({ inline: true, readDetail: async (id) => {
+    if (id === 'archive') await pending.promise;
+    return { rental: { id } };
+  } });
+  const old = workspace.list(params('archive'));
+  await new Promise((resolve) => setImmediate(resolve));
+  await workspace.list(params()); pending.resolve(); await old;
+  assert.deepEqual(hydrated.map((data) => data.rental.id), ['needs_action']);
+});
+
+test('inline archive expansion retains existing rows and reuses their detail cache', async () => {
+  const detailReads = []; const pending = deferred();
+  const { workspace } = setup({ inline: true,
+    readList: async (p) => ({ ...page('a'), rows: p.offset ? [{ id: 'a' }, { id: 'b' }] : [{ id: 'a' }], total: 2, offset: p.offset }),
+    readDetail: async (id) => { detailReads.push(id); if (id === 'b') await pending.promise; return { rental: { id } }; },
+  });
+  await workspace.list(params('archive'));
+  const more = workspace.list(params('archive', 25));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(workspace.getState().rows.map((row) => row.id), ['a']);
+  pending.resolve(); await more;
+  assert.deepEqual(workspace.getState().rows.map((row) => row.id), ['a', 'b']);
+  assert.deepEqual(detailReads, ['a', 'b']);
+});
+
+test('failed inline hydration never renders a card with missing financial records and can retry', async () => {
+  let fails = true;
+  const { workspace, hydrated } = setup({ inline: true, readDetail: async (id) => {
+    if (fails) throw new Error('payment records unavailable'); return { rental: { id } };
+  } });
+  await workspace.list(params());
+  assert.equal(workspace.getState().rows.length, 0);
+  assert.equal(hydrated.length, 0);
+  assert.equal(workspace.getState().error, 'payment records unavailable');
+  fails = false; await workspace.list(undefined, true);
+  assert.equal(workspace.getState().rows.length, 1);
+  assert.equal(workspace.getState().error, '');
+});
+
+test('inline save waits only for the edited card while the filter refresh runs in the background', async () => {
+  let calls = 0; let balance = 10; const pending = deferred();
+  const { workspace, hydrated } = setup({ inline: true,
+    readList: async () => ++calls === 1 ? page('a') : pending.promise,
+    readDetail: async (id) => ({ rental: { id }, balance }),
+  });
+  await workspace.list(params()); await workspace.open('a'); balance = 20;
+  await workspace.refresh();
+  assert.equal(hydrated.at(-1).balance, 20);
+  assert.equal(workspace.getState().loading, true);
+  pending.resolve(page('a'));
+});
+
+test('inline hydration caps concurrent requests at five', async () => {
+  let active = 0; let maximum = 0;
+  const { workspace } = setup({ inline: true,
+    readList: async () => ({ ...page('a'), rows: Array.from({ length: 12 }, (_, i) => ({ id: String(i) })) }),
+    readDetail: async (id) => { active++; maximum = Math.max(maximum, active); await new Promise((resolve) => setImmediate(resolve)); active--; return { rental: { id } }; },
+  });
+  await workspace.list(params());
+  assert.equal(maximum, 5);
+  assert.equal(workspace.getState().rows.length, 12);
+});
