@@ -12,7 +12,7 @@ test('completed returns expose a durable deposit queue on dashboard and queue', 
   assert.match(source, /admin_record_external_deposit_release/);
   assert.match(source, /admin_escalate_deposit_task/);
   assert.match(source, /table: 'deposit_action_tasks'/);
-  assert.match(source, /loadDashboardSnapshot\(\{ force: true \}\)/);
+  assert.match(source, /loadAllData\(\{ silent: true, domains: \['core', 'snapshot'\] \}\)/);
 });
 
 test('Employee access is shared, manager-controlled, and permission-aware', () => {

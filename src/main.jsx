@@ -4,6 +4,9 @@ import { depositSettlementPreview } from './lib/depositSettlement.js';
 import { tripStartIsLocked, replacementRentalForm } from './lib/rentalTripStart.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
 import { adminRefreshDomains } from './lib/adminRefreshDomains.js';
+import { useRentalWorkspace } from './useRentalWorkspace.js';
+import { replaceRentalRecords } from './lib/rentalWorkspace.js';
+import { RentalSummaryList } from './RentalSummaryList.jsx';
 import { refundableRentalSources, refundDisplayState } from './lib/rentalRefunds.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -158,7 +161,7 @@ const ADMIN_TAB_DOMAINS = {
   payments: ['customer-directory', 'core', 'payments'],
   calendar: ['customer-directory', 'core', 'calendar'],
   'new-booking': ['customer-directory', 'core', 'calendar', 'settings'],
-  rentals: ['customer-directory', 'core', 'workflow', 'payments', 'templates'],
+  rentals: ['rental-list'],
   customers: ['customer-directory', 'core', 'workflow', 'templates'],
   vehicles: ['customer-directory', 'core', 'maintenance-history'],
   documents: ['customer-directory', 'core', 'workflow'],
@@ -559,6 +562,51 @@ function App() {
   const [manualBookingFocusId, setManualBookingFocusId] = useState(() => initialAdminParams.get('rental') || '');
   const [replyText, setReplyText] = useState('');
 
+  const rentalWorkspaceRef = useRef(null);
+  const rentalWorkspace = useRentalWorkspace({
+    client: supabase, enabled: isAdminUser && activeTab === 'rentals' && canAccessAdminTab('rentals'),
+    userId: session?.user?.id, filter: rentalFilter, search,
+    focusId: manualBookingFocusId || readActiveReturnRentalId() || '',
+    prepareDetails: prepareRentalDetails,
+    hydrate(data) {
+      const r = data.rental;
+      setRentals((current) => [...current.filter((item) => item.id !== r.id), r]);
+      if (r.profiles) setProfiles((current) => [...current.filter((item) => item.id !== r.profiles.id), r.profiles]);
+      const merge = (setter, rows, foreignKey = 'rental_id') => setter((current) => replaceRentalRecords(current, rows, r.id, foreignKey));
+      merge(setDocuments, data.documents.map((item) => ({ ...item, profiles: r.profiles, rentals: r })));
+      merge(setReports, data.reports.map((item) => ({ ...item, profiles: r.profiles, rentals: r })));
+      merge(setExtensionRequests, data.extensions.map((item) => ({ ...item, rentals: r })));
+      merge(setEmergencyExceptions, data.exceptions);
+      merge(setRentalStepCompletions, data.steps);
+      merge(setDepositAllocations, data.deposits, 'holder_rental_id');
+      merge(setRentalPayments, data.payments);
+      merge(setRentalRefunds, data.refunds);
+      merge(setRentalCharges, data.charges);
+      merge(setExternalPaymentActions, data.externalActions);
+    },
+  });
+  rentalWorkspaceRef.current = rentalWorkspace;
+
+  async function prepareRentalDetails() {
+    if (loadedAdminDomainsRef.current.has('rental-reference')) return;
+    return freshDomainLoad(adminDomainLoadsRef.current, 'rental-reference', false, async () => {
+      const results = await Promise.all([
+        withReadRetry(() => supabase.from('vehicles').select('*').order('created_at', { ascending: false }), 'Vehicles'),
+        withReadRetry(() => supabase.from('service_fees').select('*').eq('active', true), 'Fees'),
+        withReadRetry(() => supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
+        withReadRetry(() => supabase.from('sms_templates').select('id,template_key,name,body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Text templates'),
+        withReadRetry(() => supabase.from('profiles').select('*').eq('id', session.user.id).single(), 'Staff profile'),
+      ]);
+      const failed = results.find((result) => result.error);
+      if (failed) throw failed.error;
+      setVehicles(results[0].data); setServiceFees(results[1].data);
+      setCustomerEmailTemplates(results[2].data); setSmsTemplates(results[3].data);
+      setProfiles((current) => [...current.filter((item) => item.id !== results[4].data.id), results[4].data]);
+      loadedAdminDomainsRef.current.add('rental-reference');
+    });
+  }
+
+
   const [editingVehicleId, setEditingVehicleId] = useState('');
   const [editVehicleForm, setEditVehicleForm] = useState(null);
   const [vehiclePriceConfirmation, setVehiclePriceConfirmation] = useState(null);
@@ -828,6 +876,7 @@ function App() {
   useEffect(() => {
     if (!isAdminUser) return undefined;
     const refreshTimers = new Map();
+    let rentalDetailDirty = false;
     let calendarRecoveryPoll;
     let lastRecoveryAt = 0;
     let recoveryInFlight = false;
@@ -868,8 +917,24 @@ function App() {
       }
     };
 
-    const scheduleDomainRefresh = (domain) => {
+    const scheduleDomainRefresh = (domain, rentalId = null) => {
       domainInvalidationsRef.current.set(domain, (domainInvalidationsRef.current.get(domain) || 0) + 1);
+      rentalWorkspaceRef.current?.invalidate();
+      if (activeTabRef.current === 'rentals') {
+        loadedAdminDomainsRef.current.delete(domain);
+        if (!rentalId && ['core', 'customer-directory', 'templates'].includes(domain)) loadedAdminDomainsRef.current.delete('rental-reference');
+        // One burst of rental/payment events produces one compact list refresh.
+        // Only events affecting the open rental require its full detail again.
+        if (!rentalId || rentalId === rentalWorkspaceRef.current?.selectedId) rentalDetailDirty = true;
+        window.clearTimeout(refreshTimers.get('rental-workspace'));
+        refreshTimers.set('rental-workspace', window.setTimeout(() => {
+          const details = rentalDetailDirty;
+          rentalDetailDirty = false;
+          if (document.visibilityState !== 'hidden') void rentalWorkspaceRef.current?.refresh({ details });
+        }, 400));
+        return;
+      }
+
       if (!adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current).includes(domain)) {
         loadedAdminDomainsRef.current.delete(domain);
         return;
@@ -882,7 +947,7 @@ function App() {
     };
     const calendarChannel = supabase
       .channel('admin-calendar-source-of-truth')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, () => scheduleCalendarDatasetRefresh('rentals'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, (payload) => { scheduleDomainRefresh('core', payload.new?.id || payload.old?.id); scheduleDomainRefresh('snapshot', payload.new?.id || payload.old?.id); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_bookings' }, () => scheduleCalendarDatasetRefresh('pending_bookings'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_availability_blocks' }, () => scheduleCalendarDatasetRefresh('vehicle_availability_blocks'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => scheduleCalendarDatasetRefresh('vehicles'))
@@ -892,24 +957,24 @@ function App() {
     const operationalChannel = supabase
       .channel('admin-payment-source-of-truth')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => scheduleDomainRefresh('customer-directory'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_extension_requests' }, () => {
-        scheduleDomainRefresh('workflow');
-        scheduleDomainRefresh('payments');
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_extension_requests' }, (payload) => {
+        scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id);
+        scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id);
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payment_refunds' }, () => scheduleDomainRefresh('payments'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payments' }, () => scheduleDomainRefresh('payments'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, () => scheduleDomainRefresh('payments'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_external_payment_actions' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payment_refunds' }, (payload) => scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_payments' }, (payload) => scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, (payload) => scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_external_payment_actions' }, (payload) => scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_allocations' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_action_tasks' }, () => {
         scheduleDomainRefresh('snapshot');
         scheduleDomainRefresh('core');
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_documents' }, () => scheduleDomainRefresh('workflow'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_messages' }, () => scheduleDomainRefresh('workflow'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_reports' }, () => scheduleDomainRefresh('workflow'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, () => scheduleDomainRefresh('workflow'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_documents' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_messages' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_reports' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
       .subscribe();
     calendarRecoveryPoll = window.setInterval(() => recoverCalendarSourceOfTruth({ force: true }), 5 * 60 * 1000);
     const recoverOnFocus = () => recoverCalendarSourceOfTruth();
@@ -1098,6 +1163,10 @@ function App() {
   }
 
   async function loadAdminDomain(domain, { force = false } = {}) {
+    if (domain === 'rental-list') {
+      if (force) return rentalWorkspaceRef.current?.refresh({ details: false });
+      return; // The workspace owns initial/filter/page reads.
+    }
     requestedAdminDomainsRef.current.add(domain);
     if (domain === 'snapshot') return loadDashboardSnapshot({ force });
     if (!force && loadedAdminDomainsRef.current.has(domain)) return;
@@ -1226,6 +1295,12 @@ function App() {
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
+    if (activeTabRef.current === 'rentals') {
+      // A rental mutation never downloads global ledgers or archived records.
+      for (const domain of domains || ['core', 'workflow', 'payments', 'snapshot']) loadedAdminDomainsRef.current.delete(domain);
+      if (force) await rentalWorkspaceRef.current?.refresh();
+      return;
+    }
     if (!silent) setLoading(true);
     const requestedDomains = domains || adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
     try {
@@ -1837,10 +1912,7 @@ function App() {
         }
         : exception
     ));
-    await Promise.all([
-      loadAdminDomain('core', { force: true }),
-      loadDashboardSnapshot({ force: true }),
-    ]);
+    await loadAllData({ silent: true, domains: ['core', 'snapshot'] });
     notify(
       inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
@@ -3990,6 +4062,10 @@ function App() {
   ].filter((tab) => canAccessAdminTab(tab.key));
 
   function selectAdminTab(key) {
+    if (key === 'rentals' && activeTab !== 'rentals') {
+      setRentalFilter('needs_action'); setSearch(''); setManualBookingFocusId('');
+      rentalWorkspace.open(''); rentalWorkspace.setOffset(0);
+    }
     setActiveTab(key);
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
     if (isMobileAdminNav) {
@@ -4110,8 +4186,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && (!loadedAdminDomainsRef.current.has('core') || !loadedAdminDomainsRef.current.has('payments')) && <Panel title="Rental data is not ready" eyebrow="Reservations"><p role="status">{dataHealth.refreshing ? 'Loading rentals and payment records…' : 'Rental or payment records could not load. Use Retry failed data above to reconnect. Balances and rental counts will appear after loading succeeds.'}</p></Panel>}
-        {activeTab === 'rentals' && loadedAdminDomainsRef.current.has('core') && loadedAdminDomainsRef.current.has('payments') && <Rentals rentals={manualBookingFocusId ? rentals.filter((rental) => rental.id === manualBookingFocusId) : filteredRentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
+        {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} setCustomerStatus={setCustomerStatus} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -5309,18 +5384,14 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
-  const ARCHIVE_PAGE_SIZE = 25;
-  const [archiveVisibleCount, setArchiveVisibleCount] = useState(ARCHIVE_PAGE_SIZE);
-  useEffect(() => setArchiveVisibleCount(ARCHIVE_PAGE_SIZE), [rentalFilter, search]);
-  const matchingRentals = focusRentalId ? rentals.filter((rental) => rental.id === focusRentalId) : rentals;
-  const displayedRentals = rentalFilter === 'archive' && !focusRentalId
-    ? matchingRentals.slice(0, archiveVisibleCount)
-    : matchingRentals;
-  const filterCounts = Object.fromEntries(rentalFilterOptions().map((filter) => [
-    filter.key,
-    allRentals.filter((rental) => rentalMatchesFilter(rental, filter.key, { documents, extensionRequests, vehicles, reports, emergencyExceptions, rentalCharges })).length,
-  ]));
+function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+  const detailSectionRef = useRef(null);
+  useEffect(() => {
+    if (manager.detailReady) detailSectionRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [manager.selectedId, manager.detailReady]);
+  const displayedRentals = manager.detailReady
+    ? rentals.filter((rental) => rental.id === manager.selectedId) : [];
+  const filterCounts = manager.counts || {};
 
   return <>
     <Panel title={rentalFilter === 'archive' ? 'Rental Archive' : 'Rental Manager'} eyebrow="Reservations">
@@ -5328,16 +5399,18 @@ function Rentals({ rentals, allRentals = [], focusRentalId, clearRentalFocus, se
       {!focusRentalId && <>
       <div className="filter-pills" role="group" aria-label="Rental filters">
         {rentalFilterOptions().map((filter) => (
-          <button type="button" key={filter.key} className={rentalFilter === filter.key ? 'active' : ''} onClick={() => setRentalFilter(filter.key)}>
-            {filter.label} <span className="filter-pill-count">{filterCounts[filter.key] || 0}</span>
+          <button type="button" key={filter.key} className={rentalFilter === filter.key ? 'active' : ''} onClick={() => { manager.open(''); manager.setOffset(0); setRentalFilter(filter.key); }}>
+            {filter.label} <span className="filter-pill-count">{filterCounts[filter.key] ?? '—'}</span>
           </button>
         ))}
       </div>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
       </>}
-      {displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
-      {rentalFilter === 'archive' && displayedRentals.length < matchingRentals.length && <button type="button" className="secondary-btn rental-archive-load-more" onClick={() => setArchiveVisibleCount((count) => count + ARCHIVE_PAGE_SIZE)}>Load 25 more archived rentals</button>}
+      <RentalSummaryList manager={manager} filter={rentalFilter} money={money} formatDate={formatRentalDate} />
+      {manager.selectedId && <div ref={detailSectionRef} className="focused-rental-actions"><strong>Selected rental</strong><button type="button" className="secondary-btn" onClick={() => manager.open('')}>Close rental</button>{manager.detailLoading && <span role="status">Refreshing rental…</span>}</div>}
+      {manager.detailError && <p role="alert" className="form-error">{manager.detailError} <button type="button" onClick={manager.retryDetail}>Retry rental</button></p>}
+
+      <fieldset className="rental-detail-readiness" disabled={Boolean(manager.detailLoading || manager.detailError)}><div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} initialExpanded rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div></fieldset>
     </Panel>
   </>;
 }
@@ -7848,9 +7921,9 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
   </div>;
 }
 
-function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function RentalRow({ initialExpanded = false, rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [depositSettlementOpen, setDepositSettlementOpen] = useState(false);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(initialExpanded);
   const [activityEvents, setActivityEvents] = useState([]);
   const [activityActorById, setActivityActorById] = useState(new Map());
   const [needsActionModalOpen, setNeedsActionModalOpen] = useState(false);
@@ -7873,7 +7946,7 @@ function RentalRow({ rental, showNeedsActionSummary = false, rentalPayments = []
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [extensionInsuranceRequestId, setExtensionInsuranceRequestId] = useState('');
-  const activityRefreshKey = `${rental.updated_at || ''}|${rentalCharges.map((item) => `${item.id}:${item.status}:${item.updated_at || ''}`).join(',')}|${extensionRequests.map((item) => `${item.id}:${item.status}:${item.updated_at || ''}`).join(',')}`;
+  const activityRefreshKey = `${rental.updated_at || ''}|${rentalCharges.map((item) => `${item.id}:${item.status}:${item.updated_at || ''}`).join(',')}|${extensionRequests.filter((item) => item.rental_id === rental.id).map((item) => `${item.id}:${item.status}:${item.updated_at || ''}`).join(',')}`;
   useEffect(() => {
     if (!detailsExpanded && !swapOpen) return undefined;
     let active = true;

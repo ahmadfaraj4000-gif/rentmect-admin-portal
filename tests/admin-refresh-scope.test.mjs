@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { adminRefreshDomains } from '../src/lib/adminRefreshDomains.js';
 
 const source = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
-const tabs = { dashboard: ['snapshot'], rentals: ['core', 'payments'], settings: ['settings'] };
+const tabs = { dashboard: ['snapshot'], rentals: ['rental-list'], settings: ['settings'] };
 
 test('manual refresh only reloads the current page, even after visiting other sections', async () => {
   const start = source.indexOf('  async function loadAllData({');
@@ -35,6 +35,7 @@ test('realtime changes invalidate inactive pages without starting background dow
   const context = vm.createContext({
     ADMIN_TAB_DOMAINS: tabs, activeTabRef, adminRefreshDomains,
     domainInvalidationsRef: { current: versions }, loadedAdminDomainsRef: { current: loaded },
+    rentalWorkspaceRef: { current: { invalidate() {}, refresh: (options) => calls.push(['rental-workspace', options.details]) } }, rentalDetailDirty: false,
     refreshTimers: new Map(), document: { visibilityState: 'visible' },
     window: { clearTimeout() {}, setTimeout(callback) { callbacks.push(callback); return callbacks.length; } },
     loadAdminDomain: (domain, options) => calls.push([domain, options.force]),
@@ -47,7 +48,7 @@ test('realtime changes invalidate inactive pages without starting background dow
   activeTabRef.current = 'rentals';
   vm.runInContext("scheduleDomainRefresh('payments')", context);
   callbacks[0]();
-  assert.deepEqual(calls, [['payments', true]]);
+  assert.deepEqual(calls, [['rental-workspace', true]]);
   assert.equal(versions.get('payments'), 2);
 });
 

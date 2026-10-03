@@ -16,7 +16,7 @@ test('every Rentals filter uses the same compact operational card', () => {
 });
 
 test('rental cards start minimized and reveal one complete detail workspace on demand', () => {
-  assert.match(source, /const \[detailsExpanded, setDetailsExpanded\] = useState\(false\)/);
+  assert.match(source, /const \[detailsExpanded, setDetailsExpanded\] = useState\(initialExpanded\)/);
   assert.match(source, /aria-expanded=\{detailsExpanded\}/);
   assert.match(source, /aria-controls=\{`rental-expanded-details-\$\{rental\.id\}`\}/);
   assert.match(source, /detailsExpanded \? 'Hide rental details' : 'Show rental details'/);
