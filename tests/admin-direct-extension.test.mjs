@@ -59,10 +59,22 @@ test('staff can review and confirm a separate extension without a customer reque
 
 test('editing a reviewed extension removes confirmation until staff review again',async()=>{
   const h=harness();let tree=h.render();
+  find(tree,e=>e.type==='input'&&e.props.type==='number').props.onChange({target:{value:'49'}});tree=h.render();
   await find(tree,e=>e.type==='form').props.onSubmit({preventDefault(){}});tree=h.render();
   find(tree,e=>e.type==='input'&&e.props.type==='number').props.onChange({target:{value:'79'}});tree=h.render();
   assert.equal(find(tree,e=>e.type==='button'&&e.props.children==='Confirm extension'),undefined);
   assert.ok(find(tree,e=>e.type==='button'&&e.props.children==='Review extension'));
+});
+
+test('a replacement vehicle fleet rate is never silently used for an extension',async()=>{
+  const h=harness();let tree=h.render();
+  const rate=find(tree,e=>e.type==='input'&&e.props.type==='number');
+  assert.equal(rental.vehicles.daily_rate,69);
+  assert.equal(rate.props.value,'');
+  await find(tree,e=>e.type==='form').props.onSubmit({preventDefault(){}});tree=h.render();
+  assert.equal(h.calls.some(c=>c.preview),false);
+  assert.match(renderToStaticMarkup(tree),/Enter the customer’s agreed daily rate/);
+  assert.match(renderToStaticMarkup(tree),/including elapsed days since that return/);
 });
 
 test('Extend rental is available on active and overdue rentals and hidden after return',async()=>{

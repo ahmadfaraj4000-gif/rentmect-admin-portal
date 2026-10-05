@@ -2198,7 +2198,7 @@ function App() {
     let rateAgreement = null;
     let quote = null;
     if (approve && request.request_kind === 'same_vehicle_extension') {
-      const entered = window.prompt('Agreed daily rate for the added dates only. Enter the replacement vehicle rate or an explicitly agreed courtesy rate.', String(request.agreed_daily_rate ?? request.rentals?.vehicles?.daily_rate ?? ''));
+      const entered = window.prompt('Confirm the customer’s agreed daily rate for the added dates. A replacement vehicle does not automatically change the agreed rate.', String(request.agreed_daily_rate ?? ''));
       if (entered === null) return;
       const rate = Number(entered);
       if (!entered.trim() || !Number.isFinite(rate) || rate < 0) return notify('Enter a valid agreed extension rate.');
@@ -8750,7 +8750,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const reviewRef = useRef(null);
   const [form, setForm] = useState({ operation: 'extension', vehicleId: rental.vehicle_id,
-    returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: String(rental.vehicles?.daily_rate ?? ''), reason: '' });
+    returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: '', reason: '' });
   const availability = useVehicleAvailability(supabase, rental.id,
     parseBookingDateTime(rental.return_date, rental.return_time)?.toISOString(),
     parseBookingDateTime(form.returnDate, form.returnTime)?.toISOString(), rental.vehicle_id);
@@ -8766,6 +8766,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
   }
   async function review(event) {
     event.preventDefault();
+    if (!form.dailyRate.trim()) { setError('Enter the customer’s agreed daily rate before reviewing the extension.'); return; }
     if (!availabilityReady) { setError('Choose available dates and a vehicle before reviewing.'); return; }
     setBusy(true); setError('');
     try { setPreview(await onPreview(rental, form)); }
@@ -8790,7 +8791,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
           <label><span>Agreed daily rate for added dates</span><input type="number" required min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label>
           <label className="wide"><span>Reason and customer agreement</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
-        <p>The rate applies only to the added dates. You can enter an agreed courtesy rate. Each started 24-hour extension period is billed as a full day.</p>
+        <p>Enter the customer’s agreed rate for the added dates. A replacement vehicle does not automatically change that rate. The extension starts at the booked return shown above, including elapsed days since that return. Each started 24-hour extension period is billed as a full day.</p>
         <RentalAvailabilityNotice availability={availability} vehicleId={rental.vehicle_id} />
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review extension</strong>
           <p>{formatEasternDateTime(preview.starts_at)} → {formatEasternDateTime(preview.ends_at)} · {preview.extension_days} billed day{preview.extension_days === 1 ? '' : 's'} at {money(preview.daily_rate)}/day{Number(preview.markup_percentage) > 0 ? ` plus the existing ${preview.markup_percentage}% age surcharge` : ''}</p>
