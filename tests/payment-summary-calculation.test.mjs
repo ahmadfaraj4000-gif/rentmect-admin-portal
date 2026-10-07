@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const cancellationCalculation = source.slice(source.indexOf('  const cancellationCredit ='), source.indexOf('  const customerName = rental.profiles?.full_name'));
-const calculation = source.slice(source.indexOf('  const additionalChargeTotal = trueAdditionalCharges'), source.indexOf('  const depositHeldAmount = protectedDeposit'));
+const calculation = source.slice(source.indexOf('  const additionalChargeTotal = trueAdditionalCharges'), source.indexOf('  const depositHeldAmount = depositAllocations.length'));
 function summary(charges = [], overrides = {}, recordedRentalRefunds = 0, rentalAccount = null, rentalExtensions = []) {
   const context = vm.createContext({
     rental: { rental_total: 1079.14, tax_amount: 68.53, security_deposit: 300,
@@ -62,7 +62,7 @@ test('the actual summary markup presents one equation with a separate held-depos
   const markup = source.slice(start, end);
   const transformed = await transformWithOxc(`const Summary = () => <>${markup}</>; Summary;`, 'summary.jsx', { jsx: { runtime: 'classic' } });
   const context = vm.createContext({
-    React, ShieldCheck: () => null,
+    React, ShieldCheck: () => null, depositAllocations: [],
     money: (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
     manualDiscountDescriptor: () => '$159.86 off rental',
     rental: { rental_total: 1079.14, pre_manual_discount_rental_total: 1239, manual_discount_amount: 159.86, tax_amount: 68.53, security_deposit: 300 },

@@ -39,10 +39,10 @@ jobs:
         run: npm ci
 
       - name: Verify refund history integrity
-        run: node --test tests/vehicle-deposit-policy.test.mjs tests/admin-refresh-scope.test.mjs tests/rental-workspace.test.mjs tests/rental-archive.test.mjs tests/compact-rental-card.test.mjs tests/auth-refresh-recovery.test.mjs tests/refresh-consistency.test.mjs tests/external-refund-history.test.mjs tests/rental-refund-ledger.test.mjs tests/deposit-charge-settlement.test.mjs tests/payment-summary-calculation.test.mjs
+        run: node --test tests/vehicle-deposit-policy.test.mjs tests/admin-refresh-scope.test.mjs tests/rental-workspace.test.mjs tests/rental-archive.test.mjs tests/compact-rental-card.test.mjs tests/auth-refresh-recovery.test.mjs tests/refresh-consistency.test.mjs tests/external-refund-history.test.mjs tests/rental-refund-ledger.test.mjs tests/deposit-charge-settlement.test.mjs tests/deposit-deduction-choice.test.mjs tests/payment-summary-calculation.test.mjs
 
       - name: Verify admin extension and edit actions
-        run: node --test tests/vehicle-availability.test.mjs tests/admin-direct-extension.test.mjs tests/rental-amendment-guardrails.test.mjs
+        run: node --test tests/vehicle-availability.test.mjs tests/admin-direct-extension.test.mjs tests/rental-change-dates.test.mjs tests/rental-amendment-guardrails.test.mjs
 
       - name: Build
         run: npm run build

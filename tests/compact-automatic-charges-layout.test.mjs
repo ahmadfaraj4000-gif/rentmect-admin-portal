@@ -18,10 +18,10 @@ test('automatic-charge totals and collection actions cannot overflow their card'
   assert.match(styles, /\.rental-charge-manager\.compact \.charge-collection-actions button[\s\S]*white-space: normal/);
 });
 
-test('all automatic-charge payment controls remain wired to their original handlers', () => {
-  assert.match(source, /onClick=\{chargeAllAutomatic\}/);
+test('automatic charges use the collection chooser and preserve link and waive actions', () => {
+  assert.match(source, /onClick=\{\(\) => setCollectionCharges\(automaticCollectible\)\}/);
   assert.match(source, /onClick=\{\(\) => sendPaymentLink\?\.\(charge\)\}/);
-  assert.match(source, /onClick=\{\(\) => chargeCard\(charge\)\}/);
+  assert.match(source, /onClick=\{\(\) => setCollectionCharges\(\[charge\]\)\}/);
   assert.match(source, /onClick=\{\(\) => waiveCharge\(charge\)\}/);
   assert.match(source, /waivingId === charge\.id \? 'Waiving…' : 'Waive'/);
 });

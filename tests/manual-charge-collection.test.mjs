@@ -10,15 +10,15 @@ const raceGuardMigration = await readFile(new URL('../supabase/migrations/202608
 const finalRaceGuardMigration = await readFile(new URL('../supabase/migrations/20260816150000_fix_guarded_external_paid_race.sql', import.meta.url), 'utf8');
 
 test('one rental-card action collects every outstanding add-on while preserving item actions', () => {
-  assert.match(mainSource, /async function chargeAllCollectible/);
+  assert.match(mainSource, /setCollectionCharges\(collectible\)/);
   assert.match(mainSource, /Charge all · \$\{money\(outstandingTotal\)\}/);
-  assert.match(mainSource, /Each charge stays itemized in the payment ledger/);
-  assert.match(mainSource, /onClick=\{\(\) => chargeCard\(charge\)\}/);
+  assert.match(mainSource, /charges\.map\(c => c\.id\)/);
+  assert.match(mainSource, /onClick=\{\(\) => setCollectionCharges\(\[charge\]\)\}/);
   assert.match(mainSource, /onClick=\{\(\) => setExternalCharge\(charge\)\}/);
-  assert.match(mainSource, /deferRefresh: index < collectible\.length - 1/);
+  assert.match(mainSource, /for \(const charge of collectionCharges\)/);
   assert.match(mainSource, /extension-action-row manual-charge-row/);
   assert.match(mainSource, /compact \? 'Send link' : 'Send payment link'/);
-  assert.match(mainSource, /compact \? 'Charge card' : 'Charge customer'/);
+  assert.match(mainSource, /aria-label="Charge customer"/);
   assert.match(styles, /\.manual-charge-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) 244px !important/);
   assert.match(styles, /\.manual-charge-row \.charge-collection-actions button \{[\s\S]*min-height: 30px !important/);
 });

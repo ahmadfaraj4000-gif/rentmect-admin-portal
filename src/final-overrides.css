@@ -9862,3 +9862,8 @@ input[type="radio"] {
 .saved-return-evidence ul { padding-left: 20px; }
 
 .rental-detail-readiness { display: contents; border: 0; margin: 0; padding: 0; min-width: 0; }
+
+.deposit-payment-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px; margin: 8px 0; border: 1px solid #d5dce4; border-radius: 10px; }
+.deposit-payment-option input[type="radio"] { width: auto; margin-top: 4px; }
+.deposit-payment-option span { display: grid; gap: 4px; }
+.deposit-collection-fields { border: 0; margin: 0; padding: 0; min-width: 0; }

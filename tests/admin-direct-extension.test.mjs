@@ -1,3 +1,4 @@
+import { rentalDayShortcut } from '../src/lib/rentalChangeDates.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -13,19 +14,19 @@ const transformed = await transformWithOxc(`${component}\nAdminRentalExtensionMo
 const rental = { id:'rental', vehicle_id:'audi', pickup_date:'2026-09-17', return_date:'2026-10-04', return_time:'9:00 AM', status:'active', vehicles:{name:'Audi',daily_rate:69} };
 const quote = { revision:'reviewed', starts_at:'2026-10-04T13:00:00Z', ends_at:'2026-10-08T13:00:00Z', daily_rate:49,
   extension_days:4, previous_balance:156.33, extension_total:208.45, total_due:364.78, deposit_held:300 };
-const helpers = { React, supabase: {}, parseBookingDateTime: () => new Date('2026-10-04T13:00:00Z'),
+const helpers = { rentalDayShortcut, React, supabase: {}, parseBookingDateTime: () => new Date('2026-10-04T13:00:00Z'),
   useVehicleAvailability: () => ({ ready: true, rows: [{ vehicle_id: 'audi', available: true, conflicts: [] }] }), RentalAvailabilityNotice: () => null, CalendarClock:()=>null, X:()=>null, MONEY_MAX:100000,
   money:n=>`$${Number(n).toFixed(2)}`, formatRentalDate:(d,t)=>`${d} ${t}`, formatEasternDateTime:s=>s,
   calendarTimeOptions:()=>['9:00 AM','10:00 AM'] };
-function harness() {
-  const state=[]; let cursor=0; const calls=[];
-  const context = vm.createContext({ ...helpers, crypto:{randomUUID:()=>`key-${calls.length}-${Math.random()}`},
-    useDialogFocus:()=>({current:null}), useRef:()=>({current:null}), useEffect:()=>{},
+function harness(savedContext = { daily_rate: 49, fleet_daily_rate: 69, revisable_extension: { starts_at: '2026-10-04T13:00:00Z', daily_rate: 49 } }) {
+  const state=[]; let cursor=0; const calls=[]; let loadRates;
+  const context = vm.createContext({ ...helpers, supabase: { rpc: async () => ({ data: savedContext }) }, crypto:{randomUUID:()=>`key-${calls.length}-${Math.random()}`},
+    useDialogFocus:()=>({current:null}), useRef:()=>({current:null}), useEffect:(effect, deps)=>{ if (deps?.[0] === rental.id && !loadRates) loadRates = effect; },
     useState(initial) { const index=cursor++; if (!(index in state)) state[index]=typeof initial==='function'?initial():initial;
       return [state[index],value=>{state[index]=typeof value==='function'?value(state[index]):value;}]; },
   });
   const Modal=vm.runInContext(transformed.code,context);
-  return { calls, render() { cursor=0; return Modal({rental,
+  return { calls, async loadRates() { loadRates(); await Promise.resolve(); }, render() { cursor=0; return Modal({rental,
     onPreview:async(r,form)=>{calls.push({preview:form});return quote;},
     onApply:async(r,form,key)=>{calls.push({apply:form,key});return {success:true};},
     onCancel:()=>calls.push({closed:true}),
@@ -39,14 +40,14 @@ const find = (tree, predicate) => elements(tree).find(predicate);
 
 test('staff can review and confirm a separate extension without a customer request',async()=>{
   const h=harness();let tree=h.render();
-  assert.match(renderToStaticMarkup(tree),/Extend rental/);
+  assert.match(renderToStaticMarkup(tree),/Extend or revise rental/);
   const fill=(type,value)=>{find(tree,e=>e.type==='input'&&e.props.type===type).props.onChange({target:{value}});tree=h.render();};
   fill('date','2026-10-08');fill('number','49');
   find(tree,e=>e.type==='textarea').props.onChange({target:{value:'Customer agreed courtesy extension'}});tree=h.render();
   await find(tree,e=>e.type==='form').props.onSubmit({preventDefault(){}});tree=h.render();
   const html=renderToStaticMarkup(tree);
   for (const amount of ['$156.33','$208.45','$364.78','$300.00']) assert.ok(html.includes(amount));
-  assert.match(html,/updates the booked return immediately/);
+  assert.match(html,/updates the booked return and recalculates the balance immediately/);
   await find(tree,e=>e.type==='button'&&e.props.children==='Confirm extension').props.onClick();
   const applied=h.calls.find(c=>c.apply);
   assert.equal(applied.apply.operation,'extension');
@@ -102,4 +103,25 @@ test('Edit remains for unstarted reservations while started rentals use Extend r
       assert.deepEqual(calls,[expected],status);
     }
   }
+});
+
+
+test('saved agreed rate is prefilled, fleet rate stays visible, and four-day revision is reviewable', async () => {
+  const h = harness(); h.render(); await h.loadRates(); let tree = h.render();
+  assert.equal(find(tree, e => e.type === 'input' && e.props.type === 'number').props.value, '49');
+  assert.match(renderToStaticMarkup(tree), /Current agreed rate.*49.00.*Vehicle standard rate.*69.00/);
+  find(tree, e => e.type === 'button' && e.props.children === 'Revise latest extension').props.onClick(); tree = h.render();
+  find(tree, e => e.type === 'button' && renderToStaticMarkup(e).includes('4 days')).props.onClick(); tree = h.render();
+  assert.equal(find(tree, e => e.type === 'input' && e.props.type === 'date').props.value, '2026-10-08');
+  find(tree, e => e.type === 'textarea').props.onChange({ target: { value: 'Customer can afford four days' } }); tree = h.render();
+  await find(tree, e => e.type === 'form').props.onSubmit({ preventDefault() {} });
+  assert.equal(h.calls.at(-1).preview.operation, 'extension_revision');
+  assert.equal(h.calls.at(-1).preview.dailyRate, '49');
+});
+
+test('late rate load preserves a price already typed by staff, including zero', async () => {
+  const h = harness(); let tree = h.render();
+  find(tree, e => e.type === 'input' && e.props.type === 'number').props.onChange({ target: { value: '0' } });
+  await h.loadRates(); tree = h.render();
+  assert.equal(find(tree, e => e.type === 'input' && e.props.type === 'number').props.value, '0');
 });
