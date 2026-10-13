@@ -112,8 +112,8 @@ test('rental details show every payment and refund transaction with its date, am
   assert.match(mainSource, /function buildRentalPaymentHistory/);
   assert.match(mainSource, /String\(charge\.status \|\| ''\)\.toLowerCase\(\) === 'paid'/);
   assert.match(mainSource, /charge\.paid_at \|\| charge\.updated_at \|\| charge\.created_at/);
-  assert.match(mainSource, /payment\.provider === 'stripe' \? 'Stripe' : 'External'/);
-  assert.match(mainSource, /<RentalPaymentHistory payments=\{paymentHistory\} \/>/);
+  assert.match(mainSource, /payment\.provider === 'stripe' \? 'Stripe' : payment\.provider === 'deposit' \? 'Deposit applied' : 'External'/);
+  assert.match(mainSource, /<RentalPaymentHistory payments=\{paymentHistory\} rental=\{rental\} allocations=\{depositAllocations\} \/>/);
   assert.match(mainSource, /No payment or refund transactions recorded yet\./);
   assert.match(finalOverridesSource, /\.rental-payment-history li/);
   assert.match(finalOverridesSource, /\.rental-payment-source\.stripe/);

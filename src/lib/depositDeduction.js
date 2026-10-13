@@ -3,7 +3,8 @@ export function depositDeductionOptions(rental, allocations, charges) {
   const eligible = ['active', 'rented', 'overdue', 'return_initiated', 'completed'].includes(rental.status)
     && !rental.deposit_transferred_to_rental_id && charges.length > 0 && totalCents > 0
     && charges.every(c => !c.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(c.status)
-      && !['rental_amendment', 'rental_installment'].includes(c.charge_type));
+      && c.charge_type !== 'rental_installment'
+      && (c.charge_type !== 'rental_amendment' || (rental.status === 'completed' && c.source_type === 'rental_balance')));
   return allocations.filter(a => a.holder_rental_id === rental.id).map(a => {
     const heldCents = Math.max(0, Math.round(Number(a.amount_held || 0) * 100)
       - Math.round(Number(a.amount_applied || 0) * 100) - Math.round(Number(a.amount_released || 0) * 100));

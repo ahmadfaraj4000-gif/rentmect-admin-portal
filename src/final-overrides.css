@@ -9867,3 +9867,17 @@ input[type="radio"] {
 .deposit-payment-option input[type="radio"] { width: auto; margin-top: 4px; }
 .deposit-payment-option span { display: grid; gap: 4px; }
 .deposit-collection-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+/* Keep deposit closeout visible above the scrollable transaction ledger. */
+.deposit-ledger-summary {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid #d8e3df;
+  border-radius: 10px;
+  background: #f3f8f5;
+  color: #23483b;
+  font-size: 13px;
+}
+.deposit-ledger-summary small { color: #52645b; line-height: 1.4; }

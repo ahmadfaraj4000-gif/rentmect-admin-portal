@@ -2059,20 +2059,8 @@ function App() {
     return true;
   }
 
-  async function recordLocalDepositRelease(rental) {
-    if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
-    const allocations = depositAllocations.filter((item) =>
-      item.holder_rental_id === rental.id &&
-      item.payment_provider === 'local' &&
-      ['held', 'refund_due_inspection', 'failed'].includes(item.status)
-    );
-    const amount = allocations.reduce((sum, item) => sum + Math.max(0, Number(item.amount_held || 0) - Number(item.amount_released || 0) - Number(item.amount_applied || 0)), 0);
-    if (!window.confirm(`Confirm that ${money(amount)} was actually returned to the customer outside Stripe? This records the external deposit return in the audit ledger.`)) return;
-    const { data, error } = await supabase.rpc('admin_record_local_deposit_release', { p_rental_id: rental.id });
-    if (error) return notify(error.message);
-    setRentals((current) => current.map((item) => item.id === rental.id ? { ...item, ...data } : item));
-    await loadAllData({ silent: true });
-    notify('External deposit return recorded.', 'success');
+  async function recordLocalDepositRelease(rental, details) {
+    return recordExternalDepositRelease(rental, details);
   }
 
   async function recordExternalDepositRelease(rental, details) {
@@ -2080,6 +2068,7 @@ function App() {
     const { data, error } = await supabase.rpc('admin_record_external_deposit_release', {
       p_rental_id: rental.id,
       p_method: details.method,
+      p_expected_amount: details.expectedAmount,
       p_reference: details.reference || null,
       p_note: details.note || null,
     });
@@ -4346,7 +4335,7 @@ function DepositActionPanel({ tasks = [], rentals = [], depositAllocations = [],
       </div>
       {compact && tasks.length > visibleTasks.length && <p className="muted">Showing {visibleTasks.length} of {tasks.length} open deposit tasks. Open Queue for the full list.</p>}
     </Panel>
-    {externalRental && <ExternalDepositReleaseModal rental={externalRental} onCancel={() => setExternalRental(null)} onConfirm={async (details) => {
+    {externalRental && <ExternalDepositReleaseModal rental={externalRental} allocations={depositAllocations} onCancel={() => setExternalRental(null)} onConfirm={async (details) => {
       const saved = await onExternalRefund?.(externalRental, details);
       if (saved) setExternalRental(null);
       return saved;
@@ -4382,22 +4371,26 @@ function DepositChargeSettlementModal({ preview, onCancel, onConfirm }) {
   </div></div>;
 }
 
-function ExternalDepositReleaseModal({ rental, onCancel, onConfirm }) {
+function ExternalDepositReleaseModal({ rental, allocations = [], onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
   const [form, setForm] = useState({ method: 'cash', reference: '', note: '' });
   const [saving, setSaving] = useState(false);
+  const amount = allocations.filter(a => a.holder_rental_id === rental.id && a.payment_provider === 'local'
+    && ['held', 'refund_due_inspection', 'failed'].includes(a.status))
+    .reduce((sum, a) => sum + Math.max(0, Math.round(Number(a.amount_held || 0) * 100)
+      - Math.round(Number(a.amount_applied || 0) * 100) - Math.round(Number(a.amount_released || 0) * 100)), 0) / 100;
   return <div className="admin-modal-backdrop deposit-action-modal-backdrop" role="presentation"><form ref={dialogRef} className="admin-modal compact-modal deposit-action-modal" role="dialog" aria-modal="true" onSubmit={async (event) => {
     event.preventDefault();
     setSaving(true);
-    try { await onConfirm(form); } finally { setSaving(false); }
+    try { await onConfirm({ ...form, expectedAmount: amount }); } finally { setSaving(false); }
   }}>
-    <header className="admin-modal-header"><div><small>Deposit resolution</small><strong>Record external deposit return</strong><span>{rental.profiles?.full_name || 'Customer'} • {money(rental.deposit_held_amount || rental.security_deposit)}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close deposit return dialog"><X size={18}/></button></header>
-    <div className="portal-form">
-      <label><span>Return method</span><select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}><option value="cash">Cash</option><option value="check">Check</option><option value="bank_transfer">Bank transfer</option><option value="other">Other</option></select></label>
+    <header className="admin-modal-header"><div><small>Deposit resolution</small><strong>Record external deposit return</strong><span>{rental.profiles?.full_name || 'Customer'} • {money(amount)}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close deposit return dialog"><X size={18}/></button></header>
+    <div className="portal-form"><p>Record the {money(amount)} already returned to the customer. This does not send money.</p>
+      <label><span>Return method</span><select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}><option value="cash">Cash</option><option value="cash_app">Cash App</option><option value="check">Check</option><option value="bank_transfer">Bank transfer</option><option value="other">Other</option></select></label>
       <label><span>Reference or receipt number</span><input value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label>
       <label><span>Audit note</span><textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="Who returned it and when?" /></label>
     </div>
-    <footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving}>{saving ? 'Saving…' : 'Confirm deposit returned'}</button></footer>
+    <footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving || amount <= 0}>{saving ? 'Saving…' : `Record ${money(amount)} returned`}</button></footer>
   </form></div>;
 }
 
@@ -7955,6 +7948,8 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   const [rentalAccount, setRentalAccount] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
   const [paymentDetailsOpen, setPaymentDetailsOpen] = useState(false);
+  const [depositCloseoutOpen, setDepositCloseoutOpen] = useState(false);
+  const [externalDepositOpen, setExternalDepositOpen] = useState(false);
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [contactModal, setContactModal] = useState(null);
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
@@ -8088,11 +8083,20 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   ));
   const depositSettlement = releaseSecurityDeposit && chargeRentalSavedCard
     ? depositSettlementPreview(rental, depositAllocations, rentalCharges) : null;
+  const depositCloseoutCharges = [
+    ...trueAdditionalCharges.filter(c => !c.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(c.status)),
+    ...(openRentalBalance ? [openRentalBalance] : []),
+  ];
+  const canCloseoutFromDeposit = rental.status === 'completed' && chargeRentalSavedCard
+    && depositDeductionOptions(rental, depositAllocations, depositCloseoutCharges).some(a => a.available);
   const additionalChargeTotal = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status !== 'waived')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const additionalPaymentsReceived = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid' && charge.payment_provider !== 'deposit')
+    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const depositAppliedToRental = rentalBalanceCharges
+    .filter(charge => charge.status === 'paid' && charge.payment_provider === 'deposit')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const depositAppliedToCharges = trueAdditionalCharges
     .filter((charge) => charge.status === 'paid' && charge.payment_provider === 'deposit')
@@ -8285,7 +8289,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
             <dt>Payment status</dt><dd>{prettyStatus(rental.payment_status || 'pending')}</dd>
           </dl>
           {Number(rental.under_25_markup_amount || 0) > 0 && <small className="rental-card-detail-note">Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup.</small>}
-          <RentalPaymentHistory payments={paymentHistory} />
+          <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} />
         </section>
 
         <section className="rental-card-section rental-card-documents" aria-labelledby={`rental-documents-${rental.id}`}>
@@ -8314,9 +8318,9 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
           <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
           {cancellationCredit > 0 && <><dt>Cancellation credit — booking cancelled before pickup</dt><dd>−{money(cancellationCredit)}</dd></>}
           <dt className="total-line">Total charges, including deposit</dt><dd className="total-line">{money(currentInvoiceTotal + additionalChargeTotal)}</dd>
-          <dt>Net booking payments received</dt><dd>−{money(paidAmount)}</dd>
+          <dt>Net booking payments received</dt><dd>−{money(Math.max(0, paidAmount - depositAppliedToRental))}</dd>
           <dt>Additional-charge payments received</dt><dd>−{money(additionalPaymentsReceived)}</dd>
-          {depositAppliedToCharges > 0 && <><dt>Paid from security deposit</dt><dd>−{money(depositAppliedToCharges)}</dd></>}
+          {depositAppliedToCharges + depositAppliedToRental > 0 && <><dt>Paid from security deposit</dt><dd>−{money(depositAppliedToCharges + depositAppliedToRental)}</dd></>}
           {customerCreditDue > 0 && <><dt className="credit-line">{cancelledBeforePickup ? 'Security deposit refund outstanding' : 'Booking credit reserved for refund'}</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
         </dl>
@@ -8331,7 +8335,16 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
             if (saved) setDepositSettlementOpen(false);
             return saved;
           }} />}
+        {depositCloseoutOpen && <ChargeCustomerModal rental={rental} allocations={depositAllocations} charges={depositCloseoutCharges} depositOnly
+          onCancel={() => setDepositCloseoutOpen(false)} onCollect={deposit => chargeRentalSavedCard(depositCloseoutCharges[0], { deposit })} />}
+        {externalDepositOpen && <ExternalDepositReleaseModal rental={rental} allocations={depositAllocations}
+          onCancel={() => setExternalDepositOpen(false)} onConfirm={async details => {
+            const saved = await recordLocalDepositRelease(rental, details);
+            if (saved) setExternalDepositOpen(false);
+            return saved;
+          }} />}
         <div className="rental-financial-actions">
+          {canCloseoutFromDeposit && <button type="button" className="approve" onClick={() => setDepositCloseoutOpen(true)}><ShieldCheck size={15}/> Apply outstanding balance to deposit</button>}
           {depositSettlement && <button type="button" className="approve" onClick={() => setDepositSettlementOpen(true)}><DollarSign size={15}/> Apply charges &amp; refund remainder</button>}
           {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
           {recordTestPayment && rental.status !== 'cancelled' && rental.payment_status !== 'paid' && canRecordExternalPayment && <button type="button" className="approve" onClick={() => setAdminStepScope('payment')}><CreditCard size={15}/> Take Payment</button>}
@@ -8339,7 +8352,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
           {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
           {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <button type="button" onClick={() => setPaymentDetailsOpen(true)}><Pencil size={15}/> Edit Rental Payment Details</button>}
           {canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
-          {canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => recordLocalDepositRelease(rental)}><DollarSign size={15}/> Refund External Deposit</button>}
+          {canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => setExternalDepositOpen(true)}><DollarSign size={15}/> Record external deposit return</button>}
         </div>
         {stripePaymentAttempts.length > 0 && <div className="stripe-attempt-block" role="status">
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
@@ -9684,18 +9697,20 @@ function EmergencyExceptionBanner({ exception, checklist, onResolve }) {
   </div>;
 }
 
-function ChargeCustomerModal({ rental, allocations, charges, onCancel, onCollect }) {
+function ChargeCustomerModal({ rental, allocations, charges, onCancel, onCollect, depositOnly = false }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const options = depositDeductionOptions(rental, allocations, charges);
   const [source, setSource] = useState(() => options.find(a => a.available)?.id || 'card');
-  const [reason, setReason] = useState('Additional charges paid from security deposit');
+  const [reason, setReason] = useState(depositOnly ? 'Rental balance and charges paid from security deposit' : 'Additional charges paid from security deposit');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [key] = useState(() => crypto.randomUUID());
   const selected = options.find(a => a.id === source);
   const total = charges.reduce((sum, c) => sum + Math.round(Number(c.total_amount || 0) * 100), 0) / 100;
   async function submit(event) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    if (depositOnly && source === 'card') { setError('Choose an available deposit.'); return; }
+    setBusy(true); setError('');
     try {
       const saved = await onCollect(source === 'card' ? null : {
         allocationId: selected.id, chargeIds: charges.map(c => c.id), expectedApplied: selected.applied,
@@ -9712,12 +9727,12 @@ function ChargeCustomerModal({ rental, allocations, charges, onCancel, onCollect
       <fieldset disabled={busy} className="deposit-collection-fields">
         {options.map(a => <label key={a.id} className="deposit-payment-option"><input type="radio" name="collection-source" checked={source === a.id} disabled={!a.available} onChange={() => setSource(a.id)}/><span>{a.label} · {money(a.held)} held{a.reason && <small>{a.reason}</small>}</span></label>)}
         {!options.length && <p>No held deposit is available for this rental.</p>}
-        <label className="deposit-payment-option"><input type="radio" name="collection-source" checked={source === 'card'} onChange={() => setSource('card')}/><span>Charge the saved card · {money(total)}</span></label>
+        {!depositOnly && <label className="deposit-payment-option"><input type="radio" name="collection-source" checked={source === 'card'} onChange={() => setSource('card')}/><span>Charge the saved card · {money(total)}</span></label>}
         {selected && <><p><strong>{money(selected.applied)} deducted · {money(selected.remaining)} left in this {selected.provider === 'stripe' ? 'Stripe' : 'external'} deposit.</strong> The remainder stays held until you refund it. No money is refunded now.</p><label>Deduction note<input required minLength={5} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)}/></label></>}
       </fieldset>
       {error && <p role="alert" className="form-error">{error}</p>}
     </div>
-    <footer className="rental-amendment-actions"><button type="button" disabled={busy} onClick={onCancel}>Cancel</button><button className="primary-btn" disabled={busy || (source !== 'card' && (!selected?.available || reason.trim().length < 5))}>{busy ? 'Processing…' : source === 'card' ? `Charge card ${money(total)}` : `Deduct ${money(total)} from deposit`}</button></footer>
+    <footer className="rental-amendment-actions"><button type="button" disabled={busy} onClick={onCancel}>Cancel</button><button className="primary-btn" disabled={busy || (depositOnly && source === 'card') || (source !== 'card' && (!selected?.available || reason.trim().length < 5))}>{busy ? 'Processing…' : source === 'card' ? `Charge card ${money(total)}` : `Deduct ${money(total)} from deposit`}</button></footer>
   </form></div>;
 }
 
@@ -10586,6 +10601,7 @@ function externalPaymentMethodLabel(method) {
     terminal: 'Card terminal',
     cash_app: 'Cash App',
     cash: 'Cash',
+    check: 'Check',
     bank_transfer: 'Bank transfer',
     other: 'Other external',
   }[method] || 'External';
@@ -10619,7 +10635,7 @@ function buildDepositRefundHistory(rental, depositAllocations = [], externalPaym
       kind: 'refund',
       status,
       moneyReturned: amountReleased > 0 || status === 'succeeded',
-      method: [provider === 'stripe' ? 'Stripe' : 'External return', allocation.refund_id ? `Refund ${allocation.refund_id}` : ''].filter(Boolean).join(' • '),
+      method: [provider === 'stripe' ? 'Stripe' : allocation.external_return_method ? externalPaymentMethodLabel(allocation.external_return_method) : 'External return', allocation.external_return_reference, allocation.external_return_note, allocation.refund_id ? `Refund ${allocation.refund_id}` : ''].filter(Boolean).join(' • '),
       label: 'Security deposit refund',
     });
   });
@@ -10801,12 +10817,24 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
     .sort((left, right) => (right.date ? new Date(right.date).getTime() : 0) - (left.date ? new Date(left.date).getTime() : 0));
 }
 
-function RentalPaymentHistory({ payments = [] }) {
+function RentalPaymentHistory({ payments = [], rental = {}, allocations = [] }) {
+  const held = allocations.reduce((sum, a) => sum + Math.max(0, Math.round(Number(a.amount_held || 0) * 100)
+    - Math.round(Number(a.amount_applied || 0) * 100) - Math.round(Number(a.amount_released || 0) * 100)), 0) / 100;
+  const applied = allocations.reduce((sum, a) => sum + Number(a.amount_applied || 0), 0);
+  const returned = allocations.reduce((sum, a) => sum + Number(a.amount_released || 0), 0);
+  const completed = rental.status === 'completed';
   return <div className="rental-payment-history" aria-label="Rental transaction history">
     <div className="rental-payment-history-heading">
       <div><small>Payment ledger</small><h5>Transactions</h5></div>
       <span>{payments.length} recorded</span>
     </div>
+    {allocations.length > 0 && <div className="deposit-ledger-summary" aria-label="Deposit settlement">
+      <strong>{completed ? 'Deposit closeout' : 'Security deposit'}</strong>
+      <span>{money(applied)} applied to charges and rental balance</span>
+      <span>{money(returned)} returned to customer</span>
+      <strong>{money(held)} {completed ? 'remaining to refund' : 'still held'}</strong>
+      {completed && held > 0 && <small>Not yet recorded as returned. Any outstanding charges or inspection blockers must be cleared first.</small>}
+    </div>}
     {payments.length > 0
       ? <ol className={payments.length > 4 ? 'is-scrollable' : ''} tabIndex={payments.length > 4 ? 0 : undefined} aria-label={payments.length > 4 ? `All ${payments.length} payment and refund transactions; scroll for older transactions` : undefined}>{payments.map((payment) => {
         const refundStatus = payment.statusLabel || (payment.status === 'review' ? 'Review needed' : payment.status === 'succeeded'

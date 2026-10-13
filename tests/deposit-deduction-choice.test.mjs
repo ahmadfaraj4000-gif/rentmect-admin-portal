@@ -22,7 +22,7 @@ test('full consumption is eligible; insufficient, reserved, unknown or foreign d
   }
   assert.equal(depositDeductionOptions(rental, [{ ...allocation, holder_rental_id: 'other' }], [charge]).length, 0);
 });
-test('mixed funding remains separately labelled and rental balance charges cannot consume a deposit', () => {
+test('mixed funding stays separate; rental balances require a completed rental', () => {
   const options = depositDeductionOptions(rental, [allocation, { ...allocation, id: 'stripe', payment_provider: 'stripe', stripe_payment_intent_id: 'pi_source' }], [charge]);
   assert.deepEqual(options.map(a => a.label), ['External deposit', 'Stripe deposit']);
   assert.equal(depositDeductionOptions(rental, [allocation], [{ ...charge, charge_type: 'rental_amendment' }])[0].available, false);
@@ -52,4 +52,14 @@ test('card choice collects without a deposit payload', async () => {
   const h = harness(); let tree = h.render();
   elements(tree).filter(e => e.type === 'input' && e.props.type === 'radio').at(-1).props.onChange(); tree = h.render();
   await elements(tree).find(e => e.type === 'form').props.onSubmit({ preventDefault() {} }); assert.equal(h.calls[0], null);
+});
+
+
+test('completed rental closeout includes $6.87 invoice debt and $175.46 additional charges', () => {
+  const balance = { ...charge, id: 'balance', charge_type: 'rental_amendment', source_type: 'rental_balance', total_amount: 6.87 };
+  const charges = [balance, { ...charge, total_amount: 72.57 }, { ...charge, id: 'day', total_amount: 76.30 }, { ...charge, id: 'late', total_amount: 26.59 }];
+  const [option] = depositDeductionOptions({ ...rental, status: 'completed' }, [allocation], charges);
+  assert.equal(option.available, true); assert.equal(option.applied, 182.33); assert.equal(option.remaining, 117.67);
+  assert.equal(depositDeductionOptions(rental, [allocation], charges)[0].available, false);
+  assert.equal(depositDeductionOptions({ ...rental, status: 'completed' }, [allocation], [{ ...balance, charge_type: 'rental_installment' }])[0].available, false);
 });

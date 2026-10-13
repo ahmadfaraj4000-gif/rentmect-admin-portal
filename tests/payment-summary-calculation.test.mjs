@@ -12,11 +12,11 @@ function summary(charges = [], overrides = {}, recordedRentalRefunds = 0, rental
       paid_at: '2026-09-15', payment_amount_cents: 138492, ...overrides },
     trueAdditionalCharges: charges,
     outstandingAdditionalCharges: charges.filter((c) => !c.included_in_initial_payment && ['pending', 'checkout_open', 'failed'].includes(c.status)).reduce((n, c) => n + c.total_amount, 0),
-    rentalBalanceCharges: [], externalPaymentActions: [], recordedRentalRefunds, rentalAccount,
+    rentalBalanceCharges: overrides.balanceCharges || [], externalPaymentActions: [], recordedRentalRefunds, rentalAccount,
     rentalPayments: [], rentalCharges: charges, rentalExtensions, rentalRefunds: [], depositAllocations: [],
     buildRentalPaymentHistory: () => [],
   });
-  return vm.runInContext(`${cancellationCalculation}\n${calculation}\n({total: currentInvoiceTotal + additionalChargeTotal, paidAmount, additionalPaymentsReceived, balanceDue, customerCreditDue});`, context);
+  return vm.runInContext(`${cancellationCalculation}\n${calculation}\n({total: currentInvoiceTotal + additionalChargeTotal, paidAmount, additionalPaymentsReceived, balanceDue, customerCreditDue, depositAppliedToRental, depositAppliedToCharges});`, context);
 }
 const cents = (n) => Math.round(n * 100);
 
@@ -68,7 +68,7 @@ test('the actual summary markup presents one equation with a separate held-depos
     rental: { rental_total: 1079.14, pre_manual_discount_rental_total: 1239, manual_discount_amount: 159.86, tax_amount: 68.53, security_deposit: 300 },
     additionalChargeTotal: 75.33, initialPaymentTotal: 1447.67, currentInvoiceTotal: 1447.67, paidAmount: 1384.92,
     cancellationCredit: 0, cancelledBeforePickup: false,
-    depositAppliedToCharges: 0, additionalPaymentsReceived: 75.33, customerCreditDue: 0, balanceDue: 62.75, depositHeldAmount: 300,
+    depositAppliedToRental: 0, depositAppliedToCharges: 0, additionalPaymentsReceived: 75.33, customerCreditDue: 0, balanceDue: 62.75, depositHeldAmount: 300,
   });
   const Summary = vm.runInContext(transformed.code, context);
   const html = renderToStaticMarkup(React.createElement(Summary));
@@ -116,4 +116,17 @@ test('the account screen uses the server ledger after refunds and adds only unpa
     { invoice_total: 1018.93, net_paid: 842.60 }, [paidExtension]);
   assert.equal(cents(result.paidAmount), 84260);
   assert.equal(cents(result.balanceDue), 19633);
+});
+
+
+test('deposit settlement clears the exact closeout without inflating cash receipts or counting the rental credit twice', () => {
+ const balances=[{charge_type:'rental_amendment',status:'paid',payment_provider:'deposit',payment_amount_cents:0,total_amount:6.87}];
+ const charges=[{status:'paid',payment_provider:'local',total_amount:323.42},{status:'paid',payment_provider:'deposit',total_amount:175.46}];
+ for (const account of [null,{invoice_total:910.40,net_paid:910.40}]) {
+  const result=summary(charges,{rental_total:573.95,tax_amount:36.45,payment_amount_cents:90353,balanceCharges:balances},0,account);
+  assert.equal(cents(result.balanceDue),0);
+  assert.equal(cents(result.paidAmount-result.depositAppliedToRental),90353);
+  assert.equal(cents(result.depositAppliedToRental+result.depositAppliedToCharges),18233);
+  assert.equal(Math.abs(cents(result.total-(result.paidAmount-result.depositAppliedToRental)-result.additionalPaymentsReceived-result.depositAppliedToRental-result.depositAppliedToCharges)),0);
+ }
 });

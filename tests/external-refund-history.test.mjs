@@ -98,3 +98,35 @@ test('deposit-applied fuel is not new cash and pending refund displays only the 
  assert.equal(events.find(x=>x.id==='charge-fuel').cashImpact,0);
  assert.equal(events.find(x=>x.id==='charge-fuel').outstandingAmount,0);
 });
+
+
+test('all four closeout deductions appear individually with zero cash impact; Cash App return is separate', () => {
+ const charges = [['fuel',72.57,'fuel'],['day',76.30,'late_rental_day'],['late',26.59,'late_fee'],['balance',6.87,'rental_amendment']]
+  .map(([id,total_amount,charge_type]) => ({id,rental_id:'booking',name:id,total_amount,charge_type,status:'paid',payment_provider:'deposit',payment_amount_cents:0,paid_at:'2026-10-13T16:00:00Z'}));
+ const a = {id:'deposit',holder_rental_id:'booking',payment_provider:'local',status:'released',amount_held:300,amount_applied:182.33,amount_released:117.67,
+  refund_completed_at:'2026-10-13T16:01:00Z',external_return_method:'cash_app',external_return_reference:'test-receipt',external_return_note:'Returned previously; recorded at closeout'};
+ const rental = {...booking,status:'completed',deposit_released_amount:117.67};
+ const rows = context.buildRentalPaymentHistory(rental,[],charges,[],0,[],[],[a]);
+ assert.equal(rows.filter(r=>r.provider==='deposit').length,4);
+ assert.equal(Math.round(rows.filter(r=>r.provider==='deposit').reduce((n,r)=>n+r.amount,0)*100),18233);
+ const refund=rows.find(r=>r.kind==='refund'); assert.equal(refund.amount,117.67); assert.match(refund.method,/Cash App.*test-receipt/);
+ const events=context.buildPaymentEvents({rentals:[rental],rentalCharges:charges,depositAllocations:[a]});
+ assert.equal(events.filter(e=>e.type==='charge').reduce((n,e)=>n+e.cashImpact,0),0);
+ assert.equal(events.filter(e=>e.type==='refund').reduce((n,e)=>n+e.cashImpact,0),-117.67);
+});
+
+test('left ledger keeps the unreturned remainder visible above its transactions, then shows zero after return', async () => {
+ const React = await import('react'); const {renderToStaticMarkup} = await import('react-dom/server');
+ const {transformWithOxc} = await import('vite');
+ const part=source.slice(source.indexOf('function RentalPaymentHistory('),source.indexOf('function ExternalPaymentDetailsModal('));
+ const code=(await transformWithOxc(part+'\nRentalPaymentHistory;', 'history.jsx',{jsx:{runtime:'classic'}})).code;
+ const Ledger=vm.runInNewContext(code,{React,money:n=>`$${Number(n).toFixed(2)}`,formatEasternDateTime:s=>s});
+ const props={rental:{status:'completed'},allocations:[{amount_held:300,amount_applied:182.33,amount_released:0}],payments:[]};
+ let html=renderToStaticMarkup(React.createElement(Ledger,props));
+ assert.match(html,/\$182.33.*applied to charges and rental balance/); assert.match(html,/\$117.67.*remaining to refund/);
+ assert.match(html,/Not yet recorded as returned/);
+ props.allocations[0].amount_released=117.67;
+ html=renderToStaticMarkup(React.createElement(Ledger,props));
+ assert.match(html,/\$117.67.*returned to customer/); assert.match(html,/\$0.00.*remaining to refund/);
+ assert.doesNotMatch(html,/Not yet recorded as returned/);
+});
