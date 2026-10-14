@@ -93,15 +93,27 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       candidates.push({ row, id: `charge:${row.id}`, gross: row.payment_amount_cents == null ? positive(row.total_amount) : Number(row.payment_amount_cents), date: row.paid_at });
     }
     candidates.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id.localeCompare(b.id));
+    const candidateReferences = new Set(seen.keys());
+    for (const candidate of candidates) {
+      const keys = referenceKeys(candidate.row);
+      candidate.duplicate = keys.some((key) => candidateReferences.has(key));
+      keys.forEach((key) => candidateReferences.add(key));
+    }
     const canonical = canonicalByRental.get(rental.id) || [];
     let covered = canonical.reduce((sum, row) => sum + row.gross - row.deposit, 0);
-    let depositCovered = canonical.reduce((sum, row) => sum + row.deposit, 0);
+    const depositCovered = canonical.reduce((sum, row) => sum + row.deposit, 0);
     // Allocations retain the original captured deposit even after it is applied,
     // refunded or transferred. Prefer that evidence to today's changed invoice.
     const ownedAllocations = (sourceAllocations.get(rental.id) || []).filter((row) => row.source_kind !== 'switch_increase');
-    const capturedDeposit = ownedAllocations.reduce((sum, row) => sum + positive(row.amount_held), 0);
+    const cashReceived = candidates.filter((row) => !row.duplicate).reduce((sum, row) => sum + row.gross, 0) + covered + depositCovered;
+    const recordedDeposit = positive(rental.deposit_held_amount) + positive(rental.deposit_released_amount);
+    const inferredDeposit = rental.deposit_status === 'waived' ? 0 : recordedDeposit || Math.min(positive(rental.security_deposit), Math.max(0, cashReceived - invoice));
+    const capturedDeposit = ownedAllocations.length
+      ? ownedAllocations.reduce((sum, row) => sum + positive(row.amount_held), 0) : inferredDeposit;
     let unassignedDeposit = Math.max(0, capturedDeposit - depositCovered);
     for (const candidate of candidates) {
+      candidate.deposit = 0;
+      if (candidate.duplicate) continue;
       const intent = candidate.row.stripe_payment_intent_id;
       const matched = intent ? ownedAllocations.filter((row) => row.stripe_payment_intent_id === intent).reduce((sum, row) => sum + positive(row.amount_held), 0) : 0;
       candidate.deposit = Math.min(candidate.gross, unassignedDeposit, matched);
@@ -110,7 +122,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
     // External installments fund deposits after the rental portion. Consume
     // their latest receipts first when the allocation has no provider reference.
     for (const candidate of [...candidates].reverse()) {
-      if (referenceKeys(candidate.row).some((key) => seen.has(key))) continue;
+      if (candidate.duplicate) continue;
       const assigned = Math.min(Math.max(0, candidate.gross - candidate.deposit), unassignedDeposit);
       candidate.deposit += assigned;
       unassignedDeposit -= assigned;
@@ -120,14 +132,13 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       if (referenceKeys(candidate.row).some((key) => seen.has(key))) {
         add({ ...candidate, rentalId: rental.id, deposit: 0, tax: 0 }, candidate.row); continue;
       }
-      const nonDeposit = Math.min(candidate.gross - candidate.deposit, Math.max(0, invoice - covered));
-      const deposit = ownedAllocations.length ? candidate.deposit : Math.min(Math.max(0, candidate.gross - nonDeposit), Math.max(0, positive(rental.security_deposit) - depositCovered));
-      const excess = candidate.gross - nonDeposit - deposit;
-      if (excess > 1) issue(rental, 'A receipt exceeds the recorded invoice; review its credit or historical pricing.');
+      // This is a cash report: include the actual receipt even if a later
+      // invoice revision reduced the bill. Its refund is a separate dated event.
+      const nonDeposit = candidate.gross - candidate.deposit;
+      if (nonDeposit > 0 && invoice <= 0) issue(rental, 'A paid rental is missing its invoice tax breakdown.');
       add({ id: candidate.id, rentalId: rental.id, date: candidate.date,
-        gross: candidate.gross, deposit: deposit + excess, tax: taxShare(covered + nonDeposit, invoice, tax) - taxShare(covered, invoice, tax) }, candidate.row);
+        gross: candidate.gross, deposit: candidate.deposit, tax: taxShare(covered + nonDeposit, invoice, tax) - taxShare(covered, invoice, tax) }, candidate.row);
       covered += nonDeposit;
-      depositCovered += deposit;
     }
   }
   for (const row of extensions) {
@@ -191,6 +202,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
     if (row.stripe_refund_id && seenRefunds.has(row.stripe_refund_id)) continue;
     if (row.stripe_refund_id) seenRefunds.add(row.stripe_refund_id);
     if (String(row.source_type || '').includes('deposit')) continue;
+    if (row.source_type === 'stripe_manual_review') { issue(row, 'A Stripe refund still needs to be classified as rental money or a deposit return.'); continue; }
     const source = seen.get(`intent:${row.stripe_payment_intent_id}`)
       || (row.extension_request_id ? alias(`extension:${row.extension_request_id}`) : null);
     addRefund(row, source, positive(row.amount), row.succeeded_at || row.created_at);

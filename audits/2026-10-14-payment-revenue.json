@@ -4,10 +4,10 @@
   "existing_cards": "Preserved labels and calculations",
   "reporting": "Cash-based receipts, excluding refundable deposits and recorded sales tax, including paid fees and immutable deposit applications, minus successful non-deposit refunds",
   "periods": "Current calendar month and calendar year through now, America/New_York",
-  "tax_allocation": "Proportional from recorded invoice amounts for partial payments and refunds; disclosed in UI",
+  "tax_allocation": "When a receipt lacks its own tax breakdown, tax is estimated proportionally from recorded invoice amounts; disclosed in UI",
   "data": "Owner-only, cancellable complete-history reads with keyset pagination and count verification; failures show Unavailable, unreconciled records label totals Provisional",
   "validation": {
-    "tests_passed": 294,
+    "tests_passed": 298,
     "tests_failed": 0,
     "production_build": "Passed with placeholder environment in isolated /tmp output; production CI rebuilds with deployment configuration",
     "desktop_browser": "Safari: six cards visually verified at 1440px using synthetic values and actual component/CSS",
@@ -19,9 +19,13 @@
     "Do not suppress original rental receipts when canonical ledger contains only an additional charge",
     "Reject invalid refund/deposit splits rather than increasing revenue",
     "Deduplicate receipts and provider refunds",
-    "Never use edit timestamps for revenue dates"
+    "Never use edit timestamps for revenue dates",
+    "Count actual receipts independently of current invoice totals; refunds are separate dated events",
+    "Do not treat manually reviewed Stripe refunds as rental refunds without classification",
+    "Deduplicate provider references before assigning deposits"
   ],
-  "deployment": "Pending authorized GitHub Pages release",
+  "deployment": "Initial release 02aac32 deployed successfully; final cash-report correction awaiting release",
   "backend_mutations": false,
-  "payment_actions_performed": false
+  "payment_actions_performed": false,
+  "live_validation": "Six cards loaded for anconamgt@aol.com. Investigation of provisional totals found current-invoice receipt capping error; corrected before final delivery. Existing Stripe manual-review refunds remain explicitly unclassified."
 }

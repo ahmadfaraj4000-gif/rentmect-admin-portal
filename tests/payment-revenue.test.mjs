@@ -150,3 +150,27 @@ test('an invalid refund/deposit split cannot increase revenue', () => {
   const result = report({ rentals: [rental], externalActions: [{ id: 'f', rental_id: 'r', action_type: 'refund', amount: 10, deposit_amount_returned: 20, created_at: october }] });
   assert.equal(result.year, 100); assert.match(result.issues[0].reason, /inconsistent/);
 });
+
+test('refunding and collecting a replacement payment does not cap all-time receipts at the current invoice', () => {
+  const result = report({ rentals: [{ ...rental, security_deposit: 0, deposit_status: 'waived', payment_amount_cents: 10635, paid_at: september, stripe_payment_intent_id: 'pi_original' }],
+    charges: [charge({ id: 'replacement', charge_type: 'rental_amendment', total_amount: 106.35, tax_amount: 0, payment_amount_cents: 10635, stripe_payment_intent_id: 'pi_new' })],
+    refunds: [{ id: 'refund', rental_id: 'r', stripe_payment_intent_id: 'pi_original', status: 'succeeded', amount: 106.35, created_at: october }] });
+  assert.equal(result.month, 0); assert.equal(result.year, 100); assert.deepEqual(result.issues, []);
+});
+test('a later invoice reduction does not remove historical cash before its refund date', () => {
+  const data = { rentals: [{ ...rental, rental_total: 50, tax_amount: 3.18, paid_at: september, stripe_payment_intent_id: 'pi' }],
+    allocations: [{ id: 'a', source_rental_id: 'r', amount_held: 300, stripe_payment_intent_id: 'pi' }] };
+  const result = report(data);
+  assert.equal(result.month, 0); assert.equal(result.year, 99.99); assert.deepEqual(result.issues, []);
+});
+test('duplicate representations cannot consume the deposit allocation twice', () => {
+  const result = report({ rentals: [{ ...rental, stripe_payment_intent_id: 'pi' }],
+    charges: [charge({ id: 'same', charge_type: 'rental_amendment', total_amount: 406.35, payment_amount_cents: 40635, stripe_payment_intent_id: 'pi' })] });
+  assert.equal(result.year, 100); assert.deepEqual(result.issues, []);
+});
+
+test('unclassified manual Stripe refunds remain provisional even when less than the rental receipt', () => {
+  const result = report({ rentals: [{ ...rental, stripe_payment_intent_id: 'pi' }],
+    refunds: [{ id: 'refund', rental_id: 'r', stripe_payment_intent_id: 'pi', status: 'succeeded', source_type: 'stripe_manual_review', amount: 50, created_at: october }] });
+  assert.equal(result.year, 100); assert.match(result.issues[0].reason, /classified/);
+});

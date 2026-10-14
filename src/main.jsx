@@ -4429,7 +4429,7 @@ function PaymentsTab({ canViewFinancialSummary = false, accountEmail = '', payme
       <Metric icon={ReceiptText} label="Refunded" value={money(refunded)} />
       <Metric icon={Clock} label="Outstanding" value={money(outstanding)} danger={outstanding > 0} />
       <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
-      <PaymentRevenueCards accountEmail={accountEmail} refreshKey={paymentEvents}/>
+      <PaymentRevenueCards accountEmail={accountEmail} refreshKey={paymentEvents} onOpenRental={onOpenRental}/>
     </section>}
     {openReconciliation.length > 0 && (
       <p className="form-error" role="alert">
