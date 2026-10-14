@@ -47,6 +47,9 @@ jobs:
       - name: Verify task recovery and preserved drafts
         run: node --test tests/task-recovery.test.mjs tests/task-draft-hooks.test.mjs tests/payment-task-recovery.test.mjs tests/admin-startup-timeout.test.mjs
 
+      - name: Verify account-specific revenue totals
+        run: node --test tests/payment-revenue.test.mjs tests/payment-revenue-cards.test.mjs tests/per-staff-financial-visibility.test.mjs
+
       - name: Build
         run: npm run build
 

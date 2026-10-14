@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-14",
+  "scope": "Two additional monthly/yearly revenue cards and compact six-card Payments layout for anconamgt@aol.com only",
+  "existing_cards": "Preserved labels and calculations",
+  "reporting": "Cash-based receipts, excluding refundable deposits and recorded sales tax, including paid fees and immutable deposit applications, minus successful non-deposit refunds",
+  "periods": "Current calendar month and calendar year through now, America/New_York",
+  "tax_allocation": "Proportional from recorded invoice amounts for partial payments and refunds; disclosed in UI",
+  "data": "Owner-only, cancellable complete-history reads with keyset pagination and count verification; failures show Unavailable, unreconciled records label totals Provisional",
+  "validation": {
+    "tests_passed": 294,
+    "tests_failed": 0,
+    "production_build": "Passed with placeholder environment in isolated /tmp output; production CI rebuilds with deployment configuration",
+    "desktop_browser": "Safari: six cards visually verified at 1440px using synthetic values and actual component/CSS",
+    "mobile_browser": "Narrow-screen fixture created but browser window became unavailable before visual inspection",
+    "diff_check": "Passed"
+  },
+  "audit_corrections": [
+    "Preserve captured deposit classification after invoice changes using allocation records",
+    "Do not suppress original rental receipts when canonical ledger contains only an additional charge",
+    "Reject invalid refund/deposit splits rather than increasing revenue",
+    "Deduplicate receipts and provider refunds",
+    "Never use edit timestamps for revenue dates"
+  ],
+  "deployment": "Pending authorized GitHub Pages release",
+  "backend_mutations": false,
+  "payment_actions_performed": false
+}
