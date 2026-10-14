@@ -59,7 +59,10 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { supabase } from './lib/supabase';
+import { supabase, portalTransport } from './lib/supabase';
+import { TaskRecovery } from './TaskRecovery.jsx';
+import { DraftOwnerContext, useTaskDraft } from './useTaskDraft.js';
+import { trackTaskDialog } from './lib/taskDraft.js';
 import { withRequestDeadline, withReadRetry } from './requestDeadline';
 import AdminBirthdayInput, { isEligibleAdminBirthday } from './AdminBirthdayInput';
 import { optimizeVehicleImage } from './lib/imageOptimizer';
@@ -615,7 +618,7 @@ function App() {
   const [vehiclePriceConfirmationError, setVehiclePriceConfirmationError] = useState('');
   const [vehiclePriceConfirming, setVehiclePriceConfirming] = useState(false);
 
-  const [manualBookingForm, setManualBookingForm] = useState({
+  const [manualBookingForm, setManualBookingForm, clearBookingDraft] = useTaskDraft('new-booking', {
     customerMode: 'existing',
     customerId: '',
     existingFirstName: '',
@@ -639,7 +642,7 @@ function App() {
     returnTime: '9:00 AM',
     onboardingDelivery: 'both',
     paymentCollectionPreference: 'customer_link',
-  });
+  }, ['customerMode', 'customerId', 'vehicleId', 'pickupDate', 'returnDate', 'pickupTime', 'returnTime', 'onboardingDelivery', 'paymentCollectionPreference'], session?.user?.id || '');
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
 
   useEffect(() => {
@@ -731,6 +734,8 @@ function App() {
     setPaymentProcessing(message);
     try {
       return await operation();
+    } catch (error) {
+      return { data: null, error };
     } finally {
       paymentOperationsRef.current = Math.max(0, paymentOperationsRef.current - 1);
       if (paymentOperationsRef.current === 0) setPaymentProcessing('');
@@ -793,6 +798,7 @@ function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!active) return;
       sessionEventReceived = true;
+      portalTransport.setOwner(nextSession?.user?.id);
       setSession(nextSession);
       setLoading(false);
     });
@@ -800,7 +806,7 @@ function App() {
       const { data, error } = await withRequestDeadline(supabase.auth.getSession(), 'Session verification', 12_000);
       if (!active) return;
       if (error && !sessionEventReceived) setStartupError(userFacingPortalError(error));
-      if (!error && !sessionEventReceived) setSession(data?.session || null);
+      if (!error && !sessionEventReceived) { portalTransport.setOwner(data?.session?.user?.id); setSession(data?.session || null); }
       setLoading(false);
     })();
     return () => { active = false; listener.subscription.unsubscribe(); };
@@ -1296,6 +1302,12 @@ function App() {
     }).finally(() => setDataHealth((current) => ({ ...current, refreshing: adminDomainLoadsRef.current.size > 0 })));
   }
 
+  function refreshAfterSavedTask(domains = null) {
+    void loadAllData({ silent: true, domains }).catch(() => {
+      notify('The latest records could not refresh yet. Use Refresh data to check the saved result before repeating the task.', 'error');
+    });
+  }
+
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
     if (activeTabRef.current === 'rentals') {
       // A rental mutation never downloads global ledgers or archived records.
@@ -1303,13 +1315,9 @@ function App() {
       if (force) await rentalWorkspaceRef.current?.refresh();
       return;
     }
-    if (!silent) setLoading(true);
     const requestedDomains = domains || adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
-    try {
-      await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
-    } finally {
-      if (!silent) setLoading(false);
-    }
+    // Existing views and drafts remain mounted while records refresh.
+    await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
   }
 
   async function loadAllDataLegacy({ silent = false } = {}) {
@@ -1674,7 +1682,7 @@ function App() {
           notify(error.message || 'Cancellation/refund could not be confirmed. Refresh the booking before retrying.', 'error');
           return false;
         } finally {
-          await loadAllData({ silent: true });
+          refreshAfterSavedTask();
         }
       }
       const { error } = await supabase.rpc('admin_cancel_rental', {
@@ -1756,7 +1764,7 @@ function App() {
       return false;
     }
     if (data) setEmergencyExceptions((current) => [data, ...current.filter((item) => item.id !== data.id)]);
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify('Emergency exception recorded. The rental is active, every incomplete procedure remains visible, and the owner alert was queued.', 'success');
     return true;
   }
@@ -1914,7 +1922,7 @@ function App() {
         }
         : exception
     ));
-    await loadAllData({ silent: true, domains: ['core', 'snapshot'] });
+    refreshAfterSavedTask(['core', 'snapshot']);
     notify(
       inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
@@ -1959,7 +1967,7 @@ function App() {
       }
       console.error('Security deposit refund failed', { rentalId: rental.id, error, data, detail });
       notify(detail, 'error');
-      await loadAllData({ silent: true });
+      refreshAfterSavedTask();
       return false;
     }
 
@@ -1972,7 +1980,7 @@ function App() {
       deposit_released_at: nextStatus === 'released' ? new Date().toISOString() : item.deposit_released_at,
     } : item));
     notify(nextStatus === 'released' ? 'Security deposit refund submitted successfully.' : 'Security deposit refund is processing.', 'success');
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     return true;
   }
 
@@ -2023,7 +2031,7 @@ function App() {
       status: data.status || 'pending',
       created_at: new Date().toISOString(),
     }, ...current.filter((item) => item.id !== refundRequestId)]);
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify(`Stripe refund of ${money(amount)} submitted. The security deposit remains protected separately.`, 'success');
     return true;
   }
@@ -2049,7 +2057,7 @@ function App() {
       notify(data?.error || error?.message || 'The external payment adjustment could not be saved.');
       return false;
     }
-    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+    refreshAfterSavedTask(['core', 'payments', 'snapshot']);
     notify(
       actionType === 'refund'
         ? 'External refund recorded. The returned money was removed from paid totals and the rental balance is open for a replacement payment.'
@@ -2074,7 +2082,7 @@ function App() {
     });
     if (error) return notify(error.message);
     setRentals((current) => current.map((item) => item.id === rental.id ? { ...item, ...data } : item));
-    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+    refreshAfterSavedTask(['core', 'payments', 'snapshot']);
     notify('External deposit return recorded and removed from the queue.', 'success');
     return true;
   }
@@ -2083,7 +2091,7 @@ function App() {
     if (!requireStaffPermission('deposit.resolve', 'escalate deposit tasks')) return false;
     const { error } = await supabase.rpc('admin_escalate_deposit_task', { p_rental_id: rental.id, p_note: note });
     if (error) return notify(error.message);
-    await loadAllData({ silent: true, domains: ['core', 'snapshot'] });
+    refreshAfterSavedTask(['core', 'snapshot']);
     notify('Deposit task escalated with an audit note.', 'success');
     return true;
   }
@@ -2159,21 +2167,19 @@ function App() {
       ));
     }
 
-    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+    refreshAfterSavedTask(['core', 'payments', 'snapshot']);
     const balanceRemaining = partialBalance ? Number(data?.balance_due || 0) : 0;
     if (balanceRemaining > 0.005) {
       notify(`${externalPaymentMethodLabel(paymentMethod)} installment of ${money(amount)} recorded. ${money(balanceRemaining)} remains due; payment and deposit are not complete.`, 'success');
       return true;
     }
-    const { data: alertData, error: alertError } = await supabase.functions.invoke('send-rental-due-reminders', {
+    notify(`${externalPaymentMethodLabel(paymentMethod)} payment of ${money(amount)} recorded.`, 'success');
+    // Notification delivery is independent of the completed payment task.
+    void withRequestDeadline(supabase.functions.invoke('send-rental-due-reminders', {
       body: { adminApprovalRentalId: id },
+    }), 'Admin payment notification', 12_000).then(({ data: alertData, error: alertError }) => {
+      if (alertError || alertData?.error) notify('Payment saved. The admin notification could not be confirmed; do not record the payment again.', 'error');
     });
-
-    if (alertError || alertData?.error) {
-      notify(`${partialBalance ? 'Remaining rental balance' : 'External payment'} of ${money(amount)} was recorded. Admin SMS alert did not send: ${alertError?.message || alertData.error}`);
-    } else {
-      notify(`${externalPaymentMethodLabel(paymentMethod)} payment of ${money(amount)} recorded${partialBalance ? ' toward the remaining rental balance' : ''}.`, 'success');
-    }
     return true;
   }
 
@@ -2247,7 +2253,7 @@ function App() {
     const { data, error } = await supabase.rpc('cancel_admin_approved_extension', { p_extension_request_id: id });
     if (error) return notify(error.message);
     setExtensionRequests((current) => current.map((request) => request.id === id ? { ...request, ...data } : request));
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify('Approved extension cancelled and its calendar hold released.', 'success');
   }
 
@@ -2331,7 +2337,7 @@ function App() {
       }
       throw new Error(detail);
     }
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     const amendment = data?.amendment;
     const settlement = data?.settlement;
     if (['extension', 'extension_revision'].includes(form.operation)) {
@@ -2393,7 +2399,7 @@ function App() {
         ? { ...item, ...data.rental, vehicles: item.vehicles, profiles: item.profiles }
         : item));
     }
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     if (data?.checkoutWarning) notify(data.checkoutWarning);
     const credit = Number(data?.amendment?.credit_amount || 0);
     if (credit > 0) {
@@ -2439,7 +2445,7 @@ function App() {
         try { detail = (await error?.context?.clone?.().json())?.error || detail; } catch { /* Keep original error. */ }
         throw new Error(detail);
       }
-      await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+      refreshAfterSavedTask(['core', 'payments', 'snapshot']);
       notify(`${money(data.applied)} paid from the deposit. ${money(data.remaining)} remains in this deposit for a later refund.`, 'success');
       return true;
     }
@@ -2454,11 +2460,11 @@ function App() {
     }
     if (data?.status === 'succeeded' || data?.status === 'paid') {
       if (data.charge) setRentalCharges((current) => current.map((item) => item.id === charge.id ? { ...item, ...data.charge } : item));
-      if (!options.deferRefresh) await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+      if (!options.deferRefresh) refreshAfterSavedTask(['core', 'payments', 'snapshot']);
       if (!options.silent) notify('Saved card charged successfully. Stripe recorded the payment.', 'success');
       return true;
     }
-    if (!options.deferRefresh) await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+    if (!options.deferRefresh) refreshAfterSavedTask(['core', 'payments', 'snapshot']);
     if (!options.silent) notify(data?.reason || 'The saved card could not be charged. The customer payment link remains available.');
     return false;
   }
@@ -2481,7 +2487,7 @@ function App() {
     if (data?.charge) {
       setRentalCharges((current) => current.map((item) => item.id === charge.id ? { ...item, ...data.charge } : item));
     }
-    await loadAllData({ silent: true, domains: ['core', 'payments', 'snapshot'] });
+    refreshAfterSavedTask(['core', 'payments', 'snapshot']);
     if (data?.status === 'already_settled') {
       notify(data.reason || 'This charge was already settled.', 'success');
       return true;
@@ -2564,7 +2570,7 @@ function App() {
       p_notes: completion.notes?.trim() || null,
     });
     if (error) return notify(error.message);
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify(`${schedule.label} recorded at ${formatMiles(mileage)}. The next milestone and calendar lock were recalculated.`, 'success');
     return true;
   }
@@ -2591,7 +2597,7 @@ function App() {
       p_notes: updates.notes?.trim() || null,
     });
     if (error) return notify(error.message);
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify(`${updates.label || schedule.label} schedule saved.`, 'success');
     return true;
   }
@@ -2607,7 +2613,7 @@ function App() {
       p_hours: duration,
     });
     if (error) return notify(error.message);
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify(`${vehicle.name} temporarily returned to service. The override is audited and will expire automatically.`, 'success');
     return true;
   }
@@ -3659,7 +3665,8 @@ function App() {
     }
 
     setManualBookingForm({ customerMode: 'existing', customerId: '', existingFirstName: '', existingLastName: '', existingDateOfBirth: '', existingPhone: '', firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
-    await loadAllData({ silent: true });
+    clearBookingDraft();
+    refreshAfterSavedTask();
     setManualBookingFocusId(data?.rental?.id || '');
     setSelectedRentalId(data?.rental?.id || '');
     setRentalFilter('needs_action');
@@ -3773,7 +3780,7 @@ function App() {
     if (completion) {
       setRentalStepCompletions((current) => [completion, ...current.filter((item) => !(item.rental_id === rental.id && item.step_key === stepKey))]);
     }
-    await loadAllData({ silent: true, domains: ['core', 'workflow', 'payments'] });
+    refreshAfterSavedTask(['core', 'workflow', 'payments']);
     notify(`${prettyStatus(stepKey)} marked complete and added to activity history.`, 'success');
     return true;
   }
@@ -3800,7 +3807,7 @@ function App() {
     const completion = data?.completion;
     if (nextRental) setRentals((current) => current.map((item) => item.id === rental.id ? { ...item, ...nextRental, profiles: item.profiles, vehicles: item.vehicles } : item));
     if (completion) setRentalStepCompletions((current) => [completion, ...current.filter((item) => !(item.rental_id === rental.id && item.step_key === 'agreement'))]);
-    await loadAllData({ silent: true, domains: ['core', 'workflow'] });
+    refreshAfterSavedTask(['core', 'workflow']);
     notify('Signed rental agreement saved to the booking and activity history.', 'success');
     return true;
   }
@@ -3976,7 +3983,7 @@ function App() {
     }
     const wasPublished = vehicleForm.published;
     setVehicleForm(createEmptyVehicleForm());
-    await loadAllData({ silent: true });
+    refreshAfterSavedTask();
     notify(wasPublished ? 'Vehicle added and published.' : 'Vehicle added as an unpublished draft.', 'success');
     return true;
   }
@@ -4106,7 +4113,7 @@ function App() {
   if (!isAdminUser) return <NotAdmin email={session.user.email} signOut={signOut} />;
 
   return (
-    <div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
+    <DraftOwnerContext.Provider value={session.user.id}><div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
       {paymentProcessing && <PaymentProcessingOverlay message={paymentProcessing} />}
       {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-drawer-scrim" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
       {isMobileAdminNav && (
@@ -4212,7 +4219,8 @@ function App() {
         }}
         onConfirm={confirmVehiclePriceChange}
       />, document.body)}
-    </div>
+      <TaskRecovery />
+    </div></DraftOwnerContext.Provider>
   );
 }
 
@@ -8611,8 +8619,9 @@ function RestoreCancelledRentalModal({ rental, onCancel, onConfirm }) {
       return;
     }
     setSaving(true);
-    const restored = await onConfirm(paymentDueAt, reason.trim());
-    if (!restored) setSaving(false);
+    try { await onConfirm(paymentDueAt, reason.trim()); }
+    catch (error) { setError(error?.message || 'Could not confirm the saved result.'); }
+    finally { setSaving(false); }
   }
 
   return <div className="admin-modal-backdrop restore-rental-backdrop" role="presentation">
@@ -8690,8 +8699,9 @@ function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
       return;
     }
     setSaving(true);
-    const saved = await onConfirm(paymentDueAt, reason);
-    if (!saved) setSaving(false);
+    try { await onConfirm(paymentDueAt, reason); }
+    catch (error) { setError(error?.message || 'Could not confirm the saved result.'); }
+    finally { setSaving(false); }
   }
 
   return <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
@@ -8782,8 +8792,8 @@ function RentalAvailabilityNotice({ availability, vehicleId }) {
 function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const reviewRef = useRef(null);
-  const [form, setForm] = useState({ operation: 'extension', vehicleId: rental.vehicle_id,
-    returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: '', reason: '' });
+  const [form, setForm, clearDraft] = useTaskDraft(`AdminRentalExtensionModal:${rental.id}`, { operation: 'extension', vehicleId: rental.vehicle_id,
+    returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'returnDate', 'returnTime', 'dailyRate', 'reason']);
   const [rateContext, setRateContext] = useState(null);
   const [contextError, setContextError] = useState('');
   useEffect(() => {
@@ -8825,7 +8835,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
     if (!availabilityReady) { setPreview(null); setError('Availability must be checked before saving.'); return; }
     setBusy(true); setError('');
     try {
-      if (await onApply(rental, { ...form, revision: preview.revision }, key)) onCancel();
+      if (await onApply(rental, { ...form, revision: preview.revision }, key)) { clearDraft(); onCancel(); }
     } catch (e) { setPreview(null); setError(e.message); }
     finally { setBusy(false); }
   }
@@ -8865,7 +8875,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
 
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
-  const [form, setForm] = useState({ operation: 'swap', vehicleId: '', effectiveAt: new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(' ', 'T'), swapKind: 'emergency', dailyRate: '', reason: '' });
+  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', effectiveAt: new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(' ', 'T'), swapKind: 'emergency', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
   const [rateContext, setRateContext] = useState(null);
   useEffect(() => {
     let active = true;
@@ -8902,7 +8912,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
     setBusy(true); setError('');
     try {
       const result = await onApply(rental, { ...form, revision: preview.revision }, key);
-      if (result) onCancel();
+      if (result) { clearDraft(); onCancel(); }
     } catch (e) { setPreview(null); setError(e.message); }
     finally { setBusy(false); }
   }
@@ -8943,7 +8953,7 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
   const inferredDailyRate = Number(rental.base_rental_total || 0) > 0
     ? Number(rental.base_rental_total) / rentalDays
     : Number(rental.vehicles?.daily_rate || 0);
-  const [form, setForm] = useState({
+  const [form, setForm, clearDraft] = useTaskDraft(`RentalAmendmentModal:${rental.id}`, {
     vehicleId: rental.vehicle_id || '',
     pickupDate: rental.pickup_date || '',
     pickupTime: rental.pickup_time || '9:00 AM',
@@ -8953,7 +8963,7 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
     securityDeposit: Number(rental.security_deposit || 0).toFixed(2),
     adminNotes: rental.admin_notes || '',
     reason: '',
-  });
+  }, ['vehicleId', 'pickupDate', 'pickupTime', 'returnDate', 'returnTime', 'dailyRate', 'securityDeposit', 'adminNotes', 'reason']);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [reviewing, setReviewing] = useState(false);
@@ -9045,8 +9055,8 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
     setSaving(true);
     setError('');
     try {
-      await onApply?.(rental, form, idempotencyKey, { waiveLateFees });
-      onCancel();
+      const saved = await onApply?.(rental, form, idempotencyKey, { waiveLateFees });
+      if (saved) { clearDraft(); onCancel(); }
     } catch (applyError) {
       setError(applyError?.message || 'The rental changes could not be applied.');
     } finally {
@@ -9318,12 +9328,15 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
 function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, canBypass, amountDue, onCancel, onUpload, onComplete, onSignAgreement, onOpenStripe, onRecordExternal, onBypass }) {
   const dialogRef = useDialogFocus(onCancel);
   const agreementScrollRef = useRef(null);
-  const [note, setNote] = useState('');
+  const [stepDraft, setStepDraft, clearStepDraft] = useTaskDraft(`step:${rental.id}:${scope}`, { note: '', stripeAmount: Number(amountDue || 0).toFixed(2) }, ['note', 'stripeAmount']);
+  const note = stepDraft.note;
+  const setNote = value => setStepDraft(current => ({ ...current, note: value }));
   const [file, setFile] = useState(null);
   const [insuranceItems, setInsuranceItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [stripeAmount, setStripeAmount] = useState(() => Number(amountDue || 0).toFixed(2));
+  const stripeAmount = stepDraft.stripeAmount;
+  const setStripeAmount = value => setStepDraft(current => ({ ...current, stripeAmount: typeof value === 'function' ? value(current.stripeAmount) : value }));
   const previousAmountDueRef = useRef(Number(amountDue || 0));
   useEffect(() => {
     const nextDue = Number(amountDue || 0);
@@ -9375,7 +9388,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
     setBusy(true);
     try {
       const started = await onOpenStripe?.(stripeAmountValue);
-      if (started) onCancel();
+      if (started) { clearStepDraft(); onCancel(); }
     } finally {
       setBusy(false);
     }
@@ -9424,7 +9437,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       const saved = scope === 'agreement'
         ? await onSignAgreement?.({ name: signatureName.trim(), image: signatureImage, note: note.trim() })
         : await onComplete?.(note.trim(), scope === 'deposit' ? { disposition: depositDisposition } : { verified_in_person: true, uploaded_document: scope === 'insurance' ? insuranceItems.length > 0 : Boolean(file) });
-      if (saved) onCancel();
+      if (saved) { clearStepDraft(); onCancel(); }
     } finally {
       setBusy(false);
     }
@@ -9925,7 +9938,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
 
 function ChargeExternalPaymentModal({ rental, charge, onCancel, onConfirm }) {
   const dialogRef = useDialogFocus(onCancel);
-  const [form, setForm] = useState({ paymentMethod: 'cash', reference: '', confirmed: false });
+  const [form, setForm, clearDraft] = useTaskDraft(`ChargeExternalPaymentModal:${rental.id}:${charge.id}`, { paymentMethod: 'cash', reference: '', confirmed: false }, ['paymentMethod', 'reference']);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -9940,10 +9953,15 @@ function ChargeExternalPaymentModal({ rental, charge, onCancel, onConfirm }) {
       setError('Confirm that the payment cleared before recording it.');
       return;
     }
+    if (saving) return;
     setSaving(true);
-    const recorded = await onConfirm?.(form);
-    setSaving(false);
-    if (!recorded) setError('The payment was not recorded. Review the message above and try again.');
+    try {
+      const recorded = await onConfirm?.(form);
+      if (recorded) clearDraft();
+      else setError('The result could not be confirmed. Check the saved record before trying again.');
+    } catch (error) {
+      setError(error?.message || 'The result could not be confirmed. Check the saved record before trying again.');
+    } finally { setSaving(false); }
   }
 
   return createPortal(<div className="admin-modal-backdrop external-charge-payment-backdrop">
@@ -10002,6 +10020,7 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
   const maximumAmount = source?.maximum || 0;
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const numericAmount = Number(amount || 0);
   const valid = Number.isFinite(numericAmount)
     && numericAmount >= 0.5
@@ -10013,8 +10032,12 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
       event.preventDefault();
       if (!valid || saving) return;
       setSaving(true);
+      setError('');
+      try {
       const submitted = await onConfirm({ amount: numericAmount, reason: reason.trim(), requestId, chargeId: source?.chargeId, paymentIntentId: source?.paymentIntentId });
-      if (!submitted) setSaving(false);
+      if (!submitted) setError('Check the saved refund status before trying again.');
+      } catch (error) { setError(error?.message || 'Could not confirm the refund result.'); }
+      finally { setSaving(false); }
     }}>
       <div className="admin-modal-header">
         <ReceiptText size={20} />
@@ -10041,6 +10064,7 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
         <span>It does not cancel the rental or release its calendar reservation. Cancel or amend the rental separately if needed.</span>
       </div>
       {previousRefunds.length > 0 && <small>{previousRefunds.length} earlier refund record{previousRefunds.length === 1 ? '' : 's'} for this rental.</small>}
+      {error && <p role="alert" className="form-error">{error}</p>}
       <div className="mini-actions modal-actions">
         <button type="button" onClick={onCancel} disabled={saving}>Keep Payment</button>
         <button type="submit" className="approve" disabled={!valid || saving}><DollarSign size={14}/> {saving ? 'Submitting…' : `Refund ${numericAmount >= 0.5 ? money(numericAmount) : 'Amount'}`}</button>
@@ -10056,11 +10080,11 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
     + Number(rental.tax_amount || 0)
     + Number(rental.security_deposit || 0);
   const hasManualDiscount = Number(rental.manual_discount_amount || 0) > 0;
-  const [form, setForm] = useState({
+  const [form, setForm, clearDraft] = useTaskDraft(`ManualRentalDiscountModal:${rental.id}`, {
     mode: hasManualDiscount ? rental.manual_discount_type || 'fixed' : 'fixed',
     value: hasManualDiscount ? Number(rental.manual_discount_value || rental.manual_discount_amount).toFixed(2) : '',
     reason: rental.manual_discount_reason || '',
-  });
+  }, ['mode', 'value', 'reason']);
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -10108,12 +10132,11 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
     setSaving(true);
     setError('');
     try {
-      await onApply(rental, { ...form, mode, value: mode === 'remove' ? 0 : numericValue }, crypto.randomUUID());
-      onCancel();
+      const saved = await onApply(rental, { ...form, mode, value: mode === 'remove' ? 0 : numericValue }, crypto.randomUUID());
+      if (saved) { clearDraft(); onCancel(); }
     } catch (applyError) {
       setError(applyError.message || 'The discount could not be saved.');
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   }
 
   return <div className="admin-modal-backdrop manual-discount-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && onCancel()}>
@@ -10873,6 +10896,7 @@ function ExternalPaymentDetailsModal({ rental, payments = [], onCancel, onConfir
     if (actionType === 'method_correction' && !paymentMethod) return setError('Choose the corrected payment type.');
     if (actionType === 'refund' && !confirmedReturned) return setError('Confirm that the full receipt amount was actually returned to the customer.');
     setSaving(true);
+    try {
     const saved = await onConfirm?.({
       actionType,
       paymentChargeId: selected.paymentChargeId || null,
@@ -10880,8 +10904,9 @@ function ExternalPaymentDetailsModal({ rental, payments = [], onCancel, onConfir
       reference,
       reason,
     });
-    setSaving(false);
-    if (!saved) setError('The payment details were not changed. Review the admin message and try again.');
+    if (!saved) setError('The result could not be confirmed. Check the saved record before trying again.');
+    } catch (error) { setError(error?.message || 'Could not confirm the saved result.'); }
+    finally { setSaving(false); }
   }
 
   return createPortal(<div className="admin-modal-backdrop payment-details-backdrop">
@@ -10921,14 +10946,14 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, initialAm
       + Number(rental.security_deposit || 0)
   ));
   const initialAmountValue = Number(initialAmount);
-  const [form, setForm] = useState({
+  const [form, setForm, clearDraft] = useTaskDraft(`ExternalPaymentModal:${rental.id}`, {
     amount: Number.isFinite(initialAmountValue) && initialAmountValue > 0
       ? initialAmountValue.toFixed(2)
       : amountDue.toFixed(2),
     paymentMethod: '',
     reference: '',
     confirmed: false,
-  });
+  }, ['amount', 'paymentMethod', 'reference']);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const enteredAmount = Number(form.amount || 0);
@@ -10956,10 +10981,15 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, initialAm
       setError('Confirm that the external payment cleared before recording it.');
       return;
     }
+    if (saving) return;
     setSaving(true);
-    const recorded = await onConfirm?.({ amount, paymentMethod: form.paymentMethod, reference: form.reference });
-    setSaving(false);
-    if (!recorded) setError('The payment was not recorded. Review the message above and try again.');
+    try {
+      const recorded = await onConfirm?.({ amount, paymentMethod: form.paymentMethod, reference: form.reference });
+      if (recorded) clearDraft();
+      else setError('The result could not be confirmed. Check the saved record before trying again.');
+    } catch (error) {
+      setError(error?.message || 'The result could not be confirmed. Check the saved record before trying again.');
+    } finally { setSaving(false); }
   }
 
   return createPortal(<div className="admin-modal-backdrop external-payment-backdrop">
@@ -11245,7 +11275,7 @@ function PaymentProcessingOverlay({ message }) {
     <div className="payment-processing-card">
       <div className="admin-access-spinner" aria-hidden="true"><span /></div>
       <strong>{message}</strong>
-      <small>Please keep this page open. The result will appear when processing finishes.</small>
+      <small>Processing this task. Your entries remain here while we wait for confirmation.</small>
     </div>
   </div>, document.body);
 }
@@ -11327,6 +11357,7 @@ function useDialogFocus(onClose, { closeOnEscape = true } = {}) {
   closeRef.current = onClose;
 
   useEffect(() => {
+    const releaseTaskDialog = trackTaskDialog();
     const opener = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     const dialog = dialogRef.current;
@@ -11335,31 +11366,30 @@ function useDialogFocus(onClose, { closeOnEscape = true } = {}) {
     window.requestAnimationFrame(() => dialog?.querySelector(focusableSelector)?.focus());
 
     function handleKeyDown(event) {
+      const topDialog = [...document.querySelectorAll('[aria-modal="true"]')].filter(element => element.offsetParent !== null).at(-1);
+      if (topDialog && topDialog !== dialog) return;
       if (event.key === 'Escape' && closeOnEscape) {
         event.preventDefault();
         closeRef.current?.();
         return;
       }
       if (event.key !== 'Tab' || !dialog) return;
-      const focusable = [...dialog.querySelectorAll(focusableSelector)].filter((element) => element.offsetParent !== null);
+      const focusable = [...dialog.querySelectorAll(focusableSelector), ...document.querySelectorAll('.task-recovery button:not([disabled])')].filter((element) => element.offsetParent !== null);
       if (!focusable.length) {
         event.preventDefault();
         dialog.focus();
         return;
       }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      const index = focusable.indexOf(document.activeElement);
+      const next = index < 0 ? (event.shiftKey ? focusable.length - 1 : 0)
+        : (index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length;
+      event.preventDefault();
+      focusable[next].focus();
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
+      releaseTaskDialog();
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
       if (opener instanceof HTMLElement) opener.focus();

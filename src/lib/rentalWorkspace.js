@@ -15,20 +15,26 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
   let selectedId = '';
   let disposed = false;
   let generation = 0;
+  let editing = false;
+  let deferredList = false;
   let state = { rows: [], counts: {}, total: 0, offset: 0, loading: true, error: '', selectedId: '', detailLoading: false, detailError: '', detailReady: false };
   const emit = (patch) => { if (!disposed) { state = { ...state, ...patch }; changed(state); } };
   async function record(id, force = false) {
     const cached = details.get(id);
     if (!force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) return cached.data;
-    await freshDomainLoad(loads, `detail:${id}`, force, async () => {
-      const readGeneration = generation;
-      const data = await readDetail(id);
-      if (!disposed) {
-        details.set(id, { data, at: now(), generation: readGeneration });
-        if (details.size > 150) details.delete(details.keys().next().value);
-      }
-    });
-    return details.get(id)?.data;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await freshDomainLoad(loads, `detail:${id}`, force || attempt > 0, async () => {
+        const readGeneration = generation;
+        const data = await readDetail(id);
+        if (!disposed) {
+          details.set(id, { data, at: now(), generation: readGeneration });
+          if (details.size > 150) details.delete(details.keys().next().value);
+        }
+      });
+      if (disposed) return;
+      if (details.get(id)?.generation === generation) return details.get(id).data;
+    }
+    throw new Error('This rental changed while loading. Retry rental to load its latest saved records.');
   }
   async function inlineRecords(data, isCurrent) {
     const records = new Array(data.rows.length);
@@ -47,6 +53,10 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
     const key = rentalPageKey(params);
     const switching = !current || rentalPageKey(current) !== key;
     const sameView = current && rentalPageKey({ ...current, offset: 0 }) === rentalPageKey({ ...params, offset: 0 });
+    if (editing && !switching && state.rows.length) {
+      deferredList = true;
+      return;
+    }
     current = { ...params };
     const cached = pages.get(key);
     if (switching) emit({ ...(!inline || !sameView ? { rows: [], total: cached?.data.total || 0 } : {}), offset: params.offset || 0, error: '' });
@@ -63,6 +73,7 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
         if (disposed || rentalPageKey(current) !== key || readGeneration !== generation) return;
         const records = inline ? await inlineRecords(data, () => !disposed && readGeneration === generation && rentalPageKey(current) === key) : [];
         if (disposed || readGeneration !== generation || rentalPageKey(current) !== key) return;
+        if (editing && state.rows.length) { deferredList = true; return; }
         records.forEach(hydrate);
         pages.set(key, { data, at: now(), generation: readGeneration });
         // Bound memory when searching many different strings.
@@ -70,6 +81,8 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
         if (rentalPageKey(current) === key) emit({ ...data, loading: false, error: '' });
       } catch (error) {
         if (rentalPageKey(current) === key) emit({ loading: false, error: error.message || 'Rentals could not load.' });
+      } finally {
+        if (!disposed && rentalPageKey(current) === key) emit({ loading: false });
       }
     });
   }
@@ -101,6 +114,13 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
     list, open,
     getState: () => state,
     invalidate() { generation++; },
+    setEditing(value) {
+      editing = value;
+      if (!editing && deferredList) {
+        deferredList = false;
+        void list(current, true);
+      }
+    },
     async refresh({ rentalId = null, details: includeDetails = true } = {}) {
       generation++;
       // Counts/filter membership refresh independently of a committed save.

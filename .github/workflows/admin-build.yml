@@ -44,6 +44,9 @@ jobs:
       - name: Verify admin extension and edit actions
         run: node --test tests/vehicle-availability.test.mjs tests/admin-direct-extension.test.mjs tests/rental-change-dates.test.mjs tests/rental-amendment-guardrails.test.mjs
 
+      - name: Verify task recovery and preserved drafts
+        run: node --test tests/task-recovery.test.mjs tests/task-draft-hooks.test.mjs tests/payment-task-recovery.test.mjs tests/admin-startup-timeout.test.mjs
+
       - name: Build
         run: npm run build
 

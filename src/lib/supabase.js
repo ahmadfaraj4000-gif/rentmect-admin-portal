@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createPortalTransport } from './portalTransport.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -18,4 +19,9 @@ try {
   throw new Error('VITE_SUPABASE_URL is not a valid URL.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+let recoveryStorage;
+try { recoveryStorage = window.sessionStorage; } catch { /* Storage can be disabled. */ }
+export const portalTransport = createPortalTransport({ fetch: (...args) => fetch(...args), storage: recoveryStorage });
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: { fetch: portalTransport.fetch },
+});

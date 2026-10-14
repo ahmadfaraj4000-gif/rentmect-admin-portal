@@ -25,6 +25,7 @@ function harness(savedContext = { daily_rate: 49, fleet_daily_rate: 69, revisabl
     useState(initial) { const index=cursor++; if (!(index in state)) state[index]=typeof initial==='function'?initial():initial;
       return [state[index],value=>{state[index]=typeof value==='function'?value(state[index]):value;}]; },
   });
+  context.useTaskDraft = (_key, initial) => [...context.useState(initial), () => calls.push({ draftCleared: true })];
   const Modal=vm.runInContext(transformed.code,context);
   return { calls, async loadRates() { loadRates(); await Promise.resolve(); }, render() { cursor=0; return Modal({rental,
     onPreview:async(r,form)=>{calls.push({preview:form});return quote;},

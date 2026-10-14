@@ -45,7 +45,7 @@ const getComponent=async(name,next)=>{
  const code=source.slice(source.indexOf(`function ${name}(`),source.indexOf(`function ${next}(`));
  return (await transformWithOxc(`${code};${name};`,'availability.jsx',{jsx:{runtime:'classic'}})).code;
 };
-const helpers={React,useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
+const helpers={React,useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
  useState:(initial)=>[typeof initial==='function'?initial():initial,()=>{}],crypto:{randomUUID:()=> 'fixture'},supabase:{},
  Car:()=>null,CalendarClock:()=>null,X:()=>null,MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
  formatRentalDate:(d,t)=>`${d} ${t}`,formatEasternDateTime:(v)=>v,easternDateTimeInputToIso:()=>null,

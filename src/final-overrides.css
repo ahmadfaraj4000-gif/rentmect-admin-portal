@@ -9558,6 +9558,40 @@ input[type="radio"] {
   backdrop-filter: blur(4px);
 }
 
+/* A status indicator must not cover the navigation or an unfinished form. */
+.payment-processing-overlay {
+  inset: auto 18px 18px auto;
+  width: min(380px, calc(100vw - 36px));
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+.payment-processing-overlay .payment-processing-card {
+  width: 100%;
+  padding: 16px;
+}
+.task-recovery {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 10060;
+  width: min(430px, calc(100vw - 36px));
+  max-height: 50vh;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid #b7791f;
+  border-radius: 12px;
+  background: #fffaf0;
+  color: #30281c;
+  box-shadow: 0 8px 32px #0002;
+}
+.task-recovery p { margin: 8px 0; font-size: 13px; }
+.task-recovery > strong { display: block; margin-bottom: 8px; }
+.task-recovery-item { border-top: 1px solid #e5d8bf; padding-top: 10px; margin-top: 10px; }
+.task-recovery-item > span { display: block; margin-bottom: 6px; text-transform: capitalize; }
+.task-recovery button { padding: 8px 12px; border: 1px solid #8b652e; border-radius: 6px; background: white; color: #30281c; }
+
 .payment-processing-card {
   width: min(430px, 100%);
   display: grid;

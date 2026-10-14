@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-14",
+  "scope": "Admin portal task recovery, draft preservation, background refresh stability, and independent post-save notifications",
+  "baseline_commit": "98abe0d675940a345e8eafebf0b7735af33115d7",
+  "deployment": {
+    "status": "local_changes_only",
+    "production_changes": false,
+    "database_changes": false,
+    "payment_actions_performed": false
+  },
+  "behavior": {
+    "request_deadline_seconds": 30,
+    "upload_deadline_seconds": 90,
+    "unknown_write_outcomes": "Persist a staff-scoped pending-operation guard in sessionStorage. Block another request for that target until the operator checks current records and explicitly acknowledges having verified the outcome. Never automatically retry a write.",
+    "drafts": "Staff- and task-scoped sessionStorage, 12-hour expiry, explicit field allowlists. Clear after confirmed success. Financial confirmations, files, signatures, passwords and authentication tokens are not draft fields.",
+    "draft_coverage": [
+      "External payment amount, method and reference",
+      "External charge payment method and reference",
+      "Rental extension or revision fields",
+      "Vehicle swap fields",
+      "Rental edit fields",
+      "Manual discount fields",
+      "Workflow-step notes and Stripe checkout amount",
+      "New-booking customer/vehicle selections, dates, times and delivery preferences"
+    ],
+    "background_refresh": "Defer list replacement while a task dialog is open. Drain deferred refresh when the last dialog closes. Re-read details invalidated during an in-flight read and expose a retryable error if records keep changing.",
+    "post_save": "Confirmed operations return without waiting for secondary reads. External-payment admin notification runs separately with its own bounded wait."
+  },
+  "validation": {
+    "runtime": "Node 22.23.3",
+    "automated_tests_passed": 269,
+    "automated_tests_failed": 0,
+    "production_build": "Passed using placeholder configuration in an isolated temporary output directory; this is not a deployable production artifact.",
+    "git_diff_check": "Passed",
+    "browser": "Chrome, isolated local fixtures using the actual payment dialog, draft hook, focus hook and recovery component. No production backend or payment connections.",
+    "browser_checks": [
+      "Interrupted callback preserves amount/method/reference and re-enables controls",
+      "Full reload plus reopening restores draft, with confirmation unchecked",
+      "Recovery reads current mock record while unfinished task stays open",
+      "Keyboard Tab reaches recovery controls from payment submit button",
+      "Confirmed success closes task and clears draft"
+    ],
+    "regression_checks": [
+      "SDK stalled mutation returns an error without replay",
+      "Unknown and in-flight writes survive reload as guarded outcomes",
+      "Malformed acknowledgement keeps write guarded",
+      "Response-body stalls are bounded",
+      "Draft expiry and account isolation",
+      "Stale detail loading recovers",
+      "Background list read cannot remove an open task",
+      "Nested-dialog lifecycle",
+      "Notification can remain pending after successful payment task completion"
+    ]
+  },
+  "audit_corrections": [
+    "Made secondary-refresh error text neutral about whether the preceding save succeeded",
+    "Preserved uncertain-write guard for malformed JSON or proxy HTML acknowledgements",
+    "Prevented SDK retries from extending timed-out reads",
+    "Added keyboard access to recovery controls while modal is open and restricted handling to top modal",
+    "Updated existing test harnesses for draft hook and recovery owner without removing behavior assertions"
+  ],
+  "limits": [
+    "Checking current records does not automatically prove every interrupted operation has completed; the operator must review the outcome before acknowledging.",
+    "Drafts and pending guards persist in the same browser tab, not across devices. Storage-disabled browsers use in-memory request protection.",
+    "New-booking identity details, uploads and signatures must be supplied again after reload.",
+    "No live backend mutation or production deployment was performed."
+  ]
+}

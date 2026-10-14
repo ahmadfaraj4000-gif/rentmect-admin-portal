@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRentalWorkspace, RENTAL_PAGE_SIZE } from './lib/rentalWorkspace.js';
 import { withReadRetry } from './requestDeadline.js';
+import { subscribeTaskDialogs } from './lib/taskDraft.js';
 
 export function useRentalWorkspace({ client, enabled, userId, filter, search, focusId, hydrate, prepareDetails }) {
   const callbacks = useRef({ hydrate, prepareDetails });
@@ -50,8 +51,9 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
       changed: setState,
     });
     controllerRef.current = controller;
+    const unsubscribeDialogs = subscribeTaskDialogs(editing => controller.setEditing(editing));
     setState(controller.getState());
-    return () => { controller.dispose(); controllerRef.current = null; };
+    return () => { unsubscribeDialogs(); controller.dispose(); controllerRef.current = null; };
   }, [client, userId]);
   useEffect(() => {
     if (!enabled) return;

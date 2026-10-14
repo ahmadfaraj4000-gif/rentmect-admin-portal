@@ -193,3 +193,52 @@ test('inline hydration caps concurrent requests at five', async () => {
   assert.equal(maximum, 5);
   assert.equal(workspace.getState().rows.length, 12);
 });
+
+test('an unrelated refresh during detail loading finishes with current data and no stuck spinner', async () => {
+  const pending = deferred(); let reads = 0;
+  const { workspace } = setup({ inline: true, readList: async () => page('r1'), readDetail: async () => {
+    reads++; if (reads === 2) return pending.promise;
+    return { rental: { id: 'r1', version: reads } };
+  } });
+  await workspace.list(params());
+  const opening = workspace.open('r1', true);
+  await new Promise(resolve => setImmediate(resolve));
+  workspace.invalidate();
+  await workspace.refresh({ details: false });
+  pending.resolve({ rental: { id: 'r1', version: 2 } });
+  await opening;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(workspace.getState().detailLoading, false);
+  assert.equal(workspace.getState().detailReady, true);
+  assert.equal(workspace.getState().detailError, '');
+  assert.ok(reads >= 3, 'a stale response is replaced by a fresh read');
+});
+
+test('background filter changes cannot remove a card with an open task', async () => {
+  let rows = [{ id: 'r1' }];
+  const { workspace } = setup({ inline: true, readList: async () => ({ rows, total: rows.length, counts: {} }) });
+  await workspace.list(params());
+  workspace.setEditing(true);
+  rows = [];
+  await workspace.refresh({ details: false });
+  assert.equal(workspace.getState().rows[0].id, 'r1');
+  workspace.setEditing(false);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(workspace.getState().rows, []);
+  assert.equal(workspace.getState().loading, false);
+});
+
+test('an already running list read also preserves an open task until it closes', async () => {
+  const pending = deferred(); let calls = 0;
+  const { workspace } = setup({ inline: true, readList: async () => ++calls === 1 ? page('r1') : pending.promise });
+  await workspace.list(params());
+  const refreshing = workspace.list(undefined, true);
+  await new Promise(resolve => setImmediate(resolve));
+  workspace.setEditing(true);
+  pending.resolve({ rows: [], total: 0, counts: {} });
+  await refreshing;
+  assert.equal(workspace.getState().rows[0].id, 'r1');
+  workspace.setEditing(false);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(workspace.getState().rows, []);
+});
