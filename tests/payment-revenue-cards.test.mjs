@@ -11,19 +11,19 @@ const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const cardCode = (await transformWithOxc(cardSource.replace(/^import .*;\n/gm, '').replaceAll('export function ', 'function '), 'cards.jsx', { jsx: { runtime: 'classic' } })).code;
 const context = vm.createContext({ React, useState: React.useState, useEffect: React.useEffect, useMemo: React.useMemo, CalendarDays: () => null, Banknote: () => null, canViewRevenue });
 vm.runInContext(cardCode, context);
-const example = { month: 12345.67, year: 234567.89, monthLabel: 'October 2026', yearLabel: '2026', issues: [] };
+const example = { month: 12345.67, year: 234567.89, monthLabel: 'October 2026', yearLabel: '2026', monthKey: '2026-10', issues: [] };
 const view = (props) => renderToStaticMarkup(React.createElement(context.RevenueCardsView, props));
 test('new cards clearly explain revenue, deposits, fees, taxes, and reporting periods', () => {
   const html = view({ report: example });
   for (const label of ['Made This Month', 'Made This Year', '$12,345.67', '$234,567.89', 'October 2026', 'Excluding deposits', 'late fees', 'after refunds', 'sales tax', 'Before business expenses and processing fees', 'Connecticut time']) assert.ok(html.includes(label), label);
   assert.doesNotMatch(html, /Net Profit|net profit/);
 });
-test('loading and failures never masquerade as zero revenue, and incomplete records are labelled provisional', () => {
+test('loading and failures never masquerade as zero revenue, and incomplete records are labelled as estimates', () => {
   assert.match(view({ loading: true }), /Loading…/);
   const failed = view({ loading: false, error: 'offline' });
   assert.match(failed, /Unavailable/); assert.match(failed, /Retry totals/); assert.doesNotMatch(failed, /\$0\.00/);
   const review = view({ report: { ...example, issues: [{ rentalId: 'r', reason: 'Missing receipt.' }] } });
-  assert.match(review, /Provisional ·/); assert.match(review, /may be incomplete/); assert.match(review, /Missing receipt/);
+  assert.match(review, /Estimate ·/); assert.match(review, /may be incomplete/); assert.match(review, /Missing receipt/);
 });
 test('unauthorized accounts render no new cards', () => {
   const html = renderToStaticMarkup(React.createElement(context.PaymentRevenueCards, { accountEmail: 'someone@example.com', refreshKey: [] }));
@@ -43,4 +43,29 @@ test('Payments preserves all four original indicators and adds two, behind the e
   for (const label of ['Gross Collected', 'Refunded', 'Outstanding', 'Deposits Held']) assert.ok(html.includes(label));
   const other = renderToStaticMarkup(React.createElement(env.PaymentsTab, { ...props, canViewFinancialSummary: false, accountEmail: 'other@example.com' }));
   assert.doesNotMatch(other, /Made This|payments-metrics/);
+});
+
+test('one clear review note replaces duplicate alarms, and older refunds do not label October as incomplete', () => {
+  const issue = { recordId: 'refund', rentalId: 'r', refundId: 're1', date: '2026-09-07T12:00:00Z', amount: 300, kind: 'refund_category', reason: 'Needs classification', periods: ['year'] };
+  const html = view({ report: { ...example, issues: [issue, issue] }, onOpenRental: () => {}, reconciliation: [{ id: 'provider', rentalId: 'r', refundId: 're1', date: issue.date, amount: 300, customer: 'Example Customer' }] });
+  assert.equal((html.match(/Estimate ·/g) || []).length, 1);
+  assert.match(html, /Year total is an estimate/);
+  assert.match(html, /1 refund needs a category/);
+  assert.match(html, /Example Customer/);
+  assert.match(html, /\$300\.00/);
+  assert.match(html, /View rental/);
+  assert.doesNotMatch(html, /Urgent|Provisional|Rental r\./);
+  assert.match(main, /!canViewFinancialSummary && openReconciliation\.length > 0/);
+});
+test('technical read errors do not leak database diagnostics into the client screen', () => {
+  const html = view({ error: 'Could not load rental_payments: PostgREST failed' });
+  assert.match(html, /temporarily unavailable/);
+  assert.match(html, /Retry totals/);
+  assert.doesNotMatch(html, /PostgREST|rental_payments/);
+});
+test('a separate unresolved payment on the same rental remains visible', () => {
+  const issue = { recordId: 'refund', rentalId: 'r', refundId: 're1', amount: 300, kind: 'refund_category', periods: ['year'] };
+  const html = view({ report: { ...example, issues: [issue] }, reconciliation: [{ id: 'capture', rentalId: 'r', amount: 100, date: '2026-10-01T12:00:00Z' }] });
+  assert.match(html, /2 payment records to check/);
+  assert.match(html, /Revenue totals/);
 });

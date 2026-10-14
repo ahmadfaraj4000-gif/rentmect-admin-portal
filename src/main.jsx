@@ -4429,9 +4429,9 @@ function PaymentsTab({ canViewFinancialSummary = false, accountEmail = '', payme
       <Metric icon={ReceiptText} label="Refunded" value={money(refunded)} />
       <Metric icon={Clock} label="Outstanding" value={money(outstanding)} danger={outstanding > 0} />
       <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
-      <PaymentRevenueCards accountEmail={accountEmail} refreshKey={paymentEvents} onOpenRental={onOpenRental}/>
+      <PaymentRevenueCards accountEmail={accountEmail} refreshKey={paymentEvents} onOpenRental={onOpenRental} reconciliation={openReconciliation}/>
     </section>}
-    {openReconciliation.length > 0 && (
+    {!canViewFinancialSummary && openReconciliation.length > 0 && (
       <p className="form-error" role="alert">
         Urgent: {openReconciliation.length} Stripe {openReconciliation.length === 1 ? 'transaction requires' : 'transactions require'} reconciliation. No captured payment or refund in this list should be treated as fully coordinated until its status is resolved.
       </p>
@@ -12657,6 +12657,7 @@ function buildPaymentEvents({
     const reference = issue.refund_id || issue.payment_intent_id || issue.checkout_session_id;
     events.push({
       id: `stripe-reconciliation-${issue.id}`,
+      refundId: issue.refund_id || null,
       rentalId: issue.rental_id,
       customer: issue.rental_id ? customer : 'Unmatched Stripe transaction',
       vehicle: issue.rental_id ? vehicle : 'Review required',

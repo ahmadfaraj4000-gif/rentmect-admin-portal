@@ -174,3 +174,14 @@ test('unclassified manual Stripe refunds remain provisional even when less than 
     refunds: [{ id: 'refund', rental_id: 'r', stripe_payment_intent_id: 'pi', status: 'succeeded', source_type: 'stripe_manual_review', amount: 50, created_at: october }] });
   assert.equal(result.year, 100); assert.match(result.issues[0].reason, /classified/);
 });
+
+test('older unresolved refunds qualify only the year total, not this month', () => {
+  const result = report({ rentals: [{ ...rental, stripe_payment_intent_id: 'pi' }], refunds: [
+    { id: 'old', rental_id: 'r', stripe_payment_intent_id: 'pi', stripe_refund_id: 're_old', status: 'succeeded', source_type: 'stripe_manual_review', amount: 50, created_at: september },
+    { id: 'last-year', rental_id: 'r', status: 'succeeded', source_type: 'stripe_manual_review', amount: 20, created_at: '2025-08-01T12:00:00Z' },
+  ] });
+  assert.equal(result.issues.length, 1);
+  assert.deepEqual(result.issues[0].periods, ['year']);
+  assert.equal(result.issues[0].refundId, 're_old');
+  assert.equal(result.month, 100);
+});

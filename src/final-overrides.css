@@ -9956,3 +9956,13 @@ input[type="radio"] {
 .revenue-review li { overflow-wrap: anywhere; }
 @media (max-width: 1199px) { .metric-grid.payments-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
 @media (max-width: 639px) { .metric-grid.payments-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+
+/* Keep accounting context readable without repeating alarms above Payments. */
+.payment-revenue-explanation .revenue-calculation { display: inline-block; margin-top: 2px; }
+.payment-revenue-explanation summary { cursor: pointer; }
+.payment-revenue-explanation .revenue-calculation[open] { display: block; margin-bottom: 6px; }
+.payment-revenue-explanation .revenue-review { color: var(--ui-ink); margin-top: 7px; font-size: 12px; }
+.payment-revenue-explanation .revenue-review summary { color: #805b27; font-weight: 600; }
+.payment-revenue-explanation .revenue-review ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.payment-revenue-explanation .revenue-review li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--ui-line); }
+.payment-revenue-explanation .revenue-review button { flex-shrink: 0; }

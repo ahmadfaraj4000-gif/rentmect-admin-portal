@@ -34,7 +34,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
   const allocationApplications = group(applications, 'allocation_id');
   const receiptAliases = new Map();
   const originalReceipts = new Map();
-  const issue = (row, reason) => issues.push({ rentalId: row.rental_id || row.id, reason });
+  const issue = (row, reason) => issues.push({ rentalId: row.rental_id || row.id, recordId: row.id, refundId: row.stripe_refund_id || null, reason, date: row.paid_at || row.created_at || null, amount: row.amount == null ? null : Number(row.amount), kind: row.source_type === 'stripe_manual_review' ? 'refund_category' : 'record_review' });
   const add = (receipt, source) => {
     const keys = referenceKeys(source);
     const existing = keys.map((key) => seen.get(key)).find(Boolean);
@@ -224,7 +224,13 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
     yearCents += row.net;
     if (key.slice(0, 7) === today.slice(0, 7)) monthCents += row.net;
   }
-  return { month: monthCents / 100, year: yearCents / 100, monthLabel: new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', year: 'numeric' }).format(now), yearLabel: today.slice(0, 4), issues };
+  const periodIssues = issues.map((item) => {
+    const key = dateKey(item.date);
+    const periods = !key ? ['month', 'year'] : key > today || key.slice(0, 4) !== today.slice(0, 4) ? []
+      : key.slice(0, 7) === today.slice(0, 7) ? ['month', 'year'] : ['year'];
+    return { ...item, periods };
+  }).filter((item) => item.periods.length);
+  return { month: monthCents / 100, year: yearCents / 100, monthLabel: new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', year: 'numeric' }).format(now), yearLabel: today.slice(0, 4), monthKey: today.slice(0, 7), issues: periodIssues };
 }
 
 export const REVENUE_TABLES = {
