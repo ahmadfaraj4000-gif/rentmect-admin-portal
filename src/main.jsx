@@ -10,7 +10,7 @@ import { adminRefreshDomains } from './lib/adminRefreshDomains.js';
 import { useVehicleAvailability } from './useVehicleAvailability.js';
 import { useRentalWorkspace } from './useRentalWorkspace.js';
 import { replaceRentalRecords } from './lib/rentalWorkspace.js';
-import { refundableRentalSources, refundDisplayState } from './lib/rentalRefunds.js';
+import { refundableRentalSources, refundDisplayState, rentalPaymentRefunds } from './lib/rentalRefunds.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { builtInLateFeeTemplates, isReturnWindowExtended } from './lib/lateFeePolicy.js';
@@ -526,7 +526,8 @@ function App() {
   const [rentalStepCompletions, setRentalStepCompletions] = useState([]);
   const [depositAllocations, setDepositAllocations] = useState([]);
   const [rentalPayments, setRentalPayments] = useState([]);
-  const [rentalRefunds, setRentalRefunds] = useState([]);
+  const [refundLedger, setRentalRefunds] = useState([]);
+  const rentalRefunds = useMemo(() => rentalPaymentRefunds(refundLedger), [refundLedger]);
   const [rentalCharges, setRentalCharges] = useState([]);
   const [externalPaymentActions, setExternalPaymentActions] = useState([]);
   const [stripeReconciliationIssues, setStripeReconciliationIssues] = useState([]);

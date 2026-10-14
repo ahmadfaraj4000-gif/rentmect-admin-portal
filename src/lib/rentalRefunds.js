@@ -1,3 +1,7 @@
+// Confirmed deposit returns are displayed and counted through allocations.
+// Keep their original provider ledger rows without counting the return twice.
+export const rentalPaymentRefunds = (rows = []) => rows.filter((row) => row.source_type !== 'security_deposit');
+
 // A refund belongs to its captured Stripe payment, including balance installments.
 export function refundableRentalSources(rental, charges = [], refunds = [], allocations = []) {
   const sources = [];
@@ -15,7 +19,7 @@ export function refundableRentalSources(rental, charges = [], refunds = [], allo
     }
   }
   return sources.map((source) => {
-    const refunded = refunds.filter((refund) => refund.stripe_payment_intent_id === source.paymentIntentId
+    const refunded = rentalPaymentRefunds(refunds).filter((refund) => refund.stripe_payment_intent_id === source.paymentIntentId
       && !['failed', 'cancelled', 'canceled'].includes(String(refund.status).toLowerCase()))
       .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
     const protectedDeposit = allocations.filter((allocation) => allocation.stripe_payment_intent_id === source.paymentIntentId

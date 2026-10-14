@@ -1,9 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { refundableRentalSources, refundDisplayState } from '../src/lib/rentalRefunds.js';
+import { refundableRentalSources, refundDisplayState, rentalPaymentRefunds } from '../src/lib/rentalRefunds.js';
 
 const rental = { payment_provider: 'stripe', security_deposit: 300, deposit_held_amount: 300, payment_amount_cents: 82835 };
 const balance = { id: 'balance', charge_type: 'rental_amendment', payment_provider: 'stripe', status: 'paid', stripe_payment_intent_id: 'pi_balance', payment_amount_cents: 52835 };
+test('classified deposits count once through allocations while unclassified refunds remain visible', () => {
+  const deposit = { source_type: 'security_deposit', status: 'succeeded', amount: 300, stripe_payment_intent_id: 'pi_balance' };
+  const rentalRefund = { ...deposit, source_type: 'admin_rental_payment', amount: 50 };
+  const manual = { ...deposit, source_type: 'stripe_manual_review', amount: 25 };
+  assert.deepEqual(rentalPaymentRefunds([deposit, rentalRefund, manual]), [rentalRefund, manual]);
+  const allocations = [{ stripe_payment_intent_id: 'pi_balance', amount_held: 300, amount_released: 300, status: 'released' }];
+  assert.equal(refundableRentalSources(rental, [balance], [deposit, rentalRefund], allocations)[0].maximum, 178.35);
+});
 test('a mixed cash/card rental exposes only the actual card capture for refund', () => {
   const sources = refundableRentalSources(rental, [balance, { ...balance, id: 'cash', payment_provider: 'local', payment_amount_cents: 30000 }]);
   assert.equal(sources.length, 1);
