@@ -150,3 +150,78 @@ test('the installed Supabase SDK returns bounded errors without replaying a stal
     assert.equal(transport.snapshot().length, 1);
   } finally { await client.auth.stopAutoRefresh(); }
 });
+
+test('ticket queries remain readable through overlapping requests, failures and retries', async () => {
+  for (const name of ['admin_ticket_list', 'admin_ticket_detail', 'admin_ticket_vehicles', 'admin_ticket_lookup', 'admin_ticket_candidates', 'admin_ticket_customer_flags']) {
+    const url = `https://example.test/rest/v1/rpc/${name}`;
+    const options = { method: 'POST', body: JSON.stringify({ p_id: 'ticket-1' }) };
+    assert.equal(describeRequest(url, options).read, true, name);
+    let fail = true;
+    const transport = createPortalTransport({ storage: memoryStorage(), fetch: async () => {
+      await new Promise(resolve => setTimeout(resolve, 1));
+      if (fail) throw new Error('offline');
+      return json({ rows: [], total: 0 });
+    } });
+    transport.setOwner('admin');
+    const initial = await Promise.allSettled([transport.fetch(url, options), transport.fetch(url, options)]);
+    assert.ok(initial.every(result => result.status === 'rejected' && result.reason.message === 'offline'), name);
+    assert.equal(transport.snapshot().length, 0, name);
+    fail = false;
+    const responses = await Promise.all([transport.fetch(url, options), transport.fetch(url, options)]);
+    assert.ok(responses.every(response => response.ok), name);
+    assert.equal(transport.snapshot().length, 0, name);
+  }
+});
+
+test('upgrade automatically clears stale ticket-read recovery entries and preserves uncertain writes', async () => {
+  const storage = memoryStorage();
+  const readNames = ['admin_ticket_list', 'admin_ticket_detail', 'admin_ticket_vehicles', 'admin_ticket_lookup', 'admin_ticket_candidates', 'admin_ticket_customer_flags'];
+  const writeNames = ['admin_ticket_save', 'admin_ticket_action', 'admin_ticket_attachment', 'admin_ticket_customer_flag'];
+  const entry = name => ({ key: `/rest/v1/rpc/${name}?`, label: name.replaceAll('_', ' '), read: false, status: 'sending', startedAt: 1 });
+  storage.setItem('rentmect:pending-operations:v1:admin', JSON.stringify([...readNames, ...writeNames].map(entry)));
+  const transport = createPortalTransport({ storage, fetch: async () => json({ rows: [], total: 0 }) });
+  transport.setOwner('admin');
+  assert.deepEqual(transport.snapshot().map(item => item.key), writeNames.map(name => entry(name).key));
+  assert.equal(JSON.parse(storage.getItem('rentmect:pending-operations:v1:admin')).length, writeNames.length);
+  await transport.fetch('https://example.test/rest/v1/rpc/admin_ticket_list', { method: 'POST', body: '{}' });
+  await assert.rejects(transport.fetch('https://example.test/rest/v1/rpc/admin_ticket_save', { method: 'POST', body: '{}' }), /Check saved result/);
+  assert.equal(transport.snapshot().length, writeNames.length);
+});
+
+test('ticket mutations and unknown RPCs still require review after a lost write response', async () => {
+  for (const name of ['admin_ticket_save', 'admin_ticket_action', 'admin_ticket_attachment', 'admin_ticket_customer_flag', 'admin_ticket_future_mutation']) {
+    const url = `https://example.test/rest/v1/rpc/${name}`;
+    const options = { method: 'POST', body: JSON.stringify({ p_id: 'ticket-1' }) };
+    assert.equal(describeRequest(url, options).read, false, name);
+    let sends = 0;
+    const transport = createPortalTransport({ storage: memoryStorage(), fetch: async () => { sends++; throw new Error('offline'); } });
+    transport.setOwner('admin');
+    await assert.rejects(transport.fetch(url, options), /offline/);
+    await assert.rejects(transport.fetch(url, options), /Check saved result/);
+    assert.equal(sends, 1, name);
+    assert.equal(transport.snapshot().length, 1, name);
+  }
+});
+
+test('installed Supabase SDK can retry a ticket list after failure without creating a recovery task', async () => {
+  const { createClient } = await import('@supabase/supabase-js');
+  let fail = true;
+  const transport = createPortalTransport({ storage: memoryStorage(), fetch: async () => {
+    if (fail) throw new Error('offline');
+    return json({ rows: [{ id: 'ticket-1' }], total: 1 });
+  } });
+  transport.setOwner('admin');
+  const client = createClient('https://example.test', 'fixture-key', {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: transport.fetch },
+  });
+  try {
+    const failed = await client.rpc('admin_ticket_list', { p_status: 'unresolved' });
+    assert.ok(failed.error);
+    assert.equal(transport.snapshot().length, 0);
+    fail = false;
+    const results = await Promise.all([client.rpc('admin_ticket_list', {}), client.rpc('admin_ticket_list', {})]);
+    assert.ok(results.every(result => !result.error && result.data.total === 1));
+    assert.equal(transport.snapshot().length, 0);
+  } finally { await client.auth.stopAutoRefresh(); }
+});

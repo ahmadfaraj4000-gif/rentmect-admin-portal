@@ -3,6 +3,21 @@
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const UPLOAD_TIMEOUT_MS = 90_000;
 const READ_RPC = /^(get_|is_|admin_preview_|admin_rental_(list|detail|change_context|vehicle_availability)$)/;
+// Supabase sends RPC reads as POST. Keep these explicit so ticket mutations
+// retain protection against replay after an interrupted response.
+const TICKET_READ_RPC = new Set([
+  'admin_ticket_list', 'admin_ticket_detail', 'admin_ticket_vehicles',
+  'admin_ticket_lookup', 'admin_ticket_candidates', 'admin_ticket_customer_flags',
+]);
+const isReadRpc = name => READ_RPC.test(name) || TICKET_READ_RPC.has(name);
+function isStoredRead(entry) {
+  // Older builds incorrectly persisted ticket reads as uncertain writes.
+  // Only remove entries whose RPC URL proves that they are read-only.
+  try {
+    const url = new URL(entry.key, 'https://recovery.invalid');
+    return url.pathname.startsWith('/rest/v1/rpc/') && isReadRpc(url.pathname.split('/').at(-1));
+  } catch { return false; }
+}
 
 export function describeRequest(input, options = {}) {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
@@ -12,7 +27,7 @@ export function describeRequest(input, options = {}) {
   const route = url.pathname.split('/').at(-1);
   const rpc = url.pathname.includes('/rest/v1/rpc/');
   const read = ['GET', 'HEAD', 'OPTIONS'].includes(method)
-    || (rpc && READ_RPC.test(route))
+    || (rpc && isReadRpc(route))
     || url.pathname.startsWith('/auth/')
     || url.pathname.includes('/storage/v1/object/sign/')
     || url.pathname.includes('/storage/v1/object/list/')
@@ -47,7 +62,7 @@ export function createPortalTransport({ fetch: fetchImpl, storage, now = Date.no
       try {
         const saved = JSON.parse(storage?.getItem(storageKey()) || '[]');
         if (Array.isArray(saved)) saved.forEach(entry => {
-          if (entry && typeof entry.key === 'string') entries.set(entry.key, { ...entry, status: 'unknown' });
+          if (entry && typeof entry.key === 'string' && !isStoredRead(entry)) entries.set(entry.key, { ...entry, status: 'unknown' });
         });
       } catch { /* Corrupt storage must not stop sign-in. */ }
     }
