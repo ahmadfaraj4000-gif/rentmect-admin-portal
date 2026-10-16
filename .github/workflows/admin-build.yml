@@ -50,7 +50,11 @@ jobs:
       - name: Verify account-specific revenue totals
         run: node --test tests/payment-revenue.test.mjs tests/payment-revenue-cards.test.mjs tests/per-staff-financial-visibility.test.mjs
 
-      - name: Build
+      - name: Verify ticket workflow
+        # Keep ticket date conversion, draft recovery, and upload retries covered in deployment.
+        run: node --test tests/ticket-resolution.test.mjs
+
+      - name: Build production assets
         run: npm run build
 
       - name: Setup Pages

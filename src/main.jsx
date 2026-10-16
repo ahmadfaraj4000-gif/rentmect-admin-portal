@@ -1,4 +1,5 @@
 import { PaymentRevenueCards } from './PaymentRevenueCards.jsx';
+import { TicketResolution } from './TicketResolution.jsx';
 import { rentalDayShortcut } from './lib/rentalChangeDates.js';
 import { depositDeductionOptions } from './lib/depositDeduction.js';
 import { ReturnEvidencePicker, SavedReturnEvidence } from './ReturnEvidence.jsx';
@@ -160,7 +161,7 @@ const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented', 'on_road'];
 const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', 'maintenance'];
 const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
 const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
-const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings']);
+const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'tickets', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings']);
 const ADMIN_TAB_DOMAINS = {
   dashboard: ['snapshot'],
   queue: ['customer-directory', 'core', 'workflow'],
@@ -175,9 +176,11 @@ const ADMIN_TAB_DOMAINS = {
   audit: ['audit'],
   settings: ['settings'],
   tolls: ['customer-directory', 'core'],
+  tickets: [],
 };
 const ADMIN_TAB_PERMISSION_KEYS = {
   dashboard: 'tab.dashboard', queue: 'tab.queue', payments: 'tab.payments', tolls: 'tab.tolls',
+  tickets: 'tab.tickets',
   calendar: 'tab.calendar', 'new-booking': 'booking.create', rentals: 'tab.rentals', vehicles: 'tab.vehicles',
   customers: 'tab.customers', emails: 'tab.communications', documents: 'tab.rentals',
   audit: 'tab.audit', settings: 'tab.settings',
@@ -503,6 +506,7 @@ function App() {
     return ADMIN_TAB_KEYS.has(requestedAdminTab) ? requestedAdminTab : 'dashboard';
   });
   const activeTabRef = useRef(activeTab);
+  const [ticketRefreshKey, setTicketRefreshKey] = useState(0);
   activeTabRef.current = activeTab;
   const [isMobileAdminNav, setIsMobileAdminNav] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [navCollapsed, setNavCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
@@ -1311,6 +1315,10 @@ function App() {
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
+    if (activeTabRef.current === 'tickets' && !domains) {
+      if (force) setTicketRefreshKey((value) => value + 1);
+      return;
+    }
     if (activeTabRef.current === 'rentals') {
       // A rental mutation never downloads global ledgers or archived records.
       for (const domain of domains || ['core', 'workflow', 'payments', 'snapshot']) loadedAdminDomainsRef.current.delete(domain);
@@ -4066,6 +4074,7 @@ function App() {
     { key: 'queue', label: 'Queue', icon: ClipboardList },
     { key: 'payments', label: 'Payments', icon: DollarSign },
     { key: 'tolls', label: 'Tolls', icon: ReceiptText },
+    { key: 'tickets', label: 'Ticket Resolution', icon: FileText },
     { key: 'calendar', label: 'Calendar', icon: CalendarDays },
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
@@ -4198,6 +4207,7 @@ function App() {
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={canUsePermission('rental.edit') ? updateRentalStatus : null} recordTestPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordTestPayment : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} recordExtensionPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordExtensionPayment : null} depositTasks={canUsePermission('reports.financial') ? depositActionTasks : []} rentals={rentals} depositAllocations={canUsePermission('reports.financial') ? depositAllocations : []} onStripeRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? escalateDepositTask : null} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'payments' && <PaymentsTab canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} accountEmail={session.user.email} paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
+        {activeTab === 'tickets' && <TicketResolution canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
@@ -12731,7 +12741,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', tickets:'Ticket Resolution', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function manualDiscountDescriptor(rental) {
   if (rental?.manual_discount_type === 'percentage') return `${Number(rental.manual_discount_value || 0)}% off rental`;
