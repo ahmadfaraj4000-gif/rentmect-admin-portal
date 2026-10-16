@@ -3,11 +3,12 @@ import { supabase } from './lib/supabase';
 import { useTaskDraft } from './useTaskDraft.js';
 import { TICKET_STATUSES, TICKET_OUTCOMES, TICKET_BUCKET, ticketForm, ticketPayload, ticketTimeOptions, ticketNeedsNote, ticketRpc, ticketFileType, uploadTicketFile } from './lib/ticketResolution.js';
 import './ticket-resolution.css';
+import { TicketQuickLookup } from './TicketQuickLookup.jsx';
 
 const rpc = (name, args) => ticketRpc(supabase, name, args);
 const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 const NOTICE_FIELDS = { agency: 'Issuing agency', ticket_number: 'Ticket number', ticket_type: 'Type', plate_number: 'Plate', plate_state: 'Plate state', vehicle_note: 'Vehicle verification', violation_date: 'Violation date', violation_time: 'Violation time', timezone: 'Timezone', location: 'Location', amount: 'Amount', issue_date: 'Issue date', received_date: 'Received date', payment_deadline: 'Payment deadline', appeal_deadline: 'Appeal deadline', notes: 'Notes' };
-const ACTION_LABELS = { created: 'Case created', edited: 'Notice edited', edited_match_cleared: 'Notice edited; renter match cleared', confirm: 'Renter confirmed', start: 'Work started', resolve: 'Case resolved', reopen: 'Case reopened', note: 'Note added', renter_notified: 'Renter notification recorded', attachment_added: 'Evidence added', attachment_removed: 'Evidence removed' };
+const ACTION_LABELS = { created: 'Case created', edited: 'Notice edited', edited_match_cleared: 'Notice edited; renter match cleared', confirm: 'Renter confirmed', start: 'Work started', resolve: 'Case resolved', reopen: 'Case reopened', note: 'Note added', renter_notified: 'Renter notification recorded', attachment_added: 'Evidence added', attachment_removed: 'Evidence removed', customer_flag_added: 'Customer red flag added', customer_flag_cleared: 'Customer red flag cleared' };
 function ActivityDetails({ event }) {
   const { before, after, candidate, paid_by, outcome } = event.evidence || {};
   const changes = after ? Object.keys(NOTICE_FIELDS).filter(key => after[key] !== before?.[key] && (after[key] || before?.[key])) : [];
@@ -46,7 +47,7 @@ function VehiclePicker({ value, label = 'Vehicle', onChange, disabled = false })
   </div>;
 }
 
-export function TicketResolution({ canManage, canOpenRental, onOpenRental, refreshKey = 0 }) {
+export function TicketResolution({ canManage, canFlagCustomer, canOpenRental, onOpenRental, focusId, refreshKey = 0 }) {
   const [filters, setFilters] = useState({ search: '', status: 'unresolved', vehicle: '', deadline: '' });
   const [offset, setOffset] = useState(0);
   const [list, setList] = useState({ rows: [], total: 0 });
@@ -84,31 +85,35 @@ export function TicketResolution({ canManage, canOpenRental, onOpenRental, refre
     catch (err) { if (seq === request.current) setDetailError(err.message); }
     finally { if (seq === request.current) setDetailBusy(false); }
   }
+  useEffect(() => { if (focusId) open(focusId); }, [focusId]);
+  useEffect(() => { if (selected && detail) document.querySelector('.ticket-detail-shell')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [selected, Boolean(detail)]);
   function changed(next) { setDetail(next); setReload(x => x + 1); }
   function filter(key, value) { setFilters(current => ({ ...current, [key]: value })); setOffset(0); }
   return <section className="ticket-resolution" aria-label="Ticket Resolution">
     <div className="ticket-heading"><div><p className="eyebrow">Vehicle violations</p><h2>Ticket Resolution</h2><p>Match the violation time to rental history, then review and track the case.</p></div>
-      <div className="ticket-actions"><button onClick={() => setReload(x => x + 1)}>Refresh list</button>{canManage && <button className="primary-btn" onClick={() => open('new')}>New ticket</button>}</div></div>
-    <div className="ticket-filters">
+      <div className="ticket-actions"><button onClick={() => setReload(x => x + 1)}>Refresh list</button></div></div>
+    <TicketQuickLookup canManage={canManage} onSaved={id => { setReload(x => x + 1); open(id); }}/><h3>Saved tickets</h3>
+    <details><summary>Search and filter saved tickets</summary><div className="ticket-filters">
       <label>Search tickets<input value={filters.search} onChange={e => filter('search', e.target.value)} placeholder="Ticket, agency, plate, or renter"/></label>
       <label>Status<select value={filters.status} onChange={e => filter('status', e.target.value)}><option value="unresolved">Unresolved</option><option value="all">All statuses</option>{Object.entries(TICKET_STATUSES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label>Deadline<select value={filters.deadline} onChange={e => filter('deadline', e.target.value)}><option value="">All deadlines</option><option value="overdue">Overdue</option><option value="week">Due within seven days</option></select></label>
       <VehiclePicker label="Filter vehicle" value={filters.vehicle} onChange={value => filter('vehicle', value)}/>
     </div>
+    </details>
     {error && <p className="ticket-error" role="alert">{error} <button onClick={() => setReload(x => x + 1)}>Retry list</button></p>}
     {loading && <p role="status">Loading tickets…</p>}
     {!loading && !error && list.rows.length === 0 && <p className="ticket-empty">No tickets match these filters.</p>}
     <div className="ticket-table-wrap"><table><thead><tr><th>Ticket / agency</th><th>Vehicle</th><th>Violation date and time</th><th>Renter</th><th>Amount</th><th>Next deadline</th><th>Status</th></tr></thead>
-      <tbody>{list.rows.map(row => <tr key={row.id}><td><button className="ticket-link" onClick={() => open(row.id)}>{row.ticket_number}</button><small>{row.agency}</small></td><td>{row.vehicle_name || row.plate_number || 'Needs review'}</td><td>{row.violation_date}<small>{row.violation_time || 'Time unknown'} · {row.timezone}</small></td><td>{row.renter_name || 'Not confirmed'}</td><td>{money(row.amount)}</td><td>{row.next_deadline || 'Not entered'}</td><td>{TICKET_STATUSES[row.status]}</td></tr>)}</tbody>
+      <tbody>{list.rows.map(row => <tr key={row.id}><td><button className="ticket-link" onClick={() => open(row.id)}>{row.ticket_number.startsWith('MANUAL-') ? `Ticket · ${row.violation_date}` : row.ticket_number}</button><small>{row.agency}</small></td><td>{row.vehicle_name || row.plate_number || 'Needs review'}</td><td>{row.violation_date}<small>{row.violation_time || 'Time unknown'} · {row.timezone}</small></td><td>{row.renter_name || 'Not confirmed'}</td><td>{money(row.amount)}</td><td>{row.next_deadline || 'Not entered'}</td><td>{TICKET_STATUSES[row.status]}</td></tr>)}</tbody>
     </table></div>
     <div className="ticket-actions ticket-pagination"><button disabled={loading || offset === 0} onClick={() => setOffset(x => Math.max(0, x - 25))}>Previous</button><span>{list.total ? `${offset + 1}–${Math.min(offset + 25, list.total)} of ${list.total}` : '0 tickets'}</span><button disabled={loading || offset + 25 >= list.total} onClick={() => setOffset(x => x + 25)}>Next</button></div>
     {selected && <div className="ticket-detail-shell"><div className="ticket-actions"><button onClick={() => { ++request.current; setSelected(null); setDetail(null); }}>Close case</button></div>
       {detailBusy && <p role="status">Loading case…</p>}{detailError && <p role="alert">{detailError} <button onClick={() => open(selected)}>Retry case</button></p>}
-      {detail && <TicketEditor key={selected} detail={detail} canManage={canManage} canOpenRental={canOpenRental} onOpenRental={onOpenRental} onChanged={changed}/>}</div>}
+      {detail && <TicketEditor key={selected} detail={detail} canManage={canManage} canFlagCustomer={canFlagCustomer} canOpenRental={canOpenRental} onOpenRental={onOpenRental} onChanged={changed}/>}</div>}
   </section>;
 }
 
-function TicketEditor({ detail, canManage, canOpenRental, onOpenRental, onChanged }) {
+function TicketEditor({ detail, canManage, canFlagCustomer, canOpenRental, onOpenRental, onChanged }) {
   const initial = useRef(ticketForm(detail.case || {}));
   const draftTask = useRef(`ticket-${detail.case?.id || 'new'}`);
   const [form, setForm, clearDraft] = useTaskDraft(draftTask.current, initial.current, Object.keys(initial.current));
@@ -167,14 +172,19 @@ function TicketEditor({ detail, canManage, canOpenRental, onOpenRental, onChange
     setLinks(current => ({ ...current, [file.id]: data.signedUrl }));
     if (!downloadOnly) setPreview({ ...file, url: data.signedUrl });
   }
+  useEffect(() => {
+    let live = true;
+    if (detail.case && !detail.case.rental_id) rpc('admin_ticket_candidates', { p_id: detail.case.id }).then(data => { if (live) setMatches(data); }).catch(err => { if (live) setError(err.message); });
+    return () => { live = false; };
+  }, []);
   const chosen = matches?.candidates.find(candidate => candidate.id === matchId);
   return <article className="ticket-case">
-    <div className="ticket-heading"><div><h3>{saved ? `Ticket ${saved.ticket_number}` : 'New ticket'}</h3><p>{saved ? `${TICKET_STATUSES[saved.status]} · ${detail.vehicle_name || saved.plate_number || 'Vehicle selected'} · ${detail.renter_name || 'Renter not confirmed'}` : 'Save the notice, then find the renter.'}</p></div>
+    <div className="ticket-heading"><div><h3>{saved ? (saved.ticket_number.startsWith('MANUAL-') ? `Ticket · ${saved.violation_date}` : `Ticket ${saved.ticket_number}`) : 'New ticket'}</h3><p>{saved ? `${TICKET_STATUSES[saved.status]} · ${detail.vehicle_name || saved.plate_number || 'Vehicle selected'} · ${detail.renter_name || 'Renter not confirmed'}` : 'Save the notice, then find the renter.'}</p></div>
       {saved && <button disabled={busy} onClick={() => run(async () => { await refresh(saved.id, true); setMessage('Latest saved fields loaded.'); })}>Discard draft / reload saved case</button>}</div>
     {error && <p className="ticket-error" role="alert">{error}</p>}{message && <p className="ticket-message" role="status">{message}</p>}
-    <form onSubmit={e => { e.preventDefault(); run(save); }}>
+    <details><summary>Edit ticket details, dates, and notes</summary><form onSubmit={e => { e.preventDefault(); run(save); }}>
       <fieldset disabled={disabled}><legend>Notice details</legend><div className="ticket-form-grid">
-        {input('agency', 'Issuing agency *', 'text', { required: true, maxLength: 200 })}{input('ticket_number', 'Ticket number *', 'text', { required: true, maxLength: 100 })}
+        {input('agency', 'Issuing agency (optional)', 'text', { maxLength: 200 })}{input('ticket_number', 'Ticket number (optional)', 'text', { maxLength: 100 })}
         {input('ticket_type', 'Ticket type')}{input('amount', 'Amount due to agency', 'number', { min: 0, step: '0.01' })}
         <VehiclePicker value={form.vehicle_id} onChange={value => field('vehicle_id', value)} disabled={disabled}/>
         <div className="ticket-form-grid">{input('plate_number', 'Plate on notice')}{input('plate_state', 'Plate state', 'text', { maxLength: 10 })}</div>
@@ -193,8 +203,8 @@ function TicketEditor({ detail, canManage, canOpenRental, onOpenRental, onChange
         <label className="ticket-wide">Case notes<textarea value={form.notes} onChange={e => field('notes', e.target.value)}/></label>
       </div></fieldset>
       {canManage && !closed && <div className="ticket-actions"><button className="primary-btn" disabled={busy} type="submit">{busy ? 'Working…' : 'Save ticket'}</button><button disabled={busy} type="button" onClick={() => run(async () => { const c = await save(); const result = await rpc('admin_ticket_candidates', { p_id: c.id }); setMatches(result); setMatchId(''); })}>Save & find renter</button></div>}
-    </form>
-    {saved && !canManage && <button disabled={busy} onClick={() => run(async () => setMatches(await rpc('admin_ticket_candidates', { p_id: saved.id })))}>View rental candidates</button>}
+    </form></details>
+    {saved && <button disabled={busy} onClick={() => run(async () => setMatches(await rpc('admin_ticket_candidates', { p_id: saved.id })))}>Find renter</button>}
     {matches && <section className="ticket-matches"><h4>Rental candidates</h4><p>Assignment dates may come from booking records. A return inspection is supporting evidence, not a verified handover time. Confirm against the agreement and other records.</p>
       {matches.time_unknown && <p className="ticket-warning">Time is unknown. These candidates overlap the whole local day.</p>}
       {matches.vehicle_verification_required && <p className="ticket-warning">Historical plate assignment is missing or conflicting. A vehicle verification note is required.</p>}
@@ -207,7 +217,11 @@ function TicketEditor({ detail, canManage, canOpenRental, onOpenRental, onChange
     </section>}
     {saved?.match_evidence && <section><h4>Confirmed matching evidence</h4><p>{saved.match_evidence.candidate?.full_name} · Confirmed {instant(saved.confirmed_at)}</p><p>{saved.match_evidence.verification_note || 'Staff confirmed the recorded assignment.'}</p><details><summary>View saved evidence</summary><p>{saved.match_evidence.vehicle_note}</p><p>Rental {saved.rental_id}</p>{saved.match_evidence.candidate?.intervals?.map((period,index) => <p key={index}>{period.vehicle_name}: {instant(period.from)} → {instant(period.until)}</p>)}<p>Return inspection: {instant(saved.match_evidence.candidate?.inspection_completed_at)}</p></details>
       {canOpenRental && <button onClick={() => onOpenRental(saved.rental_id)}>Open rental</button>}</section>}
-    <section><h4>Ticket evidence</h4><p>PDF, JPEG, PNG, WebP, HEIC/HEIF · 20 MB per file. HEIC/HEIF is available as a download.</p>
+    {saved?.rental_id && <section className={saved.customer_flag_active ? 'ticket-red-flag' : ''}><h4>Customer red flag</h4><p>{saved.customer_flag_active ? 'Flag active — staff will see this ticket when reviewing this customer or another rental.' : 'Flag this customer for review before their next rental.'}</p>{saved.customer_flag_active && <p>{saved.customer_flag_note}</p>}<p>A flag does not charge the customer or block booking. Review the original rental’s Traffic / Parking Violation charges before collecting payment. Paying the agency does not mean the customer reimbursed you.</p>
+      {canFlagCustomer && <><label>Flag / clear reason<textarea value={note} onChange={e => setNote(e.target.value)} /></label><button disabled={busy || dirty} onClick={() => run(async () => { await rpc('admin_ticket_customer_flag', { p_id: saved.id, p_version: saved.version, p_active: !saved.customer_flag_active, p_note: note }); await refresh(saved.id, true); window.dispatchEvent(new Event('ticket-flags-changed')); setNote(''); })}>{saved.customer_flag_active ? 'Clear customer red flag' : 'Red flag customer'}</button></>}
+      {canOpenRental && <button onClick={() => onOpenRental(saved.rental_id)}>Open original rental / review charges</button>}
+    </section>}
+    <section><h4>Ticket evidence (optional)</h4><p>PDF, JPEG, PNG, WebP, HEIC/HEIF · 20 MB per file. HEIC/HEIF is available as a download.</p>
       {canManage && !closed && <label>Add attachments<input type="file" multiple disabled={busy} accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif" onChange={e => {
         const chosenFiles = Array.from(e.target.files || []); e.target.value = '';
         try {

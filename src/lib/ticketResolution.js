@@ -39,7 +39,7 @@ export function ticketTimeOptions(date, time, zone) {
   return [...offsets].map(offset => local - offset).filter(instant => wall(instant) === local).sort((a, b) => a - b).map(instant => new Date(instant).toISOString());
 }
 export function ticketPayload(form) {
-  if (!form.agency.trim() || !form.ticket_number.trim() || !form.violation_date) throw new Error('Enter the agency, ticket number, and violation date.');
+  if (!form.violation_date) throw new Error('Enter the ticket date.');
   if (!form.vehicle_id && !(form.plate_number.trim() && form.plate_state.trim())) throw new Error('Select a vehicle or enter its plate and state.');
   // Validate even when the violation time is unknown.
   new Intl.DateTimeFormat('en-US', { timeZone: form.timezone }).format();
@@ -52,7 +52,7 @@ export function ticketPayload(form) {
     if (!occurred_at) throw new Error('This time occurs twice. Select the occurrence shown on the notice.');
   }
   if (form.amount !== '' && (!Number.isFinite(Number(form.amount)) || Number(form.amount) < 0)) throw new Error('Enter a valid nonnegative amount.');
-  return { ...form, violation_time: form.time_unknown ? '' : form.violation_time, occurred_at };
+  return { ...form, agency: form.agency.trim() || 'Not entered', ticket_number: form.ticket_number.trim() || `MANUAL-${form.id}`, violation_time: form.time_unknown ? '' : form.violation_time, occurred_at };
 }
 export function ticketNeedsNote(matches, candidate) {
   return Boolean(matches?.time_unknown || matches?.vehicle_verification_required || matches?.candidates?.length !== 1 || candidate?.booked_fallback || matches?.plate_vehicle_ids?.length > 1);

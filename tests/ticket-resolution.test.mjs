@@ -46,3 +46,12 @@ test('failed upload does not complete attachment; retry handles a lost successfu
  await assert.rejects(uploadTicketFile(client, 'case', file, 'file'), /Network/); assert.deepEqual(calls, ['prepare']);
  failed = false; await uploadTicketFile(client, 'case', file, 'file'); assert.deepEqual(calls, ['prepare','prepare','complete']);
 });
+
+test('simple lookup and save need only car, violation date and time; extra notice fields are optional', () => {
+ const value = { ...form(), agency: '', ticket_number: '', amount: '' };
+ const payload = ticketPayload(value);
+ assert.equal(payload.agency, 'Not entered');
+ assert.equal(payload.ticket_number, `MANUAL-${value.id}`);
+ assert.equal(ticketPayload(value).ticket_number, payload.ticket_number, 'Retry must retain the same case reference');
+ assert.equal(payload.occurred_at, '2026-10-03T23:55:19.000Z');
+});

@@ -1,5 +1,6 @@
 import { PaymentRevenueCards } from './PaymentRevenueCards.jsx';
 import { TicketResolution } from './TicketResolution.jsx';
+import { CustomerTicketFlagProvider, CustomerTicketFlags } from './CustomerTicketFlags.jsx';
 import { rentalDayShortcut } from './lib/rentalChangeDates.js';
 import { depositDeductionOptions } from './lib/depositDeduction.js';
 import { ReturnEvidencePicker, SavedReturnEvidence } from './ReturnEvidence.jsx';
@@ -468,6 +469,7 @@ function updateFetchedState(setter, nextValue, silent) {
 }
 
 function App() {
+  const [ticketFocusId, setTicketFocusId] = useState(null);
   const initialAdminParams = new URLSearchParams(window.location.search);
   const requestedAdminTab = initialAdminParams.get('tab') || '';
   const [session, setSession] = useState(null);
@@ -4124,7 +4126,7 @@ function App() {
   if (!isAdminUser) return <NotAdmin email={session.user.email} signOut={signOut} />;
 
   return (
-    <DraftOwnerContext.Provider value={session.user.id}><div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
+    <DraftOwnerContext.Provider value={session.user.id}><CustomerTicketFlagProvider key={session.user.id} onOpenRental={canAccessAdminTab('rentals') ? id => { setManualBookingFocusId(id); selectAdminTab('rentals'); } : null} onOpenTicket={canAccessAdminTab('tickets') ? id => { setTicketFocusId(id); selectAdminTab('tickets'); } : null}><div className={`admin-shell ${navCollapsed ? 'nav-collapsed' : ''}`}>
       {paymentProcessing && <PaymentProcessingOverlay message={paymentProcessing} />}
       {isMobileAdminNav && !navCollapsed && <button type="button" className="mobile-drawer-scrim" aria-label="Close admin navigation" onClick={() => setNavCollapsed(true)} />}
       {isMobileAdminNav && (
@@ -4207,7 +4209,7 @@ function App() {
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={canUsePermission('rental.edit') ? updateRentalStatus : null} recordTestPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordTestPayment : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} recordExtensionPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordExtensionPayment : null} depositTasks={canUsePermission('reports.financial') ? depositActionTasks : []} rentals={rentals} depositAllocations={canUsePermission('reports.financial') ? depositAllocations : []} onStripeRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? escalateDepositTask : null} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'payments' && <PaymentsTab canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} accountEmail={session.user.email} paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
-        {activeTab === 'tickets' && <TicketResolution canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
+        {activeTab === 'tickets' && <TicketResolution focusId={ticketFocusId} canFlagCustomer={canUsePermission('ticket.manage') && canUsePermission('customer.manage')} canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
@@ -4232,7 +4234,7 @@ function App() {
         onConfirm={confirmVehiclePriceChange}
       />, document.body)}
       <TaskRecovery />
-    </div></DraftOwnerContext.Provider>
+    </div></CustomerTicketFlagProvider></DraftOwnerContext.Provider>
   );
 }
 
@@ -5526,6 +5528,7 @@ function Customers({ profiles, customerDirectoryState, refreshCustomerDirectory,
               <button className="customer-message-button" type="button" onClick={() => setContactCustomerId(profile.id)}><Send size={15}/> Message</button>
               <button className="customer-details-button" type="button" onClick={() => setSelectedCustomerId(profile.id)}><Eye size={16}/> Details</button>
             </div>
+            <CustomerTicketFlags userId={profile.id}/>
           </article>;
         })}
       </div>
@@ -5841,7 +5844,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
         <button className="customer-details-close admin-close-button" type="button" onClick={onClose} aria-label="Close customer details"><XCircle size={20}/></button>
       </header>
       <div className="customer-details-scroll">
-        <section className="customer-details-overview">
+        <CustomerTicketFlags userId={profile.id}/><section className="customer-details-overview">
           <div className={`customer-risk-card ${risk.level}`}>
             <span>{prettyStatus(risk.level)} risk</span>
             <strong>{risk.summary}</strong>
@@ -7300,6 +7303,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, cust
             }}><strong>{customer.full_name || 'Unnamed customer'}{String(customer.role || '').toLowerCase() === 'admin' ? ' • Administrator' : ''}</strong><span>{[customer.email, customer.phone].filter(Boolean).join(' • ') || 'No email or phone saved'}</span></button>) : <p>{customerDirectoryState.loading ? 'Loading customer accounts…' : 'No customers match that search.'}</p>}
             {allMatchingCustomers.length > matchingCustomers.length && <p>Showing the first 50 matches. Type more of the name, email, or phone number to narrow the list.</p>}
           </div>}
+          {selectedCustomer && <CustomerTicketFlags userId={selectedCustomer.id}/>}
           {selectedCustomer && <div className="selected-customer-confirmation"><CheckCircle2 size={17}/><span><strong>Selected:</strong> {selectedCustomer.full_name || selectedCustomer.email || selectedCustomer.phone}<small>{selectedCustomer.email || 'Email missing'} • {selectedCustomer.phone || 'Phone missing'} • {selectedCustomer.phone_verified ? 'Phone verified' : 'Phone verification needed'} • {String(selectedCustomer.identity_verification_status || '').toLowerCase() === 'verified' ? 'Identity verified' : 'Identity verification needed'}</small></span></div>}
           {selectedCustomer && !selectedCustomer.full_name?.trim() && <div className="existing-customer-legal-name full-field">
             <label className="admin-legal-name-field"><span>First name</span><input value={manualBookingForm.existingFirstName} onChange={(event) => update('existingFirstName', limitText(event.target.value, 80))} autoComplete="given-name" placeholder="First name + middle name or initial" required /><small>Include the middle name or initial exactly as shown on the customer’s ID.</small></label>
@@ -8275,6 +8279,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
       </div>
     </header>
 
+    <CustomerTicketFlags userId={rental.user_id}/>
     <div className="rental-card-workflow">
       <RentalProgressTracker steps={progressSteps} onStepClick={(step) => setAdminStepScope(step.key)} />
     </div>
