@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-08-08-late-mileage-r1';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-10-22-deposit-tickets-r1';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -26,6 +26,10 @@ Excess mileage shall be charged at $0.35 per mile.
 Unlimited mileage may be purchased for an additional fee depending upon vehicle class.
 Security deposits and post-rental charges may range from $200 to $2,000 depending upon vehicle class, extent of damage, policy violations, cleaning requirements, and other contractual breaches.
 Renter authorizes Company to charge any payment method on file for all authorized charges including rental fees, excess mileage, tolls, traffic violations, cleaning fees, smoking fees, damage, loss of use, diminished value, towing, storage, repossession, administrative fees, attorneys’ fees, fuel charges, transportation fees, recovery fees, and all other authorized charges related to the rental.
+
+SECURITY DEPOSIT HOLD AND POST-RENTAL TICKET CHARGES
+Renter acknowledges and agrees that Company may retain the security deposit for up to thirty (30) calendar days after the Vehicle is returned to verify whether any traffic tickets, parking citations, automated enforcement violations, or related fines were incurred during Renter’s possession or use of the Vehicle. Company may deduct amounts properly owed under this Agreement from the security deposit and shall provide an itemized statement of any deductions. Any remaining deposit balance shall be refunded within that thirty (30) day period, or sooner if required by applicable law.
+Renter remains responsible for tickets, citations, and related fines incurred during Renter’s possession or use of the Vehicle, even if notice is received after the Vehicle is returned or the security deposit is refunded. To the extent permitted by law, Renter authorizes Company to charge the payment method on file, or invoice Renter, for such amounts for up to one (1) year after the scheduled rental return date stated in the Rental Addendum, including any extension agreed to by Company. Company shall provide an itemized notice and supporting documentation before imposing any such charge. Refunding the security deposit does not release Renter from these obligations, and no amount shall be collected twice.
 
 PICK-UP AND DROP-OFF SERVICES
 Company may offer vehicle pick-up and drop-off services subject to availability, scheduling, and Company approval at its sole discretion.

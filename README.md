@@ -73,7 +73,7 @@ the Identity VerificationSession events listed in `../LAUNCH_READINESS.md`.
 - SendGrid email automation, campaigns, and admin one-to-one template emails
 - Twilio automated rental reminders and admin one-to-one template texts
 - Scheduled website popup and banner promotion manager with per-page placement
-- Manual Stripe security-deposit refunds and automatic clean-return refunds after seven days
+- Manual Stripe security-deposit refunds and automatic clean-return refunds after 30 calendar days from the recorded return (admin may refund earlier)
 - Hosted Stripe Identity government-ID and selfie verification required before pickup
 - Automatic TollSpot fleet enrollment and toll retrieval, rental matching,
   and customer charges attached directly to the correct rental

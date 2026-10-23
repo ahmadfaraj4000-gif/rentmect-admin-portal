@@ -96,7 +96,7 @@ const DEFAULT_UNDER_25_PRICING = {
 const DEFAULT_BILLING_AUTOMATION = {
   id: true,
   automatic_deposit_release_enabled: true,
-  deposit_release_delay_days: 7,
+  deposit_release_delay_days: 30,
   tollspot_automatic_sync_enabled: true,
   tollspot_auto_create_charges: true,
 };
@@ -7654,8 +7654,8 @@ function SettingsTab({
         </label>
         <label>
           <span>Wait after return before automatic refund</span>
-          <input type="number" min="1" max="30" step="1" value={billingAutomation.deposit_release_delay_days ?? 7} disabled={billingAutomation.automatic_deposit_release_enabled === false} onChange={(event) => setBillingAutomation((current) => ({ ...current, deposit_release_delay_days: event.target.value }))} />
-          <small>Unpaid tolls, late fees, damage, cleaning, and other rental charges always block the refund, even after this delay.</small>
+          <input type="number" min="1" max="30" step="1" value={billingAutomation.deposit_release_delay_days ?? 30} disabled={billingAutomation.automatic_deposit_release_enabled === false} onChange={(event) => setBillingAutomation((current) => ({ ...current, deposit_release_delay_days: event.target.value }))} />
+          <small>Default: 30 calendar days from the recorded return, with earlier admin refunds available. Unresolved charges or inspection holds require review before the deadline; provide an itemized statement for deductions.</small>
         </label>
         <button className="primary-btn" disabled={billingAutomationSaving}>{billingAutomationSaving ? 'Saving…' : 'Save Billing Automation'}</button>
       </form>
@@ -11162,7 +11162,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     </div>
       <label className="field-label">Deposit decision
         <select value={inspection.depositDecision} onChange={(event) => update('depositDecision', event.target.value)}>
-          <option value="release">Schedule refund in 7 days (admin can refund sooner)</option>
+          <option value="release">Schedule refund 30 days after return (admin can refund sooner)</option>
           <option value="hold">Hold deposit for review</option>
         </select>
       </label>
