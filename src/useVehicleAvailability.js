@@ -4,9 +4,9 @@ import { withReadRetry } from './requestDeadline.js';
 // A result belongs to its exact vehicle/time window. Never reuse an older
 // window's green availability while the admin is changing the dates.
 export function useVehicleAvailability(client, rentalId, from, until, vehicleId = null) {
-  const key = JSON.stringify([rentalId, from, until, vehicleId]);
-  const [state, setState] = useState({ key: '', rows: [], error: '', loading: false });
   const [attempt, setAttempt] = useState(0);
+  const key = JSON.stringify([rentalId, from, until, vehicleId, attempt]);
+  const [state, setState] = useState({ key: '', rows: [], error: '', loading: false });
   const valid = Boolean(from && until && new Date(until) > new Date(from));
   useEffect(() => {
     if (!valid) return;

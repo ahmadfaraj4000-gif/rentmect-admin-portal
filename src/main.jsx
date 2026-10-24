@@ -8798,7 +8798,7 @@ function RentalAvailabilityNotice({ availability, vehicleId }) {
   if (availability.loading) return <p role="status">Checking vehicle availability…</p>;
   if (availability.error) return <p role="alert" className="form-error">{availability.error} <button type="button" onClick={availability.retry}>Retry availability</button></p>;
   if (!availability.ready) return <p className="muted">Choose the dates and times to check availability.</p>;
-  if (!row) return <p className="muted">Choose a replacement vehicle. Each option shows availability for the swap dates.</p>;
+  if (!row) return <p className="muted">Choose a replacement vehicle to see its availability or why it is blocked.</p>;
   return <div aria-live="polite">
     <p className={row.available ? 'muted' : 'form-error'}><strong>{row.available ? 'Available for these dates' : 'Unavailable for these dates'}</strong></p>
     {row.conflicts.map((conflict, index) => <p key={`${conflict.source_id}-${index}`}>{conflict.reason}{conflict.starts_at ? `: ${formatEasternDateTime(conflict.starts_at)} → ${formatEasternDateTime(conflict.ends_at)}` : ''}</p>)}
@@ -8893,7 +8893,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
 
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
-  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', effectiveAt: new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(' ', 'T'), swapKind: 'emergency', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
+  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
   const [rateContext, setRateContext] = useState(null);
   useEffect(() => {
     let active = true;
@@ -8940,13 +8940,15 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
       <div className="rental-amendment-scroll">
         {rateContext && <p>Current agreed rate: <strong>{money(rateContext.daily_rate)}/day</strong>.{form.vehicleId && <> Replacement standard rate: <strong>{money(vehicles.find(v => v.id === form.vehicleId)?.daily_rate)}/day</strong>.</>}</p>}
         <fieldset disabled={busy} className="rental-amendment-grid vehicle-swap-fields">
-          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id} disabled={!availability.ready || !availability.rows.some((row) => row.vehicle_id === v.id && row.available)}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : 'Choose swap time first'}</option>)}</select></label>
+          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id} disabled={!availability.ready}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : 'Choose swap time first'}</option>)}</select></label>
           <label><span>Swap reason</span><select value={form.swapKind} onChange={(e) => change('swapKind', e.target.value)}><option value="emergency">Emergency replacement</option><option value="maintenance">Maintenance replacement</option><option value="customer_request">Customer requested change</option></select></label>
           <label><span>Actual agreed swap time (Eastern)</span><input type="datetime-local" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>
           {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><input type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
           <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
-        <p>The effective time records when the customer changed vehicles. The entry time is recorded separately when saved.</p>
+        <p>The effective time records when the customer changed vehicles. The entry time is recorded separately when saved. Reopening this form keeps the previously entered time.</p>
+        <p>Checking availability from <strong>{formatEasternDateTime(easternDateTimeInputToIso(form.effectiveAt)) || 'Choose a swap time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
+        <button type="button" disabled={busy || availability.loading} onClick={availability.retry}>Recheck availability</button>
         <RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} />
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong>
           {preview.periods.map((period, i) => <p key={i}>{formatEasternDateTime(period.from)} → {formatEasternDateTime(period.until)}: {money(period.old_rate)} → {money(period.new_rate)} per day</p>)}

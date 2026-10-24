@@ -47,17 +47,20 @@ const getComponent=async(name,next)=>{
 };
 const helpers={React,useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
  useState:(initial)=>[typeof initial==='function'?initial():initial,()=>{}],crypto:{randomUUID:()=> 'fixture'},supabase:{},
- Car:()=>null,CalendarClock:()=>null,X:()=>null,MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
- formatRentalDate:(d,t)=>`${d} ${t}`,formatEasternDateTime:(v)=>v,easternDateTimeInputToIso:()=>null,
+ money:(v)=>String(v),Car:()=>null,CalendarClock:()=>null,X:()=>null,MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
+ formatRentalDate:(d,t)=>`${d} ${t}`,formatEasternDateTime:(v)=>v,formatEasternDateTimeInput:()=> '2026-10-24T16:21',easternDateTimeInputToIso:()=> '2026-10-24T20:21:00Z',
  parseBookingDateTime:()=>new Date('2026-10-03T13:00:00Z'),RentalAvailabilityNotice:()=>null};
 const rental={id:'r',vehicle_id:'current',return_date:'2026-10-04',return_time:'9:00 AM',vehicles:{name:'Current car',daily_rate:64}};
 
-test('swap options visibly disable unavailable vehicles and review stays blocked',async()=>{
+test('swap options allow inspecting unavailable vehicles while review stays blocked',async()=>{
  const Swap=vm.runInNewContext(await getComponent('VehicleSwapModal','RentalAmendmentModal'),{
  ...helpers,useVehicleAvailability:()=>({ready:true,rows:[{vehicle_id:'free',available:true},{vehicle_id:'busy',available:false}]})});
  const html=renderToStaticMarkup(React.createElement(Swap,{rental,vehicles:[{id:'free',name:'Free car'},{id:'busy',name:'Booked car'}]}));
  assert.match(html,/<option value="free">Free car — Available<\/option>/);
- assert.match(html,/<option value="busy" disabled="">Booked car — Unavailable<\/option>/);
+ assert.match(html,/<option value="busy">Booked car — Unavailable<\/option>/);
+ assert.match(html,/Checking availability from/);
+ assert.match(html,/2026-10-24T20:21:00Z/);
+ assert.match(html,/Recheck availability/);
  assert.match(html,/<button class="primary-btn" disabled="">Review swap<\/button>/);
 });
 
@@ -74,4 +77,27 @@ test('availability notice exposes conflict times and the next booking to the adm
  const html=renderToStaticMarkup(React.createElement(Notice,{vehicleId:'car',availability:{ready:true,rows:[{vehicle_id:'car',available:false,
  conflicts:[{source_id:'r',reason:'Reserved rental',starts_at:'Oct 4 noon',ends_at:'Oct 10 noon'}],next_reservation:{starts_at:'Oct 4 noon',ends_at:'Oct 10 noon'}}]}}));
  assert.match(html,/Unavailable for these dates/);assert.match(html,/Next reservation: Oct 4 noon/);assert.match(html,/at least three hours/);
+});
+
+
+test('manual recheck immediately invalidates a previously available result', async () => {
+ const h=hookHarness();let available=true;
+ const client={rpc:async()=>({data:[{vehicle_id:'car',available,conflicts:[]}]})};
+ const args=[client,'rental','2026-10-24T20:21:00Z','2026-11-09T19:30:00Z','car'];
+ h.render(...args);await h.run();let state=h.render(...args);assert.equal(state.ready,true);
+ available=false;state.retry();state=h.render(...args);
+ assert.equal(state.ready,false);assert.equal(state.loading,true);assert.equal(state.rows.length,0);
+ await h.run();state=h.render(...args);assert.equal(state.ready,true);assert.equal(state.rows[0].available,false);
+});
+
+test('selecting a blocked replacement exposes its reason without allowing review', async () => {
+ const Notice=vm.runInNewContext(await getComponent('RentalAvailabilityNotice','AdminRentalExtensionModal'),helpers);
+ const Swap=vm.runInNewContext(await getComponent('VehicleSwapModal','RentalAmendmentModal'),{
+ ...helpers,RentalAvailabilityNotice:Notice,
+ useTaskDraft:(_key,initial)=>[{...initial,vehicleId:'busy'},()=>{},()=>{}],
+ useVehicleAvailability:()=>({ready:true,rows:[{vehicle_id:'busy',available:false,conflicts:[{source_id:'prior',reason:'Reserved rental (three-hour turnaround protected)',starts_at:'Sep 30',ends_at:'Oct 24 1:03 PM'}]}]})});
+ const html=renderToStaticMarkup(React.createElement(Swap,{rental,vehicles:[{id:'busy',name:'Audi Q5 #474'}]}));
+ assert.match(html,/three-hour turnaround protected/);
+ assert.match(html,/Oct 24 1:03 PM/);
+ assert.match(html,/<button class="primary-btn" disabled="">Review swap<\/button>/);
 });
