@@ -9369,7 +9369,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [signatureImage, setSignatureImage] = useState('');
   const label = prettyStatus(scope);
   const isDocument = ['license', 'insurance'].includes(scope);
-  const alreadySigned = scope === 'agreement' && Boolean(rental.agreement_snapshot);
+  const alreadySigned = scope === 'agreement' && Boolean(rental.agreement_signed && rental.agreement_snapshot);
   const [agreementReviewed, setAgreementReviewed] = useState(alreadySigned);
   const displayedAgreement = alreadySigned ? rental.agreement_snapshot : AGREEMENT_TEXT;
   const displayedSignatureImage = alreadySigned ? extractSignatureImage(displayedAgreement) : '';

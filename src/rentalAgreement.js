@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-10-22-deposit-tickets-r1';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-10-23-unreturned-keys-r1';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -30,6 +30,10 @@ Renter authorizes Company to charge any payment method on file for all authorize
 SECURITY DEPOSIT HOLD AND POST-RENTAL TICKET CHARGES
 Renter acknowledges and agrees that Company may retain the security deposit for up to thirty (30) calendar days after the Vehicle is returned to verify whether any traffic tickets, parking citations, automated enforcement violations, or related fines were incurred during Renter’s possession or use of the Vehicle. Company may deduct amounts properly owed under this Agreement from the security deposit and shall provide an itemized statement of any deductions. Any remaining deposit balance shall be refunded within that thirty (30) day period, or sooner if required by applicable law.
 Renter remains responsible for tickets, citations, and related fines incurred during Renter’s possession or use of the Vehicle, even if notice is received after the Vehicle is returned or the security deposit is refunded. To the extent permitted by law, Renter authorizes Company to charge the payment method on file, or invoice Renter, for such amounts for up to one (1) year after the scheduled rental return date stated in the Rental Addendum, including any extension agreed to by Company. Company shall provide an itemized notice and supporting documentation before imposing any such charge. Refunding the security deposit does not release Renter from these obligations, and no amount shall be collected twice.
+
+UNRETURNED KEYS AND KEY FOBS
+Renter must return all keys and key fobs provided with the Vehicle at the end of the rental. If any key or key fob is not returned, Renter shall be responsible for the actual, reasonable cost of replacement, including necessary cutting, programming, and deactivation of missing keys or key fobs, plus a service fee of two hundred dollars ($200), to the extent permitted by law.
+Renter shall also be responsible for documented rental income lost directly because the missing key or key fob makes the Vehicle unavailable for rental, limited to the reasonable time necessary to restore the Vehicle to rental service and any limits imposed by applicable law. Company shall take reasonable steps to minimize this loss and shall not collect duplicate compensation for the same period or expense. Company may deduct authorized amounts from the security deposit or charge the payment method on file, with an itemized statement provided to Renter.
 
 PICK-UP AND DROP-OFF SERVICES
 Company may offer vehicle pick-up and drop-off services subject to availability, scheduling, and Company approval at its sole discretion.
