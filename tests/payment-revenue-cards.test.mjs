@@ -9,7 +9,7 @@ import { canViewRevenue } from '../src/lib/paymentRevenue.js';
 const cardSource = readFileSync(new URL('../src/PaymentRevenueCards.jsx', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const cardCode = (await transformWithOxc(cardSource.replace(/^import .*;\n/gm, '').replaceAll('export function ', 'function '), 'cards.jsx', { jsx: { runtime: 'classic' } })).code;
-const context = vm.createContext({ React, useState: React.useState, useEffect: React.useEffect, useMemo: React.useMemo, CalendarDays: () => null, Banknote: () => null, canViewRevenue });
+const context = vm.createContext({ React, useState: React.useState, useEffect: React.useEffect, useMemo: React.useMemo, useRef: React.useRef, CalendarDays: () => null, Banknote: () => null, canViewRevenue });
 vm.runInContext(cardCode, context);
 const example = { month: 12345.67, year: 234567.89, monthLabel: 'October 2026', yearLabel: '2026', monthKey: '2026-10', issues: [] };
 const view = (props) => renderToStaticMarkup(React.createElement(context.RevenueCardsView, props));

@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Banknote } from 'lucide-react';
 import { supabase } from './lib/supabase.js';
 import { calculatePaymentRevenue, canViewRevenue, loadPaymentRevenue } from './lib/paymentRevenue.js';
+import { performanceTelemetry } from './lib/performance.js';
+import { performanceOutcome } from './lib/performanceTelemetry.js';
 
 const money = (value) => Number(value).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 export function RevenueCardsView({ report, loading, error, onRetry, onOpenRental, reconciliation = [] }) {
@@ -52,6 +54,8 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
   const [state, setState] = useState({ data: null, loading: true, error: '' });
   const [revision, setRevision] = useState(0);
   const [now, setNow] = useState(() => new Date());
+  const journey = useRef(null);
+  const firstLoad = useRef(true);
   useEffect(() => {
     if (!allowed) return;
     const timer = setInterval(() => setNow(new Date()), 60_000);
@@ -59,6 +63,13 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
   }, [allowed]);
   useEffect(() => {
     if (!allowed) return;
+    // A single user journey spans the existing coalescing/restarts while the
+    // payment ledger arrives, rather than reporting those restarts as successes.
+    if (!performanceTelemetry.isActive(journey.current)) {
+      journey.current = performanceTelemetry.start('payment_totals', { mode: firstLoad.current ? 'initial' : 'background' });
+      firstLoad.current = false;
+    }
+    const token = journey.current;
     const controller = new AbortController();
     let active = true;
     let deadline;
@@ -68,9 +79,10 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
       deadline = setTimeout(() => controller.abort(), 60_000);
       try {
         const data = await loadPaymentRevenue(supabase, controller.signal);
-        if (active) { setNow(new Date()); setState({ data, loading: false, error: '' }); }
+        if (active) { setNow(new Date()); setState({ data, loading: false, error: '', performance: { token, outcome: 'success' } }); }
       } catch (error) {
-        if (active) setState({ data: null, loading: false, error: controller.signal.aborted ? 'Loading took too long. Please retry.' : error.message });
+        if (active) setState({ data: null, loading: false, error: controller.signal.aborted ? 'Loading took too long. Please retry.' : error.message,
+          performance: { token, outcome: controller.signal.aborted ? 'timeout' : performanceOutcome(error) } });
       } finally {
         clearTimeout(deadline);
         controller.abort();
@@ -79,6 +91,10 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
     return () => { active = false; clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
   }, [allowed, refreshKey, revision]);
   const report = useMemo(() => state.data ? calculatePaymentRevenue(state.data, now) : null, [state.data, now]);
+  useEffect(() => {
+    if (!state.loading && state.performance) return performanceTelemetry.afterPaint(state.performance.token, state.performance.outcome);
+  }, [state.loading, state.performance]);
+  useEffect(() => () => performanceTelemetry.cancel('payment_totals'), []);
   if (!allowed) return null;
-  return <RevenueCardsView report={report} loading={state.loading} error={state.error} onRetry={() => setRevision((value) => value + 1)} onOpenRental={onOpenRental} reconciliation={reconciliation}/>;
+  return <RevenueCardsView report={report} loading={state.loading} error={state.error} onRetry={() => { performanceTelemetry.intent('payment_totals', 'refresh'); setRevision((value) => value + 1); }} onOpenRental={onOpenRental} reconciliation={reconciliation}/>;
 }

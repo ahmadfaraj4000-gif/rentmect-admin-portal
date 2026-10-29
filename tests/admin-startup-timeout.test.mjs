@@ -13,6 +13,7 @@ function bootstrap(getSession) {
   vm.runInNewContext(source.slice(start, end), {
     startupAttempt: 0,
     portalTransport: { setOwner: (id) => { state.recoveryOwner = id; } },
+    performanceTelemetry: { setOwner: (id) => { state.performanceOwner = id; } },
     useEffect: (effect) => { cleanup = effect(); },
     supabase: { auth: {
       getSession,
@@ -50,6 +51,7 @@ test('a newer sign-in event is not overwritten by an old startup response', asyn
     await new Promise((done) => setImmediate(done));
     assert.equal(f.state.session, session);
     assert.equal(f.state.recoveryOwner, 'admin');
+    assert.equal(f.state.performanceOwner, 'admin');
     assert.equal(f.state.error, '');
     assert.equal(f.state.loading, false);
     f.cleanup();

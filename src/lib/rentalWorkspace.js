@@ -7,7 +7,7 @@ export const rentalPageKey = ({ filter, search = '', focusId = '', offset = 0 })
 
 // Session-local cache. Responses for an old filter or closed record never replace
 // the visible state. Forced reads drain once more if a mutation arrived mid-read.
-export function createRentalWorkspace({ readList, readDetail, readDetails, hydrate, changed, now = Date.now, inline = false }) {
+export function createRentalWorkspace({ readList, readDetail, readDetails, hydrate, changed, now = Date.now, inline = false, observe }) {
   const pages = new Map();
   const details = new Map();
   const loads = new Map();
@@ -19,6 +19,7 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
   let deferredList = false;
   let state = { rows: [], counts: {}, total: 0, offset: 0, loading: true, error: '', selectedId: '', detailLoading: false, detailError: '', detailReady: false };
   const emit = (patch) => { if (!disposed) { state = { ...state, ...patch }; changed(state); } };
+  const observation = (method, ...args) => { try { return observe?.[method]?.(...args); } catch { /* Metrics never break rental loading. */ } };
   async function record(id, force = false) {
     const cached = details.get(id);
     if (!force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) return cached.data;
@@ -94,10 +95,21 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
     emit({ loading: true, error: '' });
     return freshDomainLoad(loads, `list:${key}`, force, async () => {
       const readGeneration = generation;
+      const token = observation('start', params.filter === 'archive' ? 'rental_archive' : 'rental_list', { mode: pages.size ? 'background' : 'initial' });
+      let measured = false;
       try {
-        const data = !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation
+        const pageCached = !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation;
+        const data = pageCached
           ? cached.data : await readList(params);
         if (disposed || rentalPageKey(current) !== key || readGeneration !== generation) return;
+        if (token) {
+          let cachedDetails = 0;
+          for (const row of data.rows) {
+            const detail = details.get(row.id);
+            if (detail && now() - detail.at < RENTAL_CACHE_MS && detail.generation === generation) cachedDetails++;
+          }
+          observation('cache', token, pageCached && cachedDetails === data.rows.length ? 'cache' : pageCached || cachedDetails > 0 ? 'mixed' : 'network');
+        }
         const records = inline ? await inlineRecords(data, () => !disposed && readGeneration === generation && rentalPageKey(current) === key) : [];
         if (disposed || readGeneration !== generation || rentalPageKey(current) !== key) return;
         if (editing && state.rows.length) { deferredList = true; return; }
@@ -105,10 +117,17 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
         pages.set(key, { data, at: now(), generation: readGeneration });
         // Bound memory when searching many different strings.
         if (pages.size > 30) pages.delete(pages.keys().next().value);
-        if (rentalPageKey(current) === key) emit({ ...data, loading: false, error: '' });
+        if (rentalPageKey(current) === key) {
+          measured = true;
+          emit({ ...data, loading: false, error: '', ...(token ? { listPerformance: { token, outcome: 'success' } } : {}) });
+        }
       } catch (error) {
-        if (rentalPageKey(current) === key) emit({ loading: false, error: error.message || 'Rentals could not load.' });
+        if (rentalPageKey(current) === key) {
+          measured = true;
+          emit({ loading: false, error: error.message || 'Rentals could not load.', ...(token ? { listPerformance: { token, outcome: observation('errorOutcome', error) || 'error' } } : {}) });
+        }
       } finally {
+        if (!measured) observation('finish', token, 'cancelled');
         if (!disposed && rentalPageKey(current) === key) emit({ loading: false });
       }
     });
@@ -120,20 +139,24 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
     if (!id) { emit({ selectedId: '', detailLoading: false, detailReady: false, detailError: '' }); return; }
     const cached = details.get(id);
     if (inline && !switched && !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) return;
+    const isCached = !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation;
+    const token = observation('start', 'rental_detail', { mode: switched ? 'navigation' : 'refresh', cache: isCached ? 'cache' : 'network' });
+    const measuredDetail = outcome => token ? { detailPerformance: { token, outcome } } : {};
     emit({ selectedId: id, detailLoading: true, detailError: '', ...(switched ? { detailReady: false } : {}) });
     if (!force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) {
       hydrate(cached.data);
-      emit({ detailLoading: false, detailReady: true });
+      emit({ detailLoading: false, detailReady: true, ...measuredDetail('success') });
       return;
     }
     try {
       const data = await record(id, force);
       if (!disposed && selectedId === id && details.get(id)?.generation === generation) {
         hydrate(data);
-        emit({ detailLoading: false, detailReady: true, detailError: '' });
-      }
+        emit({ detailLoading: false, detailReady: true, detailError: '', ...measuredDetail('success') });
+      } else observation('finish', token, 'cancelled');
     } catch (error) {
-      if (selectedId === id) emit({ detailLoading: false, detailError: error.message || 'Rental details could not load.' });
+      if (selectedId === id) emit({ detailLoading: false, detailError: error.message || 'Rental details could not load.', ...measuredDetail(observation('errorOutcome', error) || 'error') });
+      else observation('finish', token, 'cancelled');
     }
   }
 

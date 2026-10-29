@@ -1,3 +1,4 @@
+import { performanceTelemetry } from './lib/performance.js';
 import { PaymentRevenueCards } from './PaymentRevenueCards.jsx';
 import { TicketResolution } from './TicketResolution.jsx';
 import { CustomerTicketFlagProvider, CustomerTicketFlags } from './CustomerTicketFlags.jsx';
@@ -79,6 +80,8 @@ import './vehicle-editor.css';
 import './admin-list-details.css';
 import './emails.css';
 import './final-overrides.css';
+
+const PerformanceTab = React.lazy(() => import('./PerformanceTab.jsx'));
 
 const RENTMECT_ADDRESS = import.meta.env.VITE_RENTMECT_ADDRESS || '12 Holmes Circle, Farmington, CT';
 const CLIENT_PORTAL_URL = (import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://login.rentmect.com').replace(/\/$/, '');
@@ -807,6 +810,7 @@ function App() {
       if (!active) return;
       sessionEventReceived = true;
       portalTransport.setOwner(nextSession?.user?.id);
+      performanceTelemetry.setOwner(nextSession?.user?.id);
       setSession(nextSession);
       setLoading(false);
     });
@@ -814,7 +818,7 @@ function App() {
       const { data, error } = await withRequestDeadline(supabase.auth.getSession(), 'Session verification', 12_000);
       if (!active) return;
       if (error && !sessionEventReceived) setStartupError(userFacingPortalError(error));
-      if (!error && !sessionEventReceived) { portalTransport.setOwner(data?.session?.user?.id); setSession(data?.session || null); }
+      if (!error && !sessionEventReceived) { portalTransport.setOwner(data?.session?.user?.id); performanceTelemetry.setOwner(data?.session?.user?.id); setSession(data?.session || null); }
       setLoading(false);
     })();
     return () => { active = false; listener.subscription.unsubscribe(); };
@@ -4087,6 +4091,10 @@ function App() {
   ].filter((tab) => canAccessAdminTab(tab.key));
 
   function selectAdminTab(key) {
+    if (key !== activeTab) {
+      if (key === 'rentals') performanceTelemetry.intent('rental_list', 'navigation');
+      if (key === 'payments') performanceTelemetry.intent('payment_totals', 'navigation');
+    }
     if (key === 'rentals' && activeTab !== 'rentals') {
       setRentalFilter('needs_action'); setSearch(''); setManualBookingFocusId('');
       rentalWorkspace.open(''); rentalWorkspace.setOffset(0);
@@ -4193,7 +4201,7 @@ function App() {
           <div className="header-actions">
             {canUsePermission('booking.create') && <button type="button" className="primary-btn" onClick={() => selectAdminTab('new-booking')}><CalendarClock size={17}/> New Booking</button>}
             {isMobileAdminNav ? <MobileAdminQuickLinks/> : <AdminQuickLinks/>}
-            <button type="button" onClick={() => loadAllData({ silent: true })} className="secondary-btn" disabled={dataHealth.refreshing}>{dataHealth.refreshing ? 'Refreshing…' : 'Refresh'}</button>
+            <button type="button" onClick={() => { if (activeTab === 'rentals') performanceTelemetry.intent(rentalFilter === 'archive' ? 'rental_archive' : 'rental_list', 'refresh'); if (activeTab === 'payments') performanceTelemetry.intent('payment_totals', 'refresh'); loadAllData({ silent: true }); }} className="secondary-btn" disabled={dataHealth.refreshing}>{dataHealth.refreshing ? 'Refreshing…' : 'Refresh'}</button>
           </div>
         </header>
 
@@ -4219,7 +4227,7 @@ function App() {
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
-        {activeTab === 'settings' && <SettingsTab employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
+        {activeTab === 'settings' && <SettingsTab key={session?.user?.id} canManagePerformance={canUsePermission('settings.operational')} employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
         </>}
       </main>
       {vehiclePriceConfirmation && createPortal(<VehiclePriceConfirmationModal
@@ -5426,19 +5434,19 @@ function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRental
       {!focusRentalId && <>
       <div className="filter-pills" role="group" aria-label="Rental filters">
         {rentalFilterOptions().map((filter) => (
-          <button type="button" key={filter.key} className={rentalFilter === filter.key ? 'active' : ''} onClick={() => { manager.open(''); manager.setOffset(0); setRentalFilter(filter.key); }}>
+          <button type="button" key={filter.key} className={rentalFilter === filter.key ? 'active' : ''} onClick={() => { if (filter.key !== rentalFilter) performanceTelemetry.intent(filter.key === 'archive' ? 'rental_archive' : 'rental_list', 'filter'); manager.open(''); manager.setOffset(0); setRentalFilter(filter.key); }}>
             {filter.label} <span className="filter-pill-count">{filterCounts[filter.key] ?? '—'}</span>
           </button>
         ))}
       </div>
-      <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>setSearch(limitText(e.target.value, 120))} placeholder="Search customer, car, phone, status..." /></div>
+      <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>{ performanceTelemetry.intent(rentalFilter === 'archive' ? 'rental_archive' : 'rental_list', 'search'); setSearch(limitText(e.target.value, 120)); }} placeholder="Search customer, car, phone, status..." /></div>
       </>}
       {manager.loading && <p className="muted" role="status">Loading rentals…</p>}
       {manager.error && <p role="alert" className="form-error">{manager.error} <button type="button" onClick={manager.retry}>Retry rentals</button></p>}
       {manager.detailError && <p role="alert" className="form-error">{manager.detailError} <button type="button" onClick={manager.retryDetail}>Retry rental</button></p>}
       {!manager.loading && !manager.error && displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
       <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} onInteract={() => manager.open(r.id)} refreshing={manager.selectedId === r.id && (manager.detailLoading || Boolean(manager.detailError))} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
-      {rentalFilter === 'archive' && displayedRentals.length < manager.total && <button type="button" className="secondary-btn rental-archive-load-more" disabled={manager.loading} onClick={() => manager.setOffset(manager.offset + 25)}>Load 25 more archived rentals</button>}
+      {rentalFilter === 'archive' && displayedRentals.length < manager.total && <button type="button" className="secondary-btn rental-archive-load-more" disabled={manager.loading} onClick={() => { performanceTelemetry.intent('rental_archive', 'load_more'); manager.setOffset(manager.offset + 25); }}>Load 25 more archived rentals</button>}
     </Panel>
   </>;
 }
@@ -7486,6 +7494,7 @@ function InsuranceLinksPanel() {
 }
 
 function SettingsTab({
+  canManagePerformance = false,
   employeePermissions = [],
   canManageEmployeePermissions = false,
   updateEmployeePermission,
@@ -7571,9 +7580,11 @@ function SettingsTab({
     <div className="settings-workspace-nav">
       <div><p className="eyebrow">Configuration</p><h2>Settings</h2><span>Choose the area you need instead of scanning every business control at once.</span></div>
       <div className="filter-pills" role="tablist" aria-label="Settings area">
-        {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration'], ...(canManageEmployeePermissions ? [['employees', 'Employee Access']] : [])].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
+        {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration'], ['performance', 'Performance'], ...(canManageEmployeePermissions ? [['employees', 'Employee Access']] : [])].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
       </div>
     </div>
+
+    {settingsSection === 'performance' && <React.Suspense fallback={<Panel title="Performance"><p role="status">Loading performance dashboard…</p></Panel>}><PerformanceTab canManage={canManagePerformance}/></React.Suspense>}
 
     {settingsSection === 'employees' && canManageEmployeePermissions && <Panel title="Employee Access" eyebrow="Shared Role Permissions">
       <p className="muted">These switches apply to every account classified as Employee, including Briana and Kara. Changes take effect on their next portal action and are written to the audit log.</p>

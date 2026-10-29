@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { createRentalWorkspace, RENTAL_PAGE_SIZE } from './lib/rentalWorkspace.js';
 import { withReadRetry } from './requestDeadline.js';
 import { subscribeTaskDialogs } from './lib/taskDraft.js';
+import { performanceTelemetry } from './lib/performance.js';
+import { performanceOutcome } from './lib/performanceTelemetry.js';
 
 export function useRentalWorkspace({ client, enabled, userId, filter, search, focusId, hydrate, prepareDetails }) {
   const callbacks = useRef({ hydrate, prepareDetails });
@@ -19,6 +21,7 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   useEffect(() => { setOffset(0); }, [filter, focusId]);
   useEffect(() => {
     const controller = createRentalWorkspace({
+      observe: { ...performanceTelemetry, errorOutcome: performanceOutcome },
       inline: true,
       readList: async (params) => {
         let result;
@@ -70,12 +73,21 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   useEffect(() => {
     if (enabled && focusId) void controllerRef.current?.open(focusId);
   }, [enabled, focusId, userId]);
+  useEffect(() => {
+    if (state.listPerformance) return performanceTelemetry.afterPaint(state.listPerformance.token, state.listPerformance.outcome);
+  }, [state.listPerformance]);
+  useEffect(() => {
+    if (state.detailPerformance) return performanceTelemetry.afterPaint(state.detailPerformance.token, state.detailPerformance.outcome);
+  }, [state.detailPerformance]);
+  useEffect(() => () => {
+    for (const action of ['rental_list', 'rental_archive', 'rental_detail']) performanceTelemetry.cancel(action);
+  }, [enabled, userId]);
   return {
     ...state, setOffset,
     open: (id) => controllerRef.current?.open(id),
     invalidate: () => controllerRef.current?.invalidate(),
     refresh: (options) => enabledRef.current ? controllerRef.current?.refresh(options) : Promise.resolve(),
-    retry: () => controllerRef.current?.list(undefined, true),
+    retry: () => { performanceTelemetry.intent(filter === 'archive' ? 'rental_archive' : 'rental_list', 'refresh'); return controllerRef.current?.list(undefined, true); },
     retryDetail: () => controllerRef.current?.open(state.selectedId, true),
   };
 }

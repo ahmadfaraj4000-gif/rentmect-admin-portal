@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { createPortalTransport } from './portalTransport.js';
+import { performanceTelemetry, connectPerformanceSender } from './performance.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -21,7 +22,13 @@ try {
 
 let recoveryStorage;
 try { recoveryStorage = window.sessionStorage; } catch { /* Storage can be disabled. */ }
-export const portalTransport = createPortalTransport({ fetch: (...args) => fetch(...args), storage: recoveryStorage });
+export const portalTransport = createPortalTransport({ fetch: (...args) => fetch(...args), storage: recoveryStorage,
+  onActivity: delta => performanceTelemetry.networkActivity(delta) });
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: { fetch: portalTransport.fetch },
+});
+connectPerformanceSender(async (events, signal) => {
+  const { data, error } = await supabase.rpc('admin_record_performance', { p_events: events }).abortSignal(signal);
+  if (error) throw error;
+  return data;
 });

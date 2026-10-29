@@ -8,6 +8,7 @@ const READ_RPC = /^(get_|is_|admin_preview_|admin_rental_(list|detail|details|ch
 const TICKET_READ_RPC = new Set([
   'admin_ticket_list', 'admin_ticket_detail', 'admin_ticket_vehicles',
   'admin_ticket_lookup', 'admin_ticket_candidates', 'admin_ticket_customer_flags',
+  'admin_performance_report',
 ]);
 const isReadRpc = name => READ_RPC.test(name) || TICKET_READ_RPC.has(name);
 function isStoredRead(entry) {
@@ -36,13 +37,13 @@ export function describeRequest(input, options = {}) {
   const chargeId = body.chargeId || body.p_charge_id || null;
   const target = rentalId ? `rental:${rentalId}` : chargeId ? `charge:${chargeId}`
     : `${url.pathname}?${url.searchParams.toString()}`;
-  return { read, key: target, rentalId, chargeId,
+  return { read, background: rpc && route === 'admin_record_performance', key: target, rentalId, chargeId,
     label: String(body.action || route).replaceAll('_', ' '),
     upload: url.pathname.includes('/storage/v1/object/') && !read };
 }
 
 export function createPortalTransport({ fetch: fetchImpl, storage, now = Date.now,
-  timeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
+  timeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS, onActivity } = {}) {
   let owner = '';
   let entries = new Map();
   const listeners = new Set();
@@ -71,7 +72,7 @@ export function createPortalTransport({ fetch: fetchImpl, storage, now = Date.no
   async function boundedFetch(input, options = {}) {
     const request = describeRequest(input, options);
     const requestOwner = owner;
-    const tracked = !request.read && Boolean(owner);
+    const tracked = !request.read && !request.background && Boolean(owner);
     if (tracked && entries.has(request.key)) {
       throw new Error('This task is still processing or needs its saved result checked. Use Check saved result before submitting it again.');
     }
@@ -79,6 +80,8 @@ export function createPortalTransport({ fetch: fetchImpl, storage, now = Date.no
       entries.set(request.key, { ...request, startedAt: now(), status: 'sending' });
       publish();
     }
+    const activity = delta => { try { if (!request.background) onActivity?.(delta); } catch { /* Optional observation cannot affect requests. */ } };
+    activity(1);
     const controller = new AbortController();
     const originalSignal = options.signal || input.signal;
     const abort = () => controller.abort(originalSignal?.reason);
@@ -123,6 +126,7 @@ export function createPortalTransport({ fetch: fetchImpl, storage, now = Date.no
       }
       throw error;
     } finally {
+      activity(-1);
       clearTimeout(timer);
       originalSignal?.removeEventListener('abort', abort);
     }
