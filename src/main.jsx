@@ -80,6 +80,7 @@ import './vehicle-editor.css';
 import './admin-list-details.css';
 import './emails.css';
 import './final-overrides.css';
+import './settings-layout.css';
 
 const PerformanceTab = React.lazy(() => import('./PerformanceTab.jsx'));
 
@@ -7576,10 +7577,9 @@ function SettingsTab({
     return grouped;
   }, {});
 
-  return <section className="settings-grid">
+  return <section className="settings-grid settings-workspace" data-section={settingsSection}>
     <div className="settings-workspace-nav">
-      <div><p className="eyebrow">Configuration</p><h2>Settings</h2><span>Choose the area you need instead of scanning every business control at once.</span></div>
-      <div className="filter-pills" role="tablist" aria-label="Settings area">
+      <div className="filter-pills settings-section-tabs" role="tablist" aria-label="Settings area">
         {[['pricing', 'Pricing & Billing'], ['marketing', 'Marketing'], ['fleet', 'Fleet Configuration'], ['performance', 'Performance'], ...(canManageEmployeePermissions ? [['employees', 'Employee Access']] : [])].map(([key, label]) => <button type="button" role="tab" aria-selected={settingsSection === key} key={key} className={settingsSection === key ? 'active' : ''} onClick={() => setSettingsSection(key)}>{label}</button>)}
       </div>
     </div>
