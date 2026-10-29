@@ -129,10 +129,20 @@ test('complete-history reads continue past a server row cap and fail on incomple
   await assert.rejects(readRevenueRows(client, 'payments', controller.signal), /interrupted/);
 });
 test('all report sources must load successfully before totals are calculated', async () => {
-  const client = clientFor([]);
+  const expected = Object.fromEntries(Object.keys(REVENUE_TABLES).map(key=>[key,[]]));
+  let calls = 0;
+  const client = {rpc(name) {assert.equal(name,'admin_payment_revenue_snapshot');calls++;return Promise.resolve({data:expected,error:null});}};
   const data = await loadPaymentRevenue(client);
-  assert.deepEqual(Object.keys(data), Object.keys(REVENUE_TABLES));
-  assert.equal(client.calls.length, 8);
+  assert.deepEqual(data, expected);
+  assert.equal(calls, 1);
+  await assert.rejects(loadPaymentRevenue({rpc:async()=>({data:{rentals:[]},error:null})}),/incomplete/);
+  await assert.rejects(loadPaymentRevenue({rpc:async()=>({data:null,error:new Error('offline')})}),/offline/);
+});
+test('snapshot request forwards cancellation and never starts for an already aborted load', async()=>{
+  const controller = new AbortController();let calls=0;
+  const client={rpc(){calls++;return {abortSignal(signal){assert.equal(signal,controller.signal);return Promise.resolve({data:Object.fromEntries(Object.keys(REVENUE_TABLES).map(key=>[key,[]]))});}};}};
+  await loadPaymentRevenue(client,controller.signal);controller.abort();
+  await assert.rejects(loadPaymentRevenue(client,controller.signal),/interrupted/);assert.equal(calls,1);
 });
 
 test('original allocated deposit stays excluded after invoice revisions and rental-balance application', () => {

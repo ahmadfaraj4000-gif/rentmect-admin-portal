@@ -86,3 +86,31 @@ not push unrelated pending migrations. The hourly job is
 - Production build adds approximately 3.2 KB gzipped to the main bundle
   relative to the preceding performance release. The dashboard's approximately
   5 KB gzipped JS/CSS is fetched only on opening it. No new dependencies.
+
+## Revenue loading follow-up
+
+The original reader needed 17 HTTP requests for the current eight source
+tables, including empty end-of-pagination requests. In addition, activity-list
+array updates restarted the cards' read. `admin_payment_revenue_snapshot()`
+now returns the same projected records in ID order using one statement
+snapshot, with the caller's RLS and an explicit authorized-account check.
+It does not replace the revenue arithmetic or truncate history at an API row
+limit. Histories over 500,000 rows in any source fail explicitly.
+
+The first read starts immediately. A separate revision triggers subsequent
+reads for manual refresh, relevant realtime changes and existing recovery
+refreshes; ordinary activity-list rendering does not cancel and restart them.
+The snapshot RPC is classified as a read so a failed response remains safely
+retryable. There is no cross-session totals cache.
+
+Validation: 191 tests passed, including request cancellation, stale-response
+protection, refresh behavior and financial visibility. The live records were
+compared inside a rollback transaction: all projected rows matched and totals
+plus warnings matched at four reporting dates. The combined read measured
+115.6 ms of database execution on existing compute; this excludes network and
+render time and is not a production p95. Migration:
+`supabase/migrations/20261029041000_payment_revenue_snapshot.sql`.
+
+This still reads reporting history into the browser. At substantially larger
+volumes, server-side incremental accounting/reporting is the next step; the
+single-request change alone does not make unlimited history inexpensive.

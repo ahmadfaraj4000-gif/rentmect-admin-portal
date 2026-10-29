@@ -5,12 +5,38 @@ import vm from 'node:vm';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { transformWithOxc } from 'vite';
-import { canViewRevenue } from '../src/lib/paymentRevenue.js';
+import { canViewRevenue, calculatePaymentRevenue, REVENUE_TABLES } from '../src/lib/paymentRevenue.js';
 const cardSource = readFileSync(new URL('../src/PaymentRevenueCards.jsx', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const cardCode = (await transformWithOxc(cardSource.replace(/^import .*;\n/gm, '').replaceAll('export function ', 'function '), 'cards.jsx', { jsx: { runtime: 'classic' } })).code;
 const context = vm.createContext({ React, useState: React.useState, useEffect: React.useEffect, useMemo: React.useMemo, useRef: React.useRef, CalendarDays: () => null, Banknote: () => null, canViewRevenue });
 vm.runInContext(cardCode, context);
+
+test('initial totals start immediately, survive ordinary renders, and refresh safely after an invalidation',async()=>{
+  const hooks=[],timers=new Map(),requests=[];let index=0,nextTimer=0,effects=[];
+  const slot=make=>{const i=index++;return hooks[i]||(hooks[i]=make());};
+  const env=vm.createContext({React,AbortController,Date,canViewRevenue,calculatePaymentRevenue,
+    CalendarDays:()=>null,Banknote:()=>null,supabase:{},
+    useState(initial){const cell=slot(()=>({value:typeof initial==='function'?initial():initial}));return [cell.value,v=>{cell.value=typeof v==='function'?v(cell.value):v;}];},
+    useRef(initial){return slot(()=>({current:initial}));},useMemo:fn=>fn(),
+    useEffect(fn,deps){const cell=slot(()=>({deps:null}));if(!cell.deps||deps.some((v,i)=>!Object.is(v,cell.deps[i]))){cell.deps=deps;effects.push(()=>{cell.cleanup?.();cell.cleanup=fn();});}},
+    setInterval:()=>1,clearInterval(){},
+    setTimeout(fn,delay){const id=++nextTimer;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),
+    performanceTelemetry:{isActive:token=>Boolean(token),start:()=>({}),afterPaint:()=>()=>{},cancel(){}},
+    performanceOutcome:()=> 'error',
+    loadPaymentRevenue:(_,signal)=>new Promise(resolve=>requests.push({signal,resolve})),
+  });
+  vm.runInContext(cardCode,env);
+  const render=key=>{index=0;effects=[];env.PaymentRevenueCards({accountEmail:'anconamgt@aol.com',refreshKey:key});effects.forEach(run=>run());};
+  const fire=delay=>{const [id,timer]=[...timers].find(([,t])=>t.delay===delay);timers.delete(id);return timer.fn();};
+  render(0);const first=fire(0);assert.equal(requests.length,1);
+  render(0);assert.equal(requests[0].signal.aborted,false);assert.equal(requests.length,1);
+  render(1);assert.equal(requests[0].signal.aborted,true);assert.ok([...timers.values()].some(t=>t.delay===350));
+  const second=fire(350);const empty=Object.fromEntries(Object.keys(REVENUE_TABLES).map(key=>[key,[]]));
+  requests[1].resolve({...empty,marker:'new'});await second;
+  requests[0].resolve({...empty,marker:'old'});await first;
+  assert.equal(hooks[0].value.data.marker,'new');assert.equal(hooks[0].value.loading,false);
+});
 const example = { month: 12345.67, year: 234567.89, monthLabel: 'October 2026', yearLabel: '2026', monthKey: '2026-10', issues: [] };
 const view = (props) => renderToStaticMarkup(React.createElement(context.RevenueCardsView, props));
 test('new cards clearly explain revenue, deposits, fees, taxes, and reporting periods', () => {

@@ -9,6 +9,7 @@ const TICKET_READ_RPC = new Set([
   'admin_ticket_list', 'admin_ticket_detail', 'admin_ticket_vehicles',
   'admin_ticket_lookup', 'admin_ticket_candidates', 'admin_ticket_customer_flags',
   'admin_performance_report',
+  'admin_payment_revenue_snapshot',
 ]);
 const isReadRpc = name => READ_RPC.test(name) || TICKET_READ_RPC.has(name);
 function isStoredRead(entry) {

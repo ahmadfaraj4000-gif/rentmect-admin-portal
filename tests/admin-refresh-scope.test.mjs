@@ -7,6 +7,21 @@ import { adminRefreshDomains } from '../src/lib/adminRefreshDomains.js';
 const source = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const tabs = { dashboard: ['snapshot'], rentals: ['rental-list'], settings: ['settings'] };
 
+test('initial domain reads do not restart revenue; forced financial refreshes do', async()=>{
+  const start=source.indexOf('  async function loadAdminDomain(');
+  const code=source.slice(start,source.indexOf('\n  function refreshAfterSavedTask',start));
+  let revisions=0;const activeTabRef={current:'payments'};
+  const context=vm.createContext({activeTabRef,requestedAdminDomainsRef:{current:new Set()},loadedAdminDomainsRef:{current:new Set()},
+    adminDomainLoadsRef:{current:new Map()},setDataHealth(){},setPaymentRevenueRevision(update){revisions=update(revisions);},
+    freshDomainLoad:async()=>{},rentalWorkspaceRef:{current:{refresh:async()=>{}}}});
+  vm.runInContext(code,context);
+  await context.loadAdminDomain('core');await context.loadAdminDomain('payments');assert.equal(revisions,0);
+  await context.loadAdminDomain('customer-directory',{force:true});assert.equal(revisions,0);
+  await context.loadAdminDomain('payments',{force:true});assert.equal(revisions,1);
+  await context.loadAdminDomain('core',{force:true});assert.equal(revisions,2);
+  activeTabRef.current='rentals';await context.loadAdminDomain('payments',{force:true});assert.equal(revisions,2);
+});
+
 test('manual refresh only reloads the current page, even after visiting other sections', async () => {
   const start = source.indexOf('  async function loadAllData({');
   const code = source.slice(start, source.indexOf('  async function loadAllDataLegacy', start));

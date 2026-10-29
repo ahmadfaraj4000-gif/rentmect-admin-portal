@@ -63,6 +63,7 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
   }, [allowed]);
   useEffect(() => {
     if (!allowed) return;
+    const initial = firstLoad.current;
     // A single user journey spans the existing coalescing/restarts while the
     // payment ledger arrives, rather than reporting those restarts as successes.
     if (!performanceTelemetry.isActive(journey.current)) {
@@ -73,7 +74,8 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
     const controller = new AbortController();
     let active = true;
     let deadline;
-    // Coalesce the separate ledger updates from one payment into one read.
+    // First load starts immediately. Only actual invalidations are coalesced;
+    // ordinary activity-list renders no longer restart the revenue request.
     const timer = setTimeout(async () => {
       setState((current) => ({ ...current, loading: true, error: '' }));
       deadline = setTimeout(() => controller.abort(), 60_000);
@@ -87,7 +89,7 @@ export function PaymentRevenueCards({ accountEmail, refreshKey, onOpenRental, re
         clearTimeout(deadline);
         controller.abort();
       }
-    }, 350);
+    }, initial ? 0 : 350);
     return () => { active = false; clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
   }, [allowed, refreshKey, revision]);
   const report = useMemo(() => state.data ? calculatePaymentRevenue(state.data, now) : null, [state.data, now]);

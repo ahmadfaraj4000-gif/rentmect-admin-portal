@@ -513,6 +513,7 @@ function App() {
   });
   const activeTabRef = useRef(activeTab);
   const [ticketRefreshKey, setTicketRefreshKey] = useState(0);
+  const [paymentRevenueRevision, setPaymentRevenueRevision] = useState(0);
   activeTabRef.current = activeTab;
   const [isMobileAdminNav, setIsMobileAdminNav] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
   const [navCollapsed, setNavCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
@@ -987,6 +988,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_charge_items' }, (payload) => scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_external_payment_actions' }, (payload) => scheduleDomainRefresh('payments', payload.new?.rental_id || payload.old?.rental_id))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_allocations' }, () => scheduleDomainRefresh('payments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_deposit_charge_applications' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_action_tasks' }, () => {
         scheduleDomainRefresh('snapshot');
@@ -1191,6 +1193,11 @@ function App() {
     requestedAdminDomainsRef.current.add(domain);
     if (domain === 'snapshot') return loadDashboardSnapshot({ force });
     if (!force && loadedAdminDomainsRef.current.has(domain)) return;
+    // Refresh totals for explicit/realtime/recovery invalidations, not for each
+    // activity-list array update produced by an ordinary initial load.
+    if (force && activeTabRef.current === 'payments' && ['core', 'workflow', 'payments'].includes(domain)) {
+      setPaymentRevenueRevision(value => value + 1);
+    }
     setDataHealth((current) => ({ ...current, refreshing: true }));
     return freshDomainLoad(adminDomainLoadsRef.current, domain, force, async () => {
       const readGeneration = domainInvalidationsRef.current.get(domain) || 0;
@@ -4216,7 +4223,7 @@ function App() {
         {canAccessAdminTab(activeTab) && <>
         {activeTab === 'dashboard' && <Dashboard canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} snapshot={dashboardSnapshot} dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} depositTasks={canUsePermission('reports.financial') ? depositActionTasks : []} depositAllocations={canUsePermission('reports.financial') ? depositAllocations : []} onStripeRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? escalateDepositTask : null} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={canUsePermission('rental.edit') ? updateRentalStatus : null} recordTestPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordTestPayment : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} recordExtensionPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordExtensionPayment : null} depositTasks={canUsePermission('reports.financial') ? depositActionTasks : []} rentals={rentals} depositAllocations={canUsePermission('reports.financial') ? depositAllocations : []} onStripeRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? escalateDepositTask : null} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
-        {activeTab === 'payments' && <PaymentsTab canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} accountEmail={session.user.email} paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
+        {activeTab === 'payments' && <PaymentsTab canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} revenueRefreshKey={paymentRevenueRevision} accountEmail={session.user.email} paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'tickets' && <TicketResolution focusId={ticketFocusId} canFlagCustomer={canUsePermission('ticket.manage') && canUsePermission('customer.manage')} canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
@@ -4437,7 +4444,7 @@ function DepositEscalationModal({ rental, onCancel, onConfirm }) {
   }}><header className="admin-modal-header"><div><small>Manager follow-up</small><strong>Escalate deposit task</strong><span>{rental.profiles?.full_name || 'Customer'}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close deposit escalation dialog"><X size={18}/></button></header><div className="portal-form"><label><span>Reason and next step</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} /></label></div><footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving || !note.trim()}>{saving ? 'Saving…' : 'Escalate'}</button></footer></form></div>;
 }
 
-function PaymentsTab({ canViewFinancialSummary = false, accountEmail = '', paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '', onOpenRental }) {
+function PaymentsTab({ revenueRefreshKey = 0, canViewFinancialSummary = false, accountEmail = '', paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '', onOpenRental }) {
   const collected = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.cashImpact || 0)), 0);
   const refunded = paymentEvents.reduce((sum, event) => sum + Math.abs(Math.min(0, Number(event.cashImpact || 0))), 0);
   const outstanding = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
@@ -4451,7 +4458,7 @@ function PaymentsTab({ canViewFinancialSummary = false, accountEmail = '', payme
       <Metric icon={ReceiptText} label="Refunded" value={money(refunded)} />
       <Metric icon={Clock} label="Outstanding" value={money(outstanding)} danger={outstanding > 0} />
       <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
-      <PaymentRevenueCards accountEmail={accountEmail} refreshKey={paymentEvents} onOpenRental={onOpenRental} reconciliation={openReconciliation}/>
+      <PaymentRevenueCards accountEmail={accountEmail} refreshKey={revenueRefreshKey} onOpenRental={onOpenRental} reconciliation={openReconciliation}/>
     </section>}
     {!canViewFinancialSummary && openReconciliation.length > 0 && (
       <p className="form-error" role="alert">

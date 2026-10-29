@@ -275,6 +275,13 @@ export async function readRevenueRows(client, table, signal) {
   throw new Error('Revenue history exceeded the reporting limit.');
 }
 export async function loadPaymentRevenue(client, signal) {
-  const entries = await Promise.all(Object.entries(REVENUE_TABLES).map(async ([key, table]) => [key, await readRevenueRows(client, table, signal)]));
-  return Object.fromEntries(entries);
+  if (signal?.aborted) throw new Error('Revenue loading was interrupted.');
+  let query = client.rpc('admin_payment_revenue_snapshot');
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  if (error) throw error;
+  if (!data || Object.keys(REVENUE_TABLES).some(key => !Array.isArray(data[key]))) {
+    throw new Error('Revenue snapshot was incomplete. Refresh totals.');
+  }
+  return data;
 }

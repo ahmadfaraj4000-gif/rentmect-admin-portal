@@ -231,3 +231,11 @@ test('batched rental reads remain retryable and never become pending writes', as
   const request = describeRequest('https://example.test/rest/v1/rpc/admin_rental_details', { method: 'POST', body: '{"p_rental_ids":["r1"]}' });
   assert.equal(request.read, true);
 });
+
+test('revenue snapshot failures remain retryable reads', async()=>{
+  const store = {getItem:()=>null,setItem:()=>{}};
+  const transport=createPortalTransport({storage:store,fetch:async()=>{throw Error('offline');}});
+  transport.setOwner('report-owner');
+  await assert.rejects(transport.fetch('https://example.test/rest/v1/rpc/admin_payment_revenue_snapshot',{method:'POST'}),/offline/);
+  assert.equal(transport.snapshot().length,0);
+});
