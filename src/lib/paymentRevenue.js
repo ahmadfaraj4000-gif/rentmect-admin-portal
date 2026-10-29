@@ -238,6 +238,18 @@ export const REVENUE_TABLES = {
   extensions: 'rental_extension_requests', refunds: 'rental_payment_refunds',
   externalActions: 'rental_external_payment_actions', applications: 'rental_deposit_charge_applications', allocations: 'rental_deposit_allocations',
 };
+// Reporting needs receipt amounts and links, never agreement snapshots, notes,
+// customer contact details, or provider error payloads.
+export const REVENUE_COLUMNS = {
+  rentals: 'id,rental_total,service_fee_total,tax_amount,security_deposit,paid_at,payment_amount_cents,deposit_held_amount,deposit_released_amount,deposit_status,stripe_payment_intent_id,stripe_checkout_session_id,created_at',
+  rental_payments: 'id,rental_id,status,payment_type,total_amount,rental_amount,tax_amount,deposit_amount,paid_at,refunded_amount,deposit_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at',
+  rental_charge_items: 'id,rental_id,charge_type,included_in_initial_payment,status,payment_provider,total_amount,tax_amount,payment_amount_cents,paid_at,stripe_payment_intent_id,stripe_checkout_session_id,amount,created_at',
+  rental_extension_requests: 'id,rental_id,replacement_rental_id,status,payment_status,request_kind,extension_rental_amount,extension_tax_amount,extension_total_amount,extension_deposit_amount,payment_amount_cents,paid_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at',
+  rental_payment_refunds: 'id,rental_id,status,source_type,stripe_refund_id,stripe_payment_intent_id,extension_request_id,amount,created_at',
+  rental_external_payment_actions: 'id,rental_id,action_type,amount,deposit_amount_returned,payment_charge_id,created_at',
+  rental_deposit_charge_applications: 'id,rental_id,allocation_id,charge_id,amount,created_at',
+  rental_deposit_allocations: 'id,source_rental_id,holder_rental_id,source_kind,amount_held,amount_applied,stripe_payment_intent_id',
+};
 export async function readRevenueRows(client, table, signal) {
   const rows = [];
   let lastId;
@@ -245,7 +257,7 @@ export async function readRevenueRows(client, table, signal) {
   // Keyset pagination also works when the server's row cap is below our page size.
   for (let page = 0; page < 1000; page += 1) {
     if (signal?.aborted) throw new Error('Revenue loading was interrupted.');
-    let query = client.from(table).select('*', page === 0 ? { count: 'exact' } : {}).order('id').limit(500);
+    let query = client.from(table).select(REVENUE_COLUMNS[table] || '*', page === 0 ? { count: 'exact' } : {}).order('id').limit(500);
     if (lastId) query = query.gt('id', lastId);
     if (signal) query = query.abortSignal(signal);
     const { data, error, count } = await query;

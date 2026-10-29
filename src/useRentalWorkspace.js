@@ -47,6 +47,14 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
         if (!data?.rental?.id) throw new Error('Rental details were incomplete. Please retry.');
         return data;
       },
+      readDetails: async (ids) => {
+        const [{ data, error }] = await Promise.all([
+          withReadRetry(() => client.rpc('admin_rental_details', { p_rental_ids: ids }), 'Rental details'),
+          callbacks.current.prepareDetails(),
+        ]);
+        if (error) throw error;
+        return data;
+      },
       hydrate: (data) => callbacks.current.hydrate(data),
       changed: setState,
     });

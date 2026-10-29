@@ -225,3 +225,9 @@ test('installed Supabase SDK can retry a ticket list after failure without creat
     assert.equal(transport.snapshot().length, 0);
   } finally { await client.auth.stopAutoRefresh(); }
 });
+
+
+test('batched rental reads remain retryable and never become pending writes', async () => {
+  const request = describeRequest('https://example.test/rest/v1/rpc/admin_rental_details', { method: 'POST', body: '{"p_rental_ids":["r1"]}' });
+  assert.equal(request.read, true);
+});

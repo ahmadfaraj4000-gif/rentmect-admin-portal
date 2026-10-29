@@ -7,7 +7,7 @@ export const rentalPageKey = ({ filter, search = '', focusId = '', offset = 0 })
 
 // Session-local cache. Responses for an old filter or closed record never replace
 // the visible state. Forced reads drain once more if a mutation arrived mid-read.
-export function createRentalWorkspace({ readList, readDetail, hydrate, changed, now = Date.now, inline = false }) {
+export function createRentalWorkspace({ readList, readDetail, readDetails, hydrate, changed, now = Date.now, inline = false }) {
   const pages = new Map();
   const details = new Map();
   const loads = new Map();
@@ -37,6 +37,33 @@ export function createRentalWorkspace({ readList, readDetail, hydrate, changed, 
     throw new Error('This rental changed while loading. Retry rental to load its latest saved records.');
   }
   async function inlineRecords(data, isCurrent) {
+    if (readDetails) {
+      const records = new Map();
+      const missing = [];
+      for (const row of data.rows) {
+        const cached = details.get(row.id);
+        if (cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) records.set(row.id, cached.data);
+        else missing.push(row.id);
+      }
+      // One bounded request per page, rather than one HTTP request per card.
+      for (let offset = 0; offset < missing.length && isCurrent(); offset += RENTAL_PAGE_SIZE) {
+        const ids = missing.slice(offset, offset + RENTAL_PAGE_SIZE);
+        const readGeneration = generation;
+        const batch = await readDetails(ids);
+        if (!isCurrent()) return [];
+        const byId = new Map((Array.isArray(batch) ? batch : []).map((item) => [item?.rental?.id, item]));
+        if (!Array.isArray(batch) || batch.length !== ids.length || byId.size !== ids.length || ids.some((id) => !byId.has(id))) {
+          throw new Error('Rental details were incomplete. Please retry.');
+        }
+        for (const id of ids) {
+          const record = byId.get(id);
+          records.set(id, record);
+          details.set(id, { data: record, at: now(), generation: readGeneration });
+          if (details.size > 150) details.delete(details.keys().next().value);
+        }
+      }
+      return data.rows.map((row) => records.get(row.id));
+    }
     const records = new Array(data.rows.length);
     let next = 0;
     // Bound concurrent detail reads to the records in the visible filter.

@@ -242,3 +242,52 @@ test('an already running list read also preserves an open task until it closes',
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(workspace.getState().rows, []);
 });
+
+test('inline batch makes one request per 25 uncached cards and reuses complete records', async () => {
+  const batches=[]; let singles=0;
+  const {workspace,hydrated}=setup({inline:true,
+    readList:async()=>({rows:Array.from({length:25},(_,i)=>({id:String(i)})),total:25}),
+    readDetail:async()=>{singles++;throw new Error('Unexpected individual request');},
+    readDetails:async(ids)=>{batches.push(ids);return ids.map(id=>({rental:{id}}));},
+  });
+  await workspace.list(params('archive'));
+  assert.equal(batches.length,1);assert.equal(batches[0].length,25);
+  assert.equal(hydrated.length,25);assert.equal(singles,0);
+  await workspace.open('0');assert.equal(singles,0);
+  await workspace.list(params('archive'));assert.equal(batches.length,1);
+});
+
+test('batch rejects missing or duplicate records before displaying financial actions',async()=>{
+  for(const response of [[],[{rental:{id:'wrong'}}],null]) {
+    const {workspace,hydrated}=setup({inline:true,readDetails:async()=>response});
+    await workspace.list(params());
+    assert.equal(hydrated.length,0);assert.equal(workspace.getState().rows.length,0);
+    assert.match(workspace.getState().error,/incomplete/);
+  }
+});
+
+test('stale batch never overwrites the current filter and failed batches can be retried',async()=>{
+  const pending=deferred();let fail=true;
+  const {workspace,hydrated}=setup({inline:true,readDetails:async(ids)=>{
+    if(ids[0]==='archive')return pending.promise;
+    if(fail)throw new Error('offline');
+    return ids.map(id=>({rental:{id}}));
+  }});
+  const old=workspace.list(params('archive'));await new Promise(resolve=>setImmediate(resolve));
+  await workspace.list(params());assert.equal(hydrated.length,0);
+  fail=false;await workspace.list(undefined,true);
+  pending.resolve([{rental:{id:'archive'}}]);await old;
+  assert.deepEqual(hydrated.map(d=>d.rental.id),['needs_action']);
+  assert.equal(workspace.getState().error,'');
+});
+
+test('batch cache is invalidated on mutations and large lists stay bounded',async()=>{
+  const batches=[];let version=1;
+  const {workspace,hydrated}=setup({inline:true,
+    readList:async()=>({rows:Array.from({length:52},(_,i)=>({id:String(i)})),total:52}),
+    readDetails:async(ids)=>{batches.push(ids);return ids.map(id=>({rental:{id},version}));},
+  });
+  await workspace.list(params());assert.deepEqual(batches.map(b=>b.length),[25,25,2]);
+  version=2;workspace.invalidate();await workspace.list(undefined,true);
+  assert.equal(hydrated.at(-1).version,2);assert.equal(batches.length,6);
+});

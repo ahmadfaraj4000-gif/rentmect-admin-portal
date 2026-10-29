@@ -2,7 +2,7 @@
 // an unknown outcome, never an instruction to submit the write again.
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const UPLOAD_TIMEOUT_MS = 90_000;
-const READ_RPC = /^(get_|is_|admin_preview_|admin_rental_(list|detail|change_context|vehicle_availability)$)/;
+const READ_RPC = /^(get_|is_|admin_preview_|admin_rental_(list|detail|details|change_context|vehicle_availability)$)/;
 // Supabase sends RPC reads as POST. Keep these explicit so ticket mutations
 // retain protection against replay after an interrupted response.
 const TICKET_READ_RPC = new Set([

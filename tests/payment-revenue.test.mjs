@@ -1,11 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculatePaymentRevenue, canViewRevenue, readRevenueRows, loadPaymentRevenue, REVENUE_TABLES } from '../src/lib/paymentRevenue.js';
+import { calculatePaymentRevenue, canViewRevenue, readRevenueRows, loadPaymentRevenue, REVENUE_TABLES, REVENUE_COLUMNS } from '../src/lib/paymentRevenue.js';
 const now = new Date('2026-10-14T16:00:00Z');
 const october = '2026-10-10T12:00:00Z';
 const september = '2026-09-10T12:00:00Z';
 const rental = { id: 'r', rental_total: 100, tax_amount: 6.35, security_deposit: 300, paid_at: october, payment_amount_cents: 40635 };
-const report = (data) => calculatePaymentRevenue(data, now);
+const report = (data) => {
+  const expected = calculatePaymentRevenue(data, now);
+  const projected = Object.fromEntries(Object.entries(data).map(([key, rows]) => {
+    const columns = new Set(REVENUE_COLUMNS[REVENUE_TABLES[key]].split(','));
+    // Optional succeeded_at is absent from production; current refunds use created_at.
+    return [key, rows.map(row => Object.fromEntries(Object.entries(row).filter(([field]) => columns.has(field))))];
+  }));
+  assert.deepEqual(calculatePaymentRevenue(projected, now), expected, 'Report projections preserve amounts and reconciliation warnings');
+  return expected;
+};
 const charge = (overrides = {}) => ({ id: 'late', rental_id: 'r', charge_type: 'late_fee', status: 'paid', amount: 20, total_amount: 21.27, tax_amount: 1.27, payment_amount_cents: 2127, paid_at: october, ...overrides });
 
 test('only the exact Ancona account can request revenue totals', () => {
@@ -184,4 +193,12 @@ test('older unresolved refunds qualify only the year total, not this month', () 
   assert.deepEqual(result.issues[0].periods, ['year']);
   assert.equal(result.issues[0].refundId, 're_old');
   assert.equal(result.month, 100);
+});
+
+
+test('every production revenue source uses a bounded column projection', () => {
+  for (const table of Object.values(REVENUE_TABLES)) {
+    assert.ok(REVENUE_COLUMNS[table].split(',').includes('id'));
+    assert.doesNotMatch(REVENUE_COLUMNS[table], /\*|agreement_snapshot|admin_notes|customer_email/);
+  }
 });
