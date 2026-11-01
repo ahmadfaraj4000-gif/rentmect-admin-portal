@@ -1,3 +1,4 @@
+import { rentalCalendarMinutes } from './rentalBillingTime.js';
 import { performanceTelemetry } from './lib/performance.js';
 import { PaymentRevenueCards } from './PaymentRevenueCards.jsx';
 import { TicketResolution } from './TicketResolution.jsx';
@@ -360,13 +361,15 @@ function getBookingWindow(form, policy = DEFAULT_BOOKING_POLICY) {
     return { valid: false, actualMinutes: 0, billableDays: 0, error: 'Choose valid pickup and return dates and times.' };
   }
   const actualMinutes = Math.floor((returnAt.getTime() - pickupAt.getTime()) / 60000);
-  const earliestReturn = new Date(pickupAt.getTime() + minimumMinutes * 60000);
-  if (actualMinutes < minimumMinutes) {
+  const minimumReturn = rentalDayShortcut(pickupAt, minimumMinutes / 1440);
+  const earliestReturn = parseBookingDateTime(minimumReturn.returnDate, minimumReturn.returnTime);
+  const billingMinutes = rentalCalendarMinutes(pickupAt, returnAt);
+  if (billingMinutes < minimumMinutes) {
     return {
       valid: false,
       actualMinutes: Math.max(0, actualMinutes),
       billableDays: 0,
-      error: `Rentals require at least ${minimumMinutes / 60} hours. The earliest return is ${earliestReturn.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
+      error: `Rentals require at least ${minimumMinutes / 1440} rental day(s), ending at the same Eastern time. The earliest return is ${earliestReturn.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
     };
   }
   const earliestPickup = new Date(Date.now() + advanceMinutes * 60000);
@@ -374,11 +377,11 @@ function getBookingWindow(form, policy = DEFAULT_BOOKING_POLICY) {
     return {
       valid: false,
       actualMinutes,
-      billableDays: Math.ceil(actualMinutes / 1440),
+      billableDays: Math.ceil(billingMinutes / 1440),
       error: `The earliest allowed pickup is ${earliestPickup.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
     };
   }
-  return { valid: true, actualMinutes, billableDays: Math.ceil(actualMinutes / 1440), error: '' };
+  return { valid: true, actualMinutes, billableDays: Math.ceil(billingMinutes / 1440), error: '' };
 }
 
 async function uploadOptimizedVehicleImages(files) {
@@ -663,8 +666,9 @@ function App() {
       const pickupAt = parseBookingDateTime(current.pickupDate, current.pickupTime);
       const returnAt = parseBookingDateTime(current.returnDate, current.returnTime);
       const minimumMilliseconds = Math.max(1, Number(bookingPolicy.minimum_rental_days || 1)) * 86400000;
-      if (!pickupAt || (returnAt && returnAt.getTime() - pickupAt.getTime() >= minimumMilliseconds)) return current;
-      const earliestReturn = new Date(pickupAt.getTime() + minimumMilliseconds);
+      if (!pickupAt || (returnAt && rentalCalendarMinutes(pickupAt, returnAt) * 60000 >= minimumMilliseconds)) return current;
+      const minimumReturn = rentalDayShortcut(pickupAt, minimumMilliseconds / 86400000);
+      const earliestReturn = parseBookingDateTime(minimumReturn.returnDate, minimumReturn.returnTime);
       return { ...current, returnDate: localDateInput(earliestReturn), returnTime: formatAdminTime(earliestReturn), vehicleId: '' };
     });
   }, [bookingPolicy.minimum_rental_days]);
@@ -7204,8 +7208,9 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, cust
       const pickupAt = parseBookingDateTime(next.pickupDate, next.pickupTime);
       const returnAt = parseBookingDateTime(next.returnDate, next.returnTime);
       const minimumMilliseconds = Number(bookingPolicy.minimum_rental_days || 1) * 86400000;
-      if (pickupAt && (!returnAt || returnAt.getTime() - pickupAt.getTime() < minimumMilliseconds)) {
-        const earliestReturn = new Date(pickupAt.getTime() + minimumMilliseconds);
+      if (pickupAt && (!returnAt || rentalCalendarMinutes(pickupAt, returnAt) * 60000 < minimumMilliseconds)) {
+        const minimumReturn = rentalDayShortcut(pickupAt, minimumMilliseconds / 86400000);
+        const earliestReturn = parseBookingDateTime(minimumReturn.returnDate, minimumReturn.returnTime);
         next.returnDate = localDateInput(earliestReturn);
         next.returnTime = formatAdminTime(earliestReturn);
       }
@@ -7652,7 +7657,7 @@ function SettingsTab({
         </div>
         <div className="booking-policy-preview">
           <CheckCircle2 size={18}/>
-          <span><strong>{Number(bookingPolicy.minimum_rental_days || 1) * 24}-hour minimum.</strong> Staff-created unpaid bookings use a global {formatAdminDuration(bookingPolicy.admin_booking_payment_deadline_minutes || 60)} payment deadline. {advanceNoticeMinutes === 0 ? 'Customers can choose the next available same-day pickup time.' : `Pickup must be booked ${formatAdminDuration(advanceNoticeMinutes)} ahead.`}</span>
+          <span><strong>{Number(bookingPolicy.minimum_rental_days || 1)}-day minimum at the same Eastern time.</strong> Staff-created unpaid bookings use a global {formatAdminDuration(bookingPolicy.admin_booking_payment_deadline_minutes || 60)} payment deadline. {advanceNoticeMinutes === 0 ? 'Customers can choose the next available same-day pickup time.' : `Pickup must be booked ${formatAdminDuration(advanceNoticeMinutes)} ahead.`}</span>
         </div>
         <button className="primary-btn" disabled={bookingPolicySaving}>{bookingPolicySaving ? 'Saving…' : 'Save Booking Rules'}</button>
       </form>
@@ -8895,7 +8900,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
           const dates = rentalDayShortcut(revising ? extensionStart : parseBookingDateTime(rental.return_date, rental.return_time), days);
           if (dates) { change('returnDate', dates.returnDate); setForm(current => ({ ...current, returnTime: dates.returnTime })); }
         }}>{days} day{days === 1 ? '' : 's'}</button>)}</div>
-        <p>The saved agreed rate can be changed here. New days start at the booked return, including elapsed days since that return. Each started 24-hour extension period is billed as a full day.</p>
+        <p>The saved agreed rate can be changed here. New days start at the booked return, including elapsed days since that return. Rental days end at the same Eastern clock time. Additional time starts another day; daylight-saving changes do not add a day.</p>
         {shortening ? <p>The shorter return frees the removed dates. Recorded swap times are checked when you review.</p> : <RentalAvailabilityNotice availability={availability} vehicleId={rental.vehicle_id} />}
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>{revising ? 'Review revised extension' : 'Review extension'}</strong>
           <p>{formatEasternDateTime(preview.starts_at)} → {formatEasternDateTime(preview.ends_at)} · {preview.extension_days} billed day{preview.extension_days === 1 ? '' : 's'} at {money(preview.daily_rate)}/day{Number(preview.markup_percentage) > 0 ? ` plus the existing ${preview.markup_percentage}% age surcharge` : ''}</p>
