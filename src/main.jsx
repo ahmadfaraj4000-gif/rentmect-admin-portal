@@ -8269,11 +8269,11 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     <header className={`rental-card-header ${showCollapsedNeedsAction ? 'has-needs-action-summary' : ''}`}>
       <div className="rental-card-identity">
         <div className="rental-card-title-line">
-          <strong>{rental.vehicles?.name || 'Vehicle'} <span>#{rentalReference || 'Rental'}</span></strong>
+          <strong>{rental.vehicles?.name || 'Vehicle'} <span className={isMerchantRental ? 'rental-card-merchant-reference' : undefined}>#{rentalReference || 'Rental'}</span></strong>
           {rental.is_mock && <em>MOCK</em>}
-          {isMerchantRental && <span className="rental-merchant-badge"><ShieldCheck size={14} aria-hidden="true" />Merchant rental</span>}
         </div>
         <span className="rental-card-customer">{customerName}</span>
+        {isMerchantRental && <span className="rental-card-booking-source"><span>Booking source:</span><strong>Merchant</strong></span>}
         <span className="rental-card-schedule">{formatRentalDate(rental.pickup_date, rental.pickup_time)} <ArrowRight size={14}/> {formatRentalDate(rental.return_date, rental.return_time)} <small>{rentalDays} day{rentalDays === 1 ? '' : 's'}</small></span>
         <span className="rental-card-price-line">{money(rental.rental_total)} rental <i>•</i> {money(rental.security_deposit)} refundable deposit</span>
         {rental.deposit_status === 'released' && <span className="rental-card-refund-badge"><CheckCircle2 size={14}/> Security deposit returned {money(rental.deposit_released_amount)}</span>}
