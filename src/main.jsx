@@ -1,3 +1,4 @@
+import Merchants from './Merchants.jsx';
 import { rentalCalendarMinutes } from './rentalBillingTime.js';
 import { performanceTelemetry } from './lib/performance.js';
 import { PaymentRevenueCards } from './PaymentRevenueCards.jsx';
@@ -167,7 +168,7 @@ const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented', 'on_road'];
 const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', 'maintenance'];
 const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
 const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
-const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'tickets', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings']);
+const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'tickets', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings', 'merchants']);
 const ADMIN_TAB_DOMAINS = {
   dashboard: ['snapshot'],
   queue: ['customer-directory', 'core', 'workflow'],
@@ -183,13 +184,14 @@ const ADMIN_TAB_DOMAINS = {
   settings: ['settings'],
   tolls: ['customer-directory', 'core'],
   tickets: [],
+  merchants: [],
 };
 const ADMIN_TAB_PERMISSION_KEYS = {
   dashboard: 'tab.dashboard', queue: 'tab.queue', payments: 'tab.payments', tolls: 'tab.tolls',
   tickets: 'tab.tickets',
   calendar: 'tab.calendar', 'new-booking': 'booking.create', rentals: 'tab.rentals', vehicles: 'tab.vehicles',
   customers: 'tab.customers', emails: 'tab.communications', documents: 'tab.rentals',
-  audit: 'tab.audit', settings: 'tab.settings',
+  audit: 'tab.audit', settings: 'tab.settings', merchants: 'merchant.manage',
 };
 const ADMIN_TAB_SECONDARY_PERMISSION_KEYS = {
   payments: 'reports.financial',
@@ -4079,6 +4081,7 @@ function App() {
     return false;
   }
   function canAccessAdminTab(tabKey) {
+    if (tabKey === 'merchants') return ['owner', 'operations_manager'].includes(staffContext.staff_role);
     const permissionKey = ADMIN_TAB_PERMISSION_KEYS[tabKey];
     const secondaryPermissionKey = ADMIN_TAB_SECONDARY_PERMISSION_KEYS[tabKey];
     return Boolean(
@@ -4097,6 +4100,7 @@ function App() {
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
     { key: 'customers', label: 'Customers', icon: UserRound },
+    { key: 'merchants', label: 'Merchants', icon: ShieldCheck },
     { key: 'emails', label: 'Communications', icon: MessageCircle },
     { key: 'audit', label: 'Audit Log', icon: History },
     { key: 'settings', label: 'Settings', icon: Settings },
@@ -4238,6 +4242,7 @@ function App() {
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
+        {activeTab === 'merchants' && <Merchants onOpenRental={(rentalId) => { selectAdminTab('rentals'); setManualBookingFocusId(rentalId); }} />}
         {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
         {activeTab === 'settings' && <SettingsTab key={session?.user?.id} canManagePerformance={canUsePermission('settings.operational')} employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
         </>}
@@ -7977,6 +7982,17 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
 }
 
 function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+  const [merchantVerification, setMerchantVerification] = useState(null);
+  useEffect(() => {
+    let active = true;
+    setMerchantVerification(null);
+    if (!rental.merchant_id) return;
+    supabase.rpc('get_customer_merchant_verification', { p_rental_id: rental.id }).then(({ data, error }) => {
+      if (active && !error) setMerchantVerification(data);
+    });
+    return () => { active = false; };
+  }, [rental.id, rental.merchant_id, rental.updated_at]);
+  const checklistRental = { ...rental, merchant_identity_verified: merchantVerification?.rental_id === rental.id && merchantVerification?.verified === true };
   const [depositSettlementOpen, setDepositSettlementOpen] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [activityEvents, setActivityEvents] = useState([]);
@@ -8042,14 +8058,14 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     : rentalDocuments;
   const returnState = getLateReturnState(rental.return_date, rental.return_time, rental.status);
   const canCompleteReturn = Boolean(completeRentalReturn) && ['active', 'overdue', 'return_initiated'].includes(rental.status);
-  const releaseChecklist = getReleaseChecklist(rental, documentsForProgress);
+  const releaseChecklist = getReleaseChecklist(checklistRental, documentsForProgress);
   const activeEmergencyException = ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase())
     ? undefined
     : emergencyExceptions.find((item) => item.status === 'active' && new Date(item.expires_at).getTime() > Date.now());
   const emergencyScopeSet = getActiveEmergencyScopeSet(activeEmergencyException);
   const completionScopeSet = new Set(stepCompletions.map((item) => item.step_key));
-  const nonInsuranceCompletionScopes = [...completionScopeSet].filter((scope) => scope !== 'insurance');
-  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, new Set([...emergencyScopeSet, ...nonInsuranceCompletionScopes]));
+  const nonInsuranceCompletionScopes = rental.merchant_id ? [] : [...completionScopeSet].filter((scope) => scope !== 'insurance');
+  const effectiveReleaseChecklist = getEffectiveReleaseChecklist(releaseChecklist, new Set([...(rental.merchant_id ? [] : emergencyScopeSet), ...nonInsuranceCompletionScopes]));
   const canRecordExternalPayment = rental.payment_status !== 'paid';
   const canMarkActive = effectiveReleaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
   const canCancel = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved'].includes(rental.status);
@@ -8057,11 +8073,11 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   const canRestoreCancelledRental = Boolean(restoreCancelledRental)
     && rental.status === 'cancelled' && !rental.cancelled_before_pickup_at
     && !['paid', 'partially_paid', 'partial'].includes(String(rental.payment_status || 'pending').toLowerCase());
-  const canCreateEmergencyException = Boolean(emergencyAuthorized)
+  const canCreateEmergencyException = !rental.merchant_id && Boolean(emergencyAuthorized)
     && !activeEmergencyException
     && !releaseChecklist.ready
     && ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup'].includes(rental.status);
-  const progressSteps = getRentalProgressSteps(rental, documentsForProgress, emergencyScopeSet, completionScopeSet);
+  const progressSteps = getRentalProgressSteps(checklistRental, documentsForProgress, rental.merchant_id ? new Set() : emergencyScopeSet, rental.merchant_id ? new Set() : completionScopeSet);
   const rentalExtensions = extensionRequests.filter((request) => request.rental_id === rental.id || request.rentals?.id === rental.id);
   const extensionInsuranceRequest = rentalExtensions.find((request) => request.id === extensionInsuranceRequestId);
   const extensionAttention = [...rentalExtensions]
@@ -12035,7 +12051,7 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
   const hasLicense = license?.status === 'approved';
   const hasInsurance = insurancePacket?.status === 'approved';
   const phoneVerified = Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at || completionScopeSet.has('phone'));
-  const identityVerified = rental.profiles?.identity_verification_status === 'verified' || completionScopeSet.has('identity');
+  const identityVerified = rental.merchant_id ? rental.merchant_identity_verified === true : rental.profiles?.identity_verification_status === 'verified' || completionScopeSet.has('identity');
   const hasDatesAndVehicle = Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date);
   const agreementSigned = Boolean(rental.agreement_signed || completionScopeSet.has('agreement'));
   // Payment completion must come from the reconciled financial status. A
@@ -12064,7 +12080,7 @@ function getRentalProgressSteps(rental, rentalDocuments = [], emergencyScopeSet 
 
   const steps = [
     { key: 'phone', label: 'Phone', complete: phoneVerified, detail: phoneVerified ? 'Phone verified' : 'Phone verification needed' },
-    { key: 'identity', label: 'Identity', complete: identityVerified, detail: completionScopeSet.has('identity') || rental.profiles?.identity_verification_method === 'admin_in_person' ? 'Verified in person by admin' : identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
+    { key: 'identity', label: 'Identity', complete: identityVerified, detail: rental.merchant_id ? (identityVerified ? 'Merchant verified in person for this rental' : 'Merchant verification requires review') : completionScopeSet.has('identity') || rental.profiles?.identity_verification_method === 'admin_in_person' ? 'Verified in person by admin' : identityVerified ? 'Stripe Identity verified' : `Stripe Identity ${prettyStatus(rental.profiles?.identity_verification_status || 'unverified')}` },
     { key: 'vehicle', label: 'Vehicle', complete: hasDatesAndVehicle, detail: hasDatesAndVehicle ? 'Dates and vehicle selected' : 'Dates or vehicle missing' },
     { key: 'license', label: 'License', complete: effectiveLicenseNative, detail: completionScopeSet.has('license') ? 'Verified in person by admin' : hasLicense ? `Driver license ${prettyStatus(license.status)}` : license?.status === 'rejected' ? 'Driver license rejected — replacement required' : 'Driver license missing' },
     { key: 'insurance', label: 'Insurance', complete: effectiveInsuranceNative, detail: hasInsurance ? 'Insurance packet approved' : insurancePacket?.status === 'rejected' ? 'Insurance packet rejected — replacement required' : insurancePacket ? 'Insurance packet awaiting approval' : 'Insurance packet missing' },
@@ -12110,12 +12126,13 @@ function getEffectiveReleaseChecklist(checklist, emergencyScopeSet = new Set()) 
 }
 
 function getReleaseChecklist(rental, rentalDocuments = []) {
+  const identityVerified = rental.merchant_id ? rental.merchant_identity_verified === true : rental.profiles?.identity_verification_status === 'verified';
   const license = latestDocument(rentalDocuments, 'license');
   const insurancePacket = latestInsurancePacket(rentalDocuments);
   const hasInsurance = insurancePacket?.status === 'approved';
   return {
     phone: Boolean(rental.profiles?.phone_verified || rental.profiles?.phone_verified_at),
-    identity: rental.profiles?.identity_verification_status === 'verified',
+    identity: identityVerified,
     vehicle: Boolean(rental.vehicle_id && rental.pickup_date && rental.return_date),
     agreement: Boolean(rental.agreement_signed),
     payment: (rental.payment_status || 'pending') === 'paid',
@@ -12124,7 +12141,7 @@ function getReleaseChecklist(rental, rentalDocuments = []) {
     insurance: hasInsurance,
     ready: Boolean(
       (rental.profiles?.phone_verified || rental.profiles?.phone_verified_at) &&
-      rental.profiles?.identity_verification_status === 'verified' &&
+      identityVerified &&
       rental.vehicle_id &&
       rental.pickup_date &&
       rental.return_date &&
@@ -12771,7 +12788,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', tickets:'Ticket Resolution', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', tickets:'Ticket Resolution', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings', merchants:'Merchants' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function manualDiscountDescriptor(rental) {
   if (rental?.manual_discount_type === 'percentage') return `${Number(rental.manual_discount_value || 0)}% off rental`;
