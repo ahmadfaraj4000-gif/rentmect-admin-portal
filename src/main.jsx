@@ -8141,7 +8141,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   const cancellationCredit = Number(rental.cancellation_credit_amount || 0);
   const cancelledBeforePickup = rental.status === 'cancelled' && Boolean(rental.cancelled_before_pickup_at);
   const customerName = rental.profiles?.full_name || rental.customer_name_snapshot || (rental.customer_auth_deleted_at ? 'Archived customer' : 'Customer record unavailable');
-  const rentalReference = rental.reservation_number || rental.booking_number || rental.confirmation_code || String(rental.id || '').slice(0, 6).toUpperCase();
+  const rentalReference = rental.merchant_reservation_number || rental.reservation_number || rental.booking_number || rental.confirmation_code || String(rental.id || '').slice(0, 6).toUpperCase();
   const rentalDays = Math.max(1, Math.round(
     (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
       / 86_400_000
@@ -8352,7 +8352,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
             <dt>Return</dt><dd>{rental.ending_mileage != null ? `Recorded · ${formatMiles(rental.ending_mileage)}` : 'Not recorded'}</dd>
             <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage)) : 'Not recorded'}</dd>
             <dt>Intended use</dt><dd>{rental.profiles?.intended_vehicle_use || 'Not provided'}</dd>
-            {isMerchantRental && <><dt>Booking source</dt><dd>Merchant rental</dd></>}
+            {isMerchantRental && <><dt>Booking source</dt><dd>Merchant rental{rental.merchant_reservation_number ? ` · ${rental.merchant_reservation_number}` : ''}</dd></>}
             <dt>Rental status</dt><dd>{prettyStatus(rental.status || 'pending')}</dd>
             <dt>Payment status</dt><dd>{prettyStatus(rental.payment_status || 'pending')}</dd>
           </dl>
