@@ -5447,7 +5447,7 @@ function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRental
 
   return <>
     <Panel title={rentalFilter === 'archive' ? 'Rental Archive' : 'Rental Manager'} eyebrow="Reservations">
-      {focusRentalId && <div className="focused-rental-actions"><span className="admin-completion-badge"><CheckCircle2 size={14}/> Admin booking</span><button type="button" className="secondary-btn" onClick={clearRentalFocus}>Show All Rentals</button></div>}
+      {focusRentalId && <div className="focused-rental-actions"><span className="admin-completion-badge"><CheckCircle2 size={14}/> Rental reservation</span><button type="button" className="secondary-btn" onClick={clearRentalFocus}>Show All Rentals</button></div>}
       {!focusRentalId && <>
       <div className="filter-pills" role="group" aria-label="Rental filters">
         {rentalFilterOptions().map((filter) => (
@@ -7992,6 +7992,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     });
     return () => { active = false; };
   }, [rental.id, rental.merchant_id, rental.updated_at]);
+  const isMerchantRental = Boolean(rental.merchant_id || rental.booking_source === 'merchant');
   const checklistRental = { ...rental, merchant_identity_verified: merchantVerification?.rental_id === rental.id && merchantVerification?.verified === true };
   const [depositSettlementOpen, setDepositSettlementOpen] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -8270,6 +8271,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         <div className="rental-card-title-line">
           <strong>{rental.vehicles?.name || 'Vehicle'} <span>#{rentalReference || 'Rental'}</span></strong>
           {rental.is_mock && <em>MOCK</em>}
+          {isMerchantRental && <span className="rental-merchant-badge"><ShieldCheck size={14} aria-hidden="true" />Merchant rental</span>}
         </div>
         <span className="rental-card-customer">{customerName}</span>
         <span className="rental-card-schedule">{formatRentalDate(rental.pickup_date, rental.pickup_time)} <ArrowRight size={14}/> {formatRentalDate(rental.return_date, rental.return_time)} <small>{rentalDays} day{rentalDays === 1 ? '' : 's'}</small></span>
@@ -8350,6 +8352,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
             <dt>Return</dt><dd>{rental.ending_mileage != null ? `Recorded · ${formatMiles(rental.ending_mileage)}` : 'Not recorded'}</dd>
             <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage)) : 'Not recorded'}</dd>
             <dt>Intended use</dt><dd>{rental.profiles?.intended_vehicle_use || 'Not provided'}</dd>
+            {isMerchantRental && <><dt>Booking source</dt><dd>Merchant rental</dd></>}
             <dt>Rental status</dt><dd>{prettyStatus(rental.status || 'pending')}</dd>
             <dt>Payment status</dt><dd>{prettyStatus(rental.payment_status || 'pending')}</dd>
           </dl>
