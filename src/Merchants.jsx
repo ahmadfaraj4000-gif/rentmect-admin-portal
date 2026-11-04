@@ -6,7 +6,6 @@ export default function Merchants({ onOpenRental }) {
   const [workspace, setWorkspace] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ merchant_id: '', display_name: '', email: '' });
   const [filter, setFilter] = useState('all');
   const [revoke, setRevoke] = useState(null);
   async function act(action = 'list', data = {}) {
@@ -15,7 +14,6 @@ export default function Merchants({ onOpenRental }) {
       const { data: result, error: failure } = await supabase.rpc('admin_merchant_workspace', { p_action: action, p_data: data });
       if (failure) throw failure;
       setWorkspace(result);
-      if (action === 'invite') setForm({ ...form, display_name: '', email: '' });
       if (action === 'revoke_verification') setRevoke(null);
     } catch (failure) { setError(failure.message || 'Merchant workspace could not load.'); }
     finally { setBusy(false); }
@@ -28,9 +26,9 @@ export default function Merchants({ onOpenRental }) {
     {!workspace && <p>{busy ? 'Loading merchants…' : 'The merchant database migration must be installed before this workspace is available.'}</p>}
     {(workspace?.merchants || []).map((merchant) => <section className="merchant-admin-card" key={merchant.id}><div className="merchant-admin-heading"><div><h3>{merchant.name}</h3><p>{merchant.bookings_enabled ? 'New bookings enabled' : 'Pilot paused — new bookings and payments disabled'}</p></div><button className="secondary-btn" disabled={busy} onClick={() => act('bookings', { id: merchant.id, enabled: !merchant.bookings_enabled })}>{merchant.bookings_enabled ? 'Pause new bookings' : 'Enable new bookings'}</button></div>
       <p><a href={`https://login.rentmect.com/?merchant=${merchant.slug}`} target="_blank" rel="noopener noreferrer">Open merchant portal ↗</a></p>
-      <p>Employees use their invited email address and a magic link. Inviting an email address does not change its customer or admin permissions.</p>
-      <div className="merchant-admin-members">{(workspace.memberships || []).filter((m) => m.merchant_id === merchant.id).map((member) => <div key={member.id}><span><strong>{member.display_name}</strong><small>{member.email} · {member.active ? 'Active' : 'Disabled'}</small></span><button className="secondary-btn" disabled={busy} onClick={() => act('membership', { id: member.id, active: !member.active })}>{member.active ? 'Disable access' : 'Restore access'}</button></div>)}</div>
-      <form className="merchant-admin-invite" onSubmit={(e) => { e.preventDefault(); act('invite', { ...form, merchant_id: merchant.id }); }}><label>Employee name<input value={form.merchant_id === merchant.id ? form.display_name : ''} required maxLength={120} onChange={(e) => setForm({ ...form, merchant_id: merchant.id, display_name: e.target.value })} /></label><label>Email address<input type="email" value={form.merchant_id === merchant.id ? form.email : ''} required onChange={(e) => setForm({ ...form, merchant_id: merchant.id, email: e.target.value })} /></label><button className="primary-btn" disabled={busy}>Add merchant access</button></form>
+      <p>Merchant accounts and access changes are handled only by direct request to the owner. Accounts cannot be created or invited from this dashboard.</p>
+      <div className="merchant-admin-members">{(workspace.memberships || []).filter((m) => m.merchant_id === merchant.id).map((member) => <div key={member.id}><span><strong>{member.display_name}</strong><small>{member.email} · {member.active ? 'Active' : 'Disabled'}</small></span></div>)}</div>
+
     </section>)}
     <div className="merchant-admin-heading"><h3>Merchant reservations</h3><label>Show<select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">All bookings</option><option value="needs_action">Paid · needs pickup clearance</option></select></label></div>
     {workspace && !bookings.length && <p>No merchant reservations in this view.</p>}
