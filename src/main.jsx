@@ -1,3 +1,4 @@
+import { swapTimeMessage, swapAvailabilityLabel } from './lib/rentalSwapTime.js';
 import { eligibleExternalTolls, buildTollPayment, tollCents } from './lib/externalTollPayment.js';
 import Merchants from './Merchants.jsx';
 import { rentalCalendarMinutes } from './rentalBillingTime.js';
@@ -8562,7 +8563,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         }}
       />}
       {detailsExpanded && rentalAccount?.pricing_periods?.length > 0 && <section className="rental-amendment-preview"><strong>Agreed pricing periods</strong>{rentalAccount.pricing_periods.map((period) => <p key={period.id}>{formatEasternDateTime(period.starts_at)} → {formatEasternDateTime(period.ends_at)}: {money(period.daily_rate)}/day · {money(Number(period.rental_amount) + Number(period.tax_amount))} including tax</p>)}{rentalAccount.swaps.map((swap) => <p key={swap.id}>Swap effective {formatEasternDateTime(swap.effective_at)} · recorded {formatEasternDateTime(swap.recorded_at)} · {swap.reason}</p>)}</section>}
-      {swapOpen && createPortal(<VehicleSwapModal rental={rental} vehicles={vehicles} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => setSwapOpen(false)} />, document.body)}
+      {swapOpen && createPortal(<VehicleSwapModal rental={rental} vehicles={vehicles} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => setSwapOpen(false)} onExtend={() => { setSwapOpen(false); setExtensionOpen(true); }} />, document.body)}
       {extensionOpen && createPortal(<AdminRentalExtensionModal rental={rental} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => { setExtensionOpen(false); setDetailsExpanded(true); }} />, document.body)}
       {editRentalOpen && createPortal(<RentalAmendmentModal
         rental={rental}
@@ -8948,9 +8949,19 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
   </div>;
 }
 
-function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
+function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onExtend }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
-  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
+  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'now', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'timeMode', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
+  const currentSwapTime = () => {
+    const date = new Date();
+    return `${formatEasternDateTimeInput(date)}:${String(date.getUTCSeconds()).padStart(2, '0')}`;
+  };
+  const [nowEffectiveAt, setNowEffectiveAt] = useState(currentSwapTime);
+  const effectiveAt = form.timeMode === 'custom' ? form.effectiveAt : nowEffectiveAt;
+  const effectiveIso = easternDateTimeInputToIso(effectiveAt);
+  const returnIso = parseBookingDateTime(rental.return_date, rental.return_time)?.toISOString();
+  const pickupIso = parseBookingDateTime(rental.pickup_date, rental.pickup_time)?.toISOString();
+  const timeProblem = swapTimeMessage(effectiveIso, returnIso, pickupIso);
   const [rateContext, setRateContext] = useState(null);
   useEffect(() => {
     let active = true;
@@ -8962,8 +8973,8 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
     return () => { active = false; };
   }, [rental.id]);
   const availability = useVehicleAvailability(supabase, rental.id,
-    easternDateTimeInputToIso(form.effectiveAt), parseBookingDateTime(rental.return_date, rental.return_time)?.toISOString());
-  const availabilityReady = availability.ready && availability.rows.some((row) => row.vehicle_id === form.vehicleId && row.available);
+    timeProblem ? null : effectiveIso, returnIso);
+  const availabilityReady = !timeProblem && availability.ready && availability.rows.some((row) => row.vehicle_id === form.vehicleId && row.available);
   const [preview, setPreview] = useState(null);
   const reviewRef = useRef(null);
   useEffect(() => { if (preview) reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [preview]);
@@ -8971,6 +8982,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState(() => crypto.randomUUID());
   function change(field, value) {
+    if (field === 'timeMode' && value === 'now') setNowEffectiveAt(currentSwapTime());
     setForm((f) => ({ ...f, [field]: value, ...(field === 'vehicleId' ? { dailyRate: String(vehicles.find((v) => v.id === value)?.daily_rate ?? '') } : {}) }));
     setPreview(null); setError(''); setKey(crypto.randomUUID());
   }
@@ -8978,7 +8990,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
     event.preventDefault();
     if (!availabilityReady) { setError('Choose available dates and a vehicle before reviewing.'); return; }
     setBusy(true); setError('');
-    try { setPreview(await onPreview(rental, form)); }
+    try { setPreview(await onPreview(rental, { ...form, effectiveAt })); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -8986,7 +8998,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
     if (!availabilityReady) { setPreview(null); setError('Availability must be checked before saving.'); return; }
     setBusy(true); setError('');
     try {
-      const result = await onApply(rental, { ...form, revision: preview.revision }, key);
+      const result = await onApply(rental, { ...form, effectiveAt, revision: preview.revision }, key);
       if (result) { clearDraft(); onCancel(); }
     } catch (e) { setPreview(null); setError(e.message); }
     finally { setBusy(false); }
@@ -8997,16 +9009,17 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel }) {
       <div className="rental-amendment-scroll">
         {rateContext && <p>Current agreed rate: <strong>{money(rateContext.daily_rate)}/day</strong>.{form.vehicleId && <> Replacement standard rate: <strong>{money(vehicles.find(v => v.id === form.vehicleId)?.daily_rate)}/day</strong>.</>}</p>}
         <fieldset disabled={busy} className="rental-amendment-grid vehicle-swap-fields">
-          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id} disabled={!availability.ready}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : 'Choose swap time first'}</option>)}</select></label>
+          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : swapAvailabilityLabel(availability)}</option>)}</select></label>
           <label><span>Swap reason</span><select value={form.swapKind} onChange={(e) => change('swapKind', e.target.value)}><option value="emergency">Emergency replacement</option><option value="maintenance">Maintenance replacement</option><option value="customer_request">Customer requested change</option></select></label>
-          <label><span>Actual agreed swap time (Eastern)</span><input type="datetime-local" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>
+          <label><span>When are the vehicles being exchanged?</span><select value={form.timeMode} onChange={e => change('timeMode', e.target.value)}><option value="now">Swap now</option><option value="custom">Enter actual swap time</option></select></label>
+          {form.timeMode === 'custom' && <label><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
           {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><input type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
           <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
-        <p>The effective time records when the customer changed vehicles. The entry time is recorded separately when saved. Reopening this form keeps the previously entered time.</p>
-        <p>Checking availability from <strong>{formatEasternDateTime(easternDateTimeInputToIso(form.effectiveAt)) || 'Choose a swap time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
+        <p>{form.timeMode === 'custom' ? 'Use the time the vehicles were actually exchanged. Your entered time is kept when reopening this form.' : 'The swap time defaults to now. Choose a replacement vehicle and review the swap.'}</p>
+        <p>Checking availability from <strong>{formatEasternDateTime(effectiveIso) || 'Select Swap now or enter a valid time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
         <button type="button" disabled={busy || availability.loading} onClick={availability.retry}>Recheck availability</button>
-        <RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} />
+        {timeProblem ? <div role="alert" className="form-error"><p>{timeProblem}</p>{onExtend && effectiveIso && returnIso && new Date(effectiveIso) >= new Date(returnIso) && <button type="button" disabled={busy} onClick={onExtend}>Update return date</button>}</div> : <RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} />}
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong>
           {preview.periods.map((period, i) => <p key={i}>{formatEasternDateTime(period.from)} → {formatEasternDateTime(period.until)}: {money(period.old_rate)} → {money(period.new_rate)} per day</p>)}
           <div className="rental-amendment-ledger"><span>Previous unpaid balance <strong>{money(preview.previous_balance)}</strong></span><span>Charge adjustment, including tax <strong>{money(preview.total_delta)}</strong></span><span>Balance after swap <strong>{money(preview.balance_due)}</strong></span><span>Deposit held separately <strong>{money(preview.deposit_held)}</strong></span></div>
@@ -12968,10 +12981,11 @@ function formatEasternDateTimeInput(value) {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 function easternDateTimeInputToIso(value) {
-  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
-  let guess = target;
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
+  if (!match || Number(match[6] || 0) > 59) return null;
+  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] || 0), Number((match[7] || '').padEnd(3, '0') || 0));
+  const subminute = Number(match[6] || 0) * 1000 + Number((match[7] || '').padEnd(3, '0') || 0);
+  let guess = target - subminute;
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     year: 'numeric',
@@ -12984,9 +12998,10 @@ function easternDateTimeInputToIso(value) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const parts = Object.fromEntries(formatter.formatToParts(new Date(guess)).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
     const rendered = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
-    guess += target - rendered;
+    guess += target - subminute - rendered;
   }
-  return new Date(guess).toISOString();
+  if (formatEasternDateTimeInput(new Date(guess)) !== value.slice(0, 16)) return null;
+  return new Date(guess + subminute).toISOString();
 }
 function bookingProviderLabel(provider) {
   void provider;
