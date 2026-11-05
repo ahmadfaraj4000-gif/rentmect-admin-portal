@@ -57,6 +57,9 @@ jobs:
         # Keep ticket date conversion, draft recovery, and upload retries covered in deployment.
         run: node --test tests/ticket-resolution.test.mjs
 
+      - name: Verify grouped external toll payments
+        run: node --test tests/external-toll-payment.test.mjs
+
       - name: Build production assets
         run: npm run build
 

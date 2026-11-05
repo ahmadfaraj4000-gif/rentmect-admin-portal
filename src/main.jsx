@@ -1,3 +1,4 @@
+import { eligibleExternalTolls, buildTollPayment, tollCents } from './lib/externalTollPayment.js';
 import Merchants from './Merchants.jsx';
 import { rentalCalendarMinutes } from './rentalBillingTime.js';
 import { performanceTelemetry } from './lib/performance.js';
@@ -2499,6 +2500,20 @@ function App() {
     return false;
   }
 
+  async function recordExternalTollPayment(rentalId, receiptId, tollPayment, cancel) {
+    if (!requireStaffPermission('charge.manage', 'record external toll payments')) throw new Error('Charge management permission required.');
+    const { data, error } = await withPaymentProcessing(cancel ? 'Cancelling the toll recording…' : 'Recording the toll payment…', () => supabase.functions.invoke('stripe-web-hook', {
+      body: { action: cancel ? 'admin_cancel_external_tolls' : 'admin_record_external_tolls', rentalId, idempotencyKey: receiptId, tollPayment },
+    }));
+    if (error || data?.error) {
+      let detail = data?.error || error?.message || 'The payment result could not be confirmed.';
+      try { detail = (await error?.context?.clone?.().json())?.error || detail; } catch { /* Preserve original error. */ }
+      throw new Error(detail);
+    }
+    refreshAfterSavedTask(['core', 'payments', 'snapshot']);
+    return data;
+  }
+
   async function recordExternalRentalCharge(charge, payment) {
     if (!requireStaffPermission('charge.manage', 'record external rental-charge payments')) return false;
     if (!charge?.id) return false;
@@ -4236,7 +4251,7 @@ function App() {
         {activeTab === 'tickets' && <TicketResolution focusId={ticketFocusId} canFlagCustomer={canUsePermission('ticket.manage') && canUsePermission('customer.manage')} canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
+        {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} recordExternalTollPayment={canUsePermission('charge.manage') ? recordExternalTollPayment : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} setCustomerStatus={setCustomerStatus} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -5441,7 +5456,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
   </div>;
 }
 
-function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRentalFocus, search, setSearch, rentalFilter, setRentalFilter, updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], rentalPayments = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests, emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles, reports, decideExtension, sendManualReminder, openDocument, markDocument, deleteDocument, documents = [], documentsByRentalId, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, recordExternalTollPayment, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, rentalStepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const displayedRentals = manager.rows.map((row) => rentals.find((rental) => rental.id === row.id)).filter(Boolean);
   const filterCounts = manager.counts || {};
 
@@ -5462,7 +5477,7 @@ function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRental
       {manager.error && <p role="alert" className="form-error">{manager.error} <button type="button" onClick={manager.retry}>Retry rentals</button></p>}
       {manager.detailError && <p role="alert" className="form-error">{manager.detailError} <button type="button" onClick={manager.retryDetail}>Retry rental</button></p>}
       {!manager.loading && !manager.error && displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
-      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} onInteract={() => manager.open(r.id)} refreshing={manager.selectedId === r.id && (manager.detailLoading || Boolean(manager.detailError))} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
+      <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} onInteract={() => manager.open(r.id)} refreshing={manager.selectedId === r.id && (manager.detailLoading || Boolean(manager.detailError))} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
       {rentalFilter === 'archive' && displayedRentals.length < manager.total && <button type="button" className="secondary-btn rental-archive-load-more" disabled={manager.loading} onClick={() => { performanceTelemetry.intent('rental_archive', 'load_more'); manager.setOffset(manager.offset + 25); }}>Load 25 more archived rentals</button>}
     </Panel>
   </>;
@@ -7981,7 +7996,7 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
   </div>;
 }
 
-function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, recordExternalTollPayment, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [merchantVerification, setMerchantVerification] = useState(null);
   useEffect(() => {
     let active = true;
@@ -8425,7 +8440,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         {stripePaymentAttempts.length > 0 && <div className="stripe-attempt-block" role="status">
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
         </div>}
-        <RentalChargeManager compact rental={rental} depositAllocations={depositAllocations} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} sendPaymentLink={(charge) => setContactModal({ charge })} notify={notify} />
+        <RentalChargeManager compact rental={rental} depositAllocations={depositAllocations} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} sendPaymentLink={(charge) => setContactModal({ charge })} notify={notify} />
         {!cancellationDepositFlow && balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be settled before the deposit can be refunded.{depositSettlement ? " You can apply these charges to the deposit and refund the remainder." : ""}</strong></span></div>}
       </aside>
     </div>
@@ -9811,11 +9826,12 @@ function ChargeCustomerModal({ rental, allocations, charges, onCancel, onCollect
   </form></div>;
 }
 
-function RentalChargeManager({ depositAllocations = [], rental, charges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, sendPaymentLink, notify, compact = false }) {
+function RentalChargeManager({ depositAllocations = [], rental, charges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, recordExternalTollPayment, sendPaymentLink, notify, compact = false }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [waivingId, setWaivingId] = useState('');
   const [externalCharge, setExternalCharge] = useState(null);
+  const [externalTollsOpen, setExternalTollsOpen] = useState(false);
   const [form, setForm] = useState({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
   const standardChargeTypes = new Set(['toll', 'add_on', 'cleaning', 'late_fee', 'late_rental_day', 'damage', 'other']);
   const policyTemplates = builtInLateFeeTemplates(rental);
@@ -9872,7 +9888,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
     setWaivingId('');
     return waived;
   }
-  const collectible = charges.filter((charge) => !charge.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(charge.status));
+  const collectible = charges.filter((charge) => !charge.included_in_initial_payment && !charge.external_toll_receipt_id && ['pending', 'failed', 'checkout_open'].includes(charge.status));
   const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const paidTotal = charges.filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
   const automaticSources = new Set(['late_return', 'tollspot']);
@@ -9889,6 +9905,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
 
   function renderChargeActions(charge) {
+    if (charge.external_toll_receipt_id && charge.status !== 'paid') return <small>External toll payment pending · Open Record toll payment to resume.</small>;
     if (charge.included_in_initial_payment || !['pending', 'failed', 'checkout_open'].includes(charge.status)) return null;
     return <div className="row-actions charge-collection-actions">
       <button type="button" disabled={Boolean(collectionCharges || waivingId)} onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> {compact ? 'Send link' : 'Send payment link'}</button>
@@ -9906,6 +9923,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
   }
 
   return <div className={`rental-charge-manager ${compact ? 'compact' : ''}`}>
+    {externalTollsOpen && <TollExternalPaymentModal rental={rental} charges={charges} onClose={() => setExternalTollsOpen(false)} onRecord={recordExternalTollPayment} />}
     {collectionCharges && createPortal(<ChargeCustomerModal rental={rental} allocations={depositAllocations} charges={collectionCharges}
       onCancel={() => setCollectionCharges(null)} onCollect={async (deposit) => {
         if (deposit) return chargeRentalSavedCard(collectionCharges[0], { deposit });
@@ -9920,6 +9938,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
       <small>{money(paidTotal + outstandingTotal)} charged · {money(paidTotal)} paid · {money(outstandingTotal)} outstanding</small></div>
       {collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(collectionCharges || waivingId)} onClick={() => setCollectionCharges(collectible)}><CreditCard size={15}/>{`Charge all · ${money(outstandingTotal)}`}</button>}
     </div>
+    {recordExternalTollPayment && charges.some(charge => charge.charge_type === 'toll') && <div className="row-actions"><button type="button" className="approve" disabled={Boolean(collectionCharges || waivingId || externalCharge)} onClick={() => setExternalTollsOpen(true)}><Banknote size={15}/> Record toll payment</button></div>}
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}
     {(compact && charges.length > 0) && <details className="rental-charge-history" open={outstandingTotal > 0 || undefined}>
       <summary><span>Charge history</span><em>{charges.length} charge{charges.length === 1 ? '' : 's'}</em><ChevronDown size={15}/></summary>
@@ -9996,6 +10015,108 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
       return recorded;
     }} />}
   </div>;
+}
+
+function TollExternalPaymentModal({ rental, charges, onClose, onRecord }) {
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const dialogRef = useDialogFocus(() => { if (!saving) onClose(); });
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const [form, setForm, clearDraft] = useTaskDraft(`external-tolls:${rental.id}`, {
+    paymentMethod: 'cash', receivedDate: today, reference: '', amount: '', receiptId: '', requestJson: '', confirmed: false,
+  }, ['paymentMethod', 'receivedDate', 'reference', 'amount', 'receiptId', 'requestJson']);
+  const pending = form.requestJson ? JSON.parse(form.requestJson) : null;
+  const eligible = eligibleExternalTolls(charges);
+  const total = selected.reduce((sum, id) => sum + tollCents(eligible.find(c => c.id === id)?.total_amount || 0), 0);
+  const displayItems = pending ? pending.charges.map(c => ({ ...c, name: charges.find(item => item.id === c.id)?.name || 'Toll' }))
+    : eligible.map(c => ({ id: c.id, name: c.name, amountCents: tollCents(c.total_amount), description: c.description }));
+
+  useEffect(() => {
+    let active = true;
+    async function recover() {
+      try {
+        let query = supabase.from('external_toll_receipts').select('id,status,request,result').eq('rental_id', rental.id);
+        query = form.receiptId ? query.eq('id', form.receiptId) : query.eq('status', 'pending');
+        const { data, error: loadError } = await query.maybeSingle();
+        if (loadError) throw loadError;
+        if (!active) return;
+        if (data?.status === 'posted') { setDone(data.result); clearDraft(); }
+        else if (data?.status === 'pending') {
+          setForm(current => ({ ...current, receiptId: data.id, requestJson: JSON.stringify(data.request), confirmed: false }));
+        } else if (data?.status === 'cancelled') {
+          setForm(current => ({ ...current, receiptId: '', requestJson: '', confirmed: false }));
+        }
+      } catch (e) { if (active) setError(e.message || 'Could not check pending receipts. Close and reopen to retry.'); }
+      finally { if (active) setLoading(false); }
+    }
+    recover();
+    return () => { active = false; };
+  }, [rental.id]);
+
+  function choose(ids) {
+    setSelected(ids);
+    setForm(current => ({ ...current, amount: (ids.reduce((sum, id) => sum + tollCents(eligible.find(c => c.id === id)?.total_amount || 0), 0) / 100).toFixed(2), confirmed: false }));
+  }
+  async function submit(event) {
+    event.preventDefault();
+    if (saving || loading || !form.confirmed) return;
+    setError('');
+    setSaving(true);
+    try {
+      const request = pending || buildTollPayment(charges, selected, form);
+      const receiptId = form.receiptId || crypto.randomUUID();
+      // Persist before the network request. The same receipt survives a lost response.
+      setForm(current => ({ ...current, receiptId, requestJson: JSON.stringify(request) }));
+      const result = await onRecord(rental.id, receiptId, request, false);
+      setDone(result); clearDraft();
+    } catch (e) { setError(e.message || 'Payment recording is unconfirmed. Resume the same receipt to check and retry.'); }
+    finally { setSaving(false); }
+  }
+  async function cancelRecording() {
+    if (saving) return;
+    setSaving(true); setError('');
+    try {
+      // A request rejected before reservation has no receipt to cancel.
+      const { data, error: lookupError } = await supabase.from('external_toll_receipts').select('id').eq('id', form.receiptId).maybeSingle();
+      if (lookupError) throw lookupError;
+      if (data) {
+        const result = await onRecord(rental.id, form.receiptId, pending, true);
+        if (result.status === 'posted') { setDone(result); clearDraft(); return; }
+      }
+      clearDraft(); onClose();
+    } catch (e) { setError(e.message || 'Cancellation is unconfirmed. Resume this recording to check it.'); }
+    finally { setSaving(false); }
+  }
+  return createPortal(<div className="admin-modal-backdrop external-charge-payment-backdrop">
+    <form ref={dialogRef} className="admin-modal external-charge-payment-modal toll-payment-modal" role="dialog" aria-modal="true" aria-labelledby="external-tolls-title" onSubmit={submit}>
+      <header className="admin-modal-header"><Banknote size={28}/><div><strong id="external-tolls-title">Record toll payment</strong><span>{rental.vehicles?.name || 'Rental'} · One receipt for selected tolls</span></div><button type="button" className="admin-close-button" disabled={saving} onClick={onClose} aria-label="Close toll payment dialog"><X size={18}/></button></header>
+      {loading ? <p>Checking for an unfinished receipt…</p> : done ? <>
+        <p role="status">{money(done.amountCents / 100)} recorded across {done.count} toll{done.count === 1 ? '' : 's'}.</p>
+        <small>Receipt {done.receiptId}</small><div className="modal-actions"><button type="button" className="approve" onClick={onClose}>Done</button></div>
+      </> : <>
+        {pending && <p className="override-warning">This receipt is awaiting confirmation. Resume to finish it, or cancel the recording to release the selected tolls. Cancelling does not return external funds.</p>}
+        {!pending && <label className="checkbox-row"><input type="checkbox" checked={eligible.length > 0 && selected.length === eligible.length} onChange={e => choose(e.target.checked ? eligible.map(c => c.id) : [])} disabled={saving || !eligible.length}/>Select all unpaid tolls ({eligible.length})</label>}
+        <div className="toll-payment-selection">{displayItems.map(c => <label className="toll-payment-option" key={c.id}>
+          <input type="checkbox" checked={Boolean(pending) || selected.includes(c.id)} disabled={saving || Boolean(pending)} onChange={e => choose(e.target.checked ? [...selected, c.id] : selected.filter(id => id !== c.id))}/>
+          <span><strong>{c.name}</strong><small>{c.description || `Toll ${c.id.slice(0, 8)}`}</small></span><b>{money(c.amountCents / 100)}</b>
+        </label>)}</div>
+        {!displayItems.length && <p>No unpaid tolls are available for external payment.</p>}
+        <div className="external-payment-total"><span>{pending ? pending.charges.length : selected.length} selected · Total</span><strong>{money((pending?.amountCents ?? total) / 100)}</strong></div>
+        <fieldset disabled={saving || Boolean(pending)} className="toll-payment-fields">
+          <label className="modal-field"><span>Amount received</span><input type="number" min="0.01" step="0.01" required value={pending ? (pending.amountCents / 100).toFixed(2) : form.amount} onChange={e => setForm(current => ({ ...current, amount: e.target.value, confirmed: false }))}/></label>
+          <label className="modal-field"><span>Payment method</span><select value={pending?.paymentMethod || form.paymentMethod} onChange={e => setForm(current => ({ ...current, paymentMethod: e.target.value }))}><option value="cash">Cash</option><option value="terminal">Card terminal</option><option value="card">Card collected externally</option><option value="cash_app">Cash App</option><option value="bank_transfer">Bank transfer</option><option value="other">Other external payment</option></select></label>
+          <label className="modal-field"><span>Date received</span><input type="date" required max={today} value={pending?.receivedDate || form.receivedDate} onChange={e => setForm(current => ({ ...current, receivedDate: e.target.value }))}/></label>
+          <label className="modal-field"><span>Receipt or reference (optional)</span><input maxLength={120} value={pending?.reference ?? form.reference} onChange={e => setForm(current => ({ ...current, reference: e.target.value }))}/></label>
+        </fieldset>
+        <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} disabled={saving} onChange={e => setForm(current => ({ ...current, confirmed: e.target.checked }))}/><span>I confirm this payment was received and cleared. The amount covers all selected tolls in full.</span></label>
+        {error && <small className="form-error" role="alert">{error}</small>}
+        <div className="modal-actions">{pending ? <button type="button" disabled={saving} onClick={cancelRecording}>Cancel recording</button> : <button type="button" disabled={saving} onClick={onClose}>Cancel</button>}<button className="approve" disabled={saving || !form.confirmed || (!pending && !selected.length)}>{saving ? 'Recording…' : pending ? 'Resume recording' : 'Apply payment to selected tolls'}</button></div>
+      </>}
+    </form>
+  </div>, document.body);
 }
 
 function ChargeExternalPaymentModal({ rental, charge, onCancel, onConfirm }) {

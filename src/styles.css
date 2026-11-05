@@ -6812,3 +6812,22 @@ body{
 .rental-card-refund-badge { display: inline-flex; align-items: center; gap: 5px; color: #166534; background: #ecfdf5; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 700; }
 
 .vehicle-swap-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+/* One external receipt can settle several full toll charges. */
+.toll-payment-modal { max-height: 90dvh; overflow-y: auto; }
+.toll-payment-selection { max-height: 260px; overflow-y: auto; margin: 12px 0; }
+.toll-payment-option { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
+.toll-payment-option > span { flex: 1; min-width: 0; }
+.toll-payment-option small { display: block; margin-top: 4px; overflow-wrap: anywhere; color: #64748b; }
+.toll-payment-option > b { white-space: nowrap; }
+.toll-payment-fields { border: 0; padding: 0; margin: 0; display: grid; gap: 12px; }
+
+.toll-payment-modal .modal-field > span { color: #334155; font-size: 13px; font-weight: 600; }
+.toll-payment-modal .form-error { color: #b42318; }
+.toll-payment-modal .checkbox-row { display: flex; gap: 8px; align-items: center; }
+.toll-payment-modal .toll-payment-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.toll-payment-modal .modal-actions > button { min-height: 42px; border-radius: 8px; padding: 10px 14px; }
+@media (max-width: 520px) {
+ .toll-payment-modal .toll-payment-fields { grid-template-columns: 1fr; }
+ .toll-payment-modal .modal-actions { position: sticky; bottom: -24px; padding: 12px 0 24px; background: #fff; }
+}
