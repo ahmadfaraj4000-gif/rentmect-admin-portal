@@ -6831,3 +6831,7 @@ body{
  .toll-payment-modal .toll-payment-fields { grid-template-columns: 1fr; }
  .toll-payment-modal .modal-actions { position: sticky; bottom: -24px; padding: 12px 0 24px; background: #fff; }
 }
+
+.rental-amendment-modal .swap-time-warning { color: #a1241b; background: #fff5f4; border: 1px solid #f2c9c5; border-radius: 10px; padding: 12px; margin: 12px 0; }
+.rental-amendment-modal .swap-time-warning p { margin: 0 0 10px; }
+.rental-amendment-modal .swap-time-warning button { min-height: 42px; }
