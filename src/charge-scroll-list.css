@@ -1,0 +1,10 @@
+/* Five entries at most; tall mobile cards also stay within a compact viewport. */
+.charge-scroll-list.charge-scroll-list {
+  max-height: min(var(--five-charge-rows, 440px), 440px);
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}

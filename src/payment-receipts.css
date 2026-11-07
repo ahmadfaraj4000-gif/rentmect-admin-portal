@@ -34,7 +34,7 @@
 .receive-payment-modal .rp-charges-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin: 0 0 5px; }
 .receive-payment-modal .rp-charges-heading h4 { margin: 0; font-size: 12px; color: #586c5e; font-weight: 600; }
 .receive-payment-modal .rp-select-all { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 12px; margin: 0; cursor: pointer; }
-.receive-payment-modal .rp-charge-list { border: 1px solid #dfe7e1; border-radius: 9px; overflow: hidden; }
+.receive-payment-modal .rp-charge-list { border: 1px solid #dfe7e1; border-radius: 9px; overflow-x: hidden; overflow-y: auto; }
 .receive-payment-modal .rp-summary { display: grid; gap: 9px; margin: 18px 0 14px; padding: 14px; background: #f6f8f6; border: 1px solid #e3eae5; border-radius: 9px; font-size: 13px; }
 .receive-payment-modal .rp-summary > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .receive-payment-modal .rp-summary dt { color: #607066; }

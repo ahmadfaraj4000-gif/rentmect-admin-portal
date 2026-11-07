@@ -1,3 +1,4 @@
+import { ChargeScrollList } from './ChargeScrollList.jsx';
 import { typedSignatureImage } from './lib/typedSignature.js';
 import { ReceiptActions } from './ReceiptActions.jsx';
 import { ReceivePayment } from './ReceivePayment.jsx';
@@ -10004,7 +10005,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
           <button type="button" className="approve automatic-charge-primary" disabled={Boolean(collectionCharges || waivingId)} onClick={() => setCollectionCharges(automaticCollectible)}><CreditCard size={16}/>{`Charge customer ${money(automaticCollectibleTotal)}`}</button>
         </div>}
       </div>
-      <div className="automatic-charge-list">
+      <ChargeScrollList className="automatic-charge-list" label="Automatic charges — scroll for more">
         {automaticCharges.map((charge) => <article className="automatic-charge-card" key={charge.id}>
           <div className="automatic-charge-fields">
             <label><span>Charge</span><input value={charge.name || ''} readOnly /></label>
@@ -10018,7 +10019,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
             {renderChargeActions(charge)}
           </div>
         </article>)}
-      </div>
+      </ChargeScrollList>
     </section>}
     {otherCharges.map(renderChargeRow)}
       </div>
@@ -10033,7 +10034,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
             <button type="button" className="approve automatic-charge-primary" disabled={Boolean(collectionCharges || waivingId)} onClick={() => setCollectionCharges(automaticCollectible)}><CreditCard size={16}/>{`Charge customer ${money(automaticCollectibleTotal)}`}</button>
           </div>}
         </div>
-        <div className="automatic-charge-list">
+        <ChargeScrollList className="automatic-charge-list" label="Automatic charges — scroll for more">
           {automaticCharges.map((charge) => <article className="automatic-charge-card" key={charge.id}>
             <div className="automatic-charge-fields">
               <label><span>Charge</span><input value={charge.name || ''} readOnly /></label>
@@ -10047,7 +10048,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
               {renderChargeActions(charge)}
             </div>
           </article>)}
-        </div>
+        </ChargeScrollList>
       </section>}
       {otherCharges.map(renderChargeRow)}
     </>}

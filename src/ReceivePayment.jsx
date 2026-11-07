@@ -1,3 +1,4 @@
+import { ChargeScrollList } from './ChargeScrollList.jsx';
 import './payment-receipts.css';
 import React, {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
@@ -49,7 +50,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   clearDraft();onClose();
  }catch(e){setError(e.message);}finally{setSaving(false);}}
  function keyboard(e){if(e.key==='Escape'&&!saving){e.stopPropagation();onClose();}if(e.key==='Tab'){
-  const nodes=[...dialog.current.querySelectorAll('button,input,textarea,select')].filter(n=>!n.matches(':disabled'));const first=nodes[0],last=nodes.at(-1);
+  const nodes=[...dialog.current.querySelectorAll('button,input,textarea,select,[tabindex="0"]')].filter(n=>!n.matches(':disabled'));const first=nodes[0],last=nodes.at(-1);
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
  }}
  return createPortal(<div className="admin-modal-backdrop receive-payment-backdrop"><form ref={dialog} tabIndex={-1} onKeyDown={keyboard} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="receive-payment-title" className="receive-payment-modal">
@@ -71,7 +72,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
     {canCollectRent&&<label className={`rp-choice rp-rental ${appliesToRental?'is-selected':''}`}><input type="checkbox" aria-label="Apply to rental" checked={appliesToRental} onChange={e=>change('applyToRental',e.target.checked)}/><span><strong>Apply to rental</strong><small>{money((pending?.expectedRentalDueCents??due)/100)} rental balance due</small></span><b>{money(remainder/100)}</b></label>}
     {canCollectRent&&<p className="rp-help">To pay rent only, leave additional charges unchecked. Selected charges are paid first; the remainder goes to rent.</p>}
     {!pending&&eligible.length>0&&<><div className="rp-charges-heading"><h4>Additional charges</h4>{tolls.length>0&&<label className="rp-select-all"><input type="checkbox" checked={tolls.every(c=>selected.includes(c.id))} onChange={e=>change('selected',e.target.checked?[...new Set([...selected,...tolls.map(c=>c.id)])]:selected.filter(id=>!tolls.some(c=>c.id===id)))}/>Select all tolls</label>}</div>
-    <div className="rp-charge-list">{eligible.map(c=><label className={`rp-choice ${selected.includes(c.id)?'is-selected':''}`} key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>change('selected',e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span>{c.name}</span><b>{money(c.total_amount)}</b></label>)}</div></>}
+    <ChargeScrollList className="rp-charge-list" label="Additional charges — scroll for more">{eligible.map(c=><label className={`rp-choice ${selected.includes(c.id)?'is-selected':''}`} key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>change('selected',e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span>{c.name}</span><b>{money(c.total_amount)}</b></label>)}</ChargeScrollList></>}
    </section>
   </fieldset>
   <dl className="rp-summary" aria-label="Payment summary">
