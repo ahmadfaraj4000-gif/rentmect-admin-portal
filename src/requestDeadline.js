@@ -1,4 +1,6 @@
-export const PORTAL_REQUEST_DEADLINE_MS = 9000;
+// Includes session renewal, API execution, and downloading the response body.
+// Production renewal alone reached 8.3s; a 9s total budget aborted healthy reads.
+export const PORTAL_REQUEST_DEADLINE_MS = 25_000;
 
 export function withRequestDeadline(request, label, deadlineMs = PORTAL_REQUEST_DEADLINE_MS) {
   let timeoutId;
@@ -26,7 +28,7 @@ export async function withReadRetry(createRequest, label, deadlineMs = PORTAL_RE
     // Stop the previous transport before retrying a timed-out PostgREST read.
     if (result.timedOut) controller.abort();
     if (!result?.error) return result;
-    const transient = result.timedOut || /failed to fetch|network|load failed|connection|timed out|timeout|502|503|504/i.test(result.error.message || '');
+    const transient = result.timedOut || result.error.code === '57014' || /failed to fetch|network|load failed|connection|timed out|timeout|502|503|504/i.test(result.error.message || '');
     if (!transient) return result;
   }
   return result;

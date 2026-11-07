@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { transformWithOxc } from 'vite';
+import { withReadRetry } from '../src/requestDeadline.js';
 import { tripStartIsLocked } from '../src/lib/rentalTripStart.js';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
@@ -20,14 +21,14 @@ const helpers = { rentalDayShortcut, React, supabase: {}, parseBookingDateTime: 
   calendarTimeOptions:()=>['9:00 AM','10:00 AM'] };
 function harness(savedContext = { daily_rate: 49, fleet_daily_rate: 69, revisable_extension: { starts_at: '2026-10-04T13:00:00Z', daily_rate: 49 } }) {
   const state=[]; let cursor=0; const calls=[]; let loadRates;
-  const context = vm.createContext({ ...helpers, supabase: { rpc: async () => ({ data: savedContext }) }, crypto:{randomUUID:()=>`key-${calls.length}-${Math.random()}`},
+  const context = vm.createContext({ ...helpers, withReadRetry, supabase: { rpc: async () => typeof savedContext === 'function' ? savedContext() : ({ data: savedContext }) }, crypto:{randomUUID:()=>`key-${calls.length}-${Math.random()}`},
     useDialogFocus:()=>({current:null}), useRef:()=>({current:null}), useEffect:(effect, deps)=>{ if (deps?.[0] === rental.id && !loadRates) loadRates = effect; },
     useState(initial) { const index=cursor++; if (!(index in state)) state[index]=typeof initial==='function'?initial():initial;
       return [state[index],value=>{state[index]=typeof value==='function'?value(state[index]):value;}]; },
   });
   context.useTaskDraft = (_key, initial) => [...context.useState(initial), () => calls.push({ draftCleared: true })];
   const Modal=vm.runInContext(transformed.code,context);
-  return { calls, async loadRates() { loadRates(); await Promise.resolve(); }, render() { cursor=0; return Modal({rental,
+  return { calls, async loadRates() { globalThis.window = globalThis; try { loadRates(); await new Promise(resolve => setImmediate(resolve)); } finally { delete globalThis.window; } }, render() { cursor=0; return Modal({rental,
     onPreview:async(r,form)=>{calls.push({preview:form});return quote;},
     onApply:async(r,form,key)=>{calls.push({apply:form,key});return {success:true};},
     onCancel:()=>calls.push({closed:true}),
@@ -125,4 +126,20 @@ test('late rate load preserves a price already typed by staff, including zero', 
   find(tree, e => e.type === 'input' && e.props.type === 'number').props.onChange({ target: { value: '0' } });
   await h.loadRates(); tree = h.render();
   assert.equal(find(tree, e => e.type === 'input' && e.props.type === 'number').props.value, '0');
+});
+
+test('a failed price read can retry in place without discarding the extension draft', async () => {
+  let online = false;
+  const h = harness(() => online ? { data: { daily_rate: 49, fleet_daily_rate: 69 } }
+    : { error: new Error('network interrupted') });
+  let tree = h.render();
+  find(tree, e => e.type === 'textarea').props.onChange({ target: { value: 'Customer requested four more days' } });
+  await h.loadRates(); tree = h.render();
+  assert.ok(find(tree, e => e.type === 'button' && e.props.children === 'Retry rental price'));
+  find(tree, e => e.type === 'button' && e.props.children === 'Retry rental price').props.onClick();
+  online = true;
+  await h.loadRates(); tree = h.render();
+  assert.equal(find(tree, e => e.type === 'input' && e.props.type === 'number').props.value, '49');
+  assert.equal(find(tree, e => e.type === 'textarea').props.value, 'Customer requested four more days');
+  assert.equal(find(tree, e => e.type === 'button' && e.props.children === 'Retry rental price'), undefined);
 });

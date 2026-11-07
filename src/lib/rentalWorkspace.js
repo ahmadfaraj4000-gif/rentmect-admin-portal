@@ -110,10 +110,18 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
           }
           observation('cache', token, pageCached && cachedDetails === data.rows.length ? 'cache' : pageCached || cachedDetails > 0 ? 'mixed' : 'network');
         }
+        // Failed explicit refreshes may leave an older cache entry behind. Only
+        // a fresh complete ledger may recover that card's actions.
+        if (inline && state.detailError) details.delete(selectedId);
         const records = inline ? await inlineRecords(data, () => !disposed && readGeneration === generation && rentalPageKey(current) === key) : [];
         if (disposed || readGeneration !== generation || rentalPageKey(current) !== key) return;
         if (editing && state.rows.length) { deferredList = true; return; }
         records.forEach(hydrate);
+        // A successful batch is authoritative for the selected card too. A prior
+        // detail failure must not leave its actions disabled after recovery.
+        if (inline && state.detailError && records.some(record => record?.rental?.id === selectedId)) {
+          emit({ detailLoading: false, detailReady: true, detailError: '' });
+        }
         pages.set(key, { data, at: now(), generation: readGeneration });
         // Bound memory when searching many different strings.
         if (pages.size > 30) pages.delete(pages.keys().next().value);

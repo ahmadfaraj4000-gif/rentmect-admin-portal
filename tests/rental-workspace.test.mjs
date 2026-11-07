@@ -291,3 +291,51 @@ test('batch cache is invalidated on mutations and large lists stay bounded',asyn
   version=2;workspace.invalidate();await workspace.list(undefined,true);
   assert.equal(hydrated.at(-1).version,2);assert.equal(batches.length,6);
 });
+
+test('a successful list refresh unlocks a selected rental after its detail read failed', async () => {
+  let online = false;
+  const { workspace } = setup({ inline: true,
+    readList: async () => page('r1'),
+    readDetail: async () => { throw new Error('connection interrupted'); },
+    readDetails: async () => { if (!online) throw new Error('connection interrupted'); return [{ rental: { id: 'r1' } }]; },
+  });
+  await workspace.open('r1');
+  assert.equal(workspace.getState().detailReady, false);
+  assert.ok(workspace.getState().detailError);
+  online = true;
+  await workspace.list(params(), true);
+  assert.equal(workspace.getState().detailReady, true);
+  assert.equal(workspace.getState().detailError, '');
+  assert.equal(workspace.getState().detailLoading, false);
+});
+
+test('refreshing a different list never clears the selected rental failure', async () => {
+  const { workspace } = setup({ inline: true,
+    readList: async () => page('r2'),
+    readDetail: async () => { throw new Error('connection interrupted'); },
+    readDetails: async () => [{ rental: { id: 'r2' } }],
+  });
+  await workspace.open('r1');
+  await workspace.list(params(), true);
+  assert.equal(workspace.getState().detailReady, false);
+  assert.ok(workspace.getState().detailError);
+});
+
+test('an old cached ledger cannot unlock a failed explicit detail refresh', async () => {
+  let reads = 0;
+  let balance = 10;
+  const { workspace, hydrated } = setup({ inline: true,
+    readList: async () => page('r1'),
+    readDetail: async () => { throw new Error('connection interrupted'); },
+    readDetails: async () => { reads++; return [{ rental: { id: 'r1' }, balance }]; },
+  });
+  await workspace.list(params());
+  await workspace.open('r1');
+  await workspace.open('r1', true);
+  assert.ok(workspace.getState().detailError);
+  balance = 20;
+  await workspace.list(params(), true);
+  assert.equal(reads, 2);
+  assert.equal(hydrated.at(-1).balance, 20);
+  assert.equal(workspace.getState().detailError, '');
+});

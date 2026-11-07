@@ -74,6 +74,15 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
     if (enabled && focusId) void controllerRef.current?.open(focusId);
   }, [enabled, focusId, userId]);
   useEffect(() => {
+    if (!enabled || (!state.error && !state.detailError) || state.loading || state.detailLoading) return;
+    const timer = setTimeout(() => {
+      if (document.visibilityState === 'hidden' || navigator.onLine === false) return;
+      if (state.error) void controllerRef.current?.list(undefined, true);
+      if (state.detailError) void controllerRef.current?.open(state.selectedId, true);
+    }, 15_000);
+    return () => clearTimeout(timer);
+  }, [enabled, state.error, state.detailError, state.loading, state.detailLoading, state.selectedId]);
+  useEffect(() => {
     if (state.listPerformance) return performanceTelemetry.afterPaint(state.listPerformance.token, state.listPerformance.outcome);
   }, [state.listPerformance]);
   useEffect(() => {

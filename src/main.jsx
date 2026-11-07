@@ -4159,6 +4159,17 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    if (!isAdminUser || dataHealth.refreshing || !dataHealth.errors.length) return;
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState !== 'hidden' && navigator.onLine !== false) {
+        // Recover one failed domain at a time, without reloading healthy data.
+        void retryAdminSection(dataHealth.errors[0].label);
+      }
+    }, 15_000);
+    return () => window.clearTimeout(timer);
+  }, [isAdminUser, dataHealth.refreshing, dataHealth.errors]);
+
   function retryAdminSection(label) {
     const domainByLabel = {
       'Dashboard snapshot': 'snapshot',
@@ -8897,16 +8908,18 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
     returnDate: '', returnTime: rental.return_time || '9:00 AM', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'returnDate', 'returnTime', 'dailyRate', 'reason']);
   const [rateContext, setRateContext] = useState(null);
   const [contextError, setContextError] = useState('');
+  const [contextAttempt, setContextAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    supabase.rpc('admin_rental_change_context', { p_rental_id: rental.id }).then(({ data, error }) => {
+    setContextError('');
+    withReadRetry(() => supabase.rpc('admin_rental_change_context', { p_rental_id: rental.id }), 'Rental price').then(({ data, error }) => {
       if (!active) return;
-      if (error) { setContextError(error.message); return; }
+      if (error || !data) { setContextError(error?.message || 'The saved rental price could not load.'); return; }
       setRateContext(data);
       setForm(current => ({ ...current, dailyRate: current.dailyRate || String(data.daily_rate ?? '') }));
     });
     return () => { active = false; };
-  }, [rental.id]);
+  }, [rental.id, contextAttempt]);
   const revising = form.operation === 'extension_revision';
   const extensionStart = rateContext?.revisable_extension?.starts_at;
   const shortening = revising && parseBookingDateTime(form.returnDate, form.returnTime) <= parseBookingDateTime(rental.return_date, rental.return_time);
@@ -8944,7 +8957,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
     <form ref={dialogRef} className="admin-modal rental-amendment-modal" role="dialog" aria-modal="true" aria-label="Extend or revise rental" onSubmit={review}>
       <header className="admin-modal-header"><CalendarClock size={22}/><div><strong>Extend or revise rental</strong><span>{rental.vehicles?.name} · Current return: {formatRentalDate(rental.return_date, rental.return_time)}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={busy} aria-label="Close"><X size={18}/></button></header>
       <div className="rental-amendment-scroll">
-        {rateContext ? <p>Current agreed rate: <strong>{money(rateContext.daily_rate)}/day</strong> · Vehicle standard rate: {money(rateContext.fleet_daily_rate)}/day. The agreed rate is filled in below.</p> : <p role="status">{contextError || 'Loading the saved rental price…'}</p>}
+        {rateContext ? <p>Current agreed rate: <strong>{money(rateContext.daily_rate)}/day</strong> · Vehicle standard rate: {money(rateContext.fleet_daily_rate)}/day. The agreed rate is filled in below.</p> : <p role="status">{contextError || 'Loading the saved rental price…'}{contextError && <> <button type="button" onClick={() => setContextAttempt(value => value + 1)}>Retry rental price</button></>}</p>}
         {rateContext?.revisable_extension && <div className="row-actions">
           <button type="button" disabled={busy} onClick={() => { change('operation', 'extension'); setForm(current => ({ ...current, returnDate: '', dailyRate: String(rateContext.daily_rate) })); }}>Add more days</button>
           <button type="button" disabled={busy} onClick={() => { change('operation', 'extension_revision'); setForm(current => ({ ...current, returnDate: rental.return_date, returnTime: rental.return_time, dailyRate: String(rateContext.revisable_extension.daily_rate) })); }}>Revise latest extension</button>
