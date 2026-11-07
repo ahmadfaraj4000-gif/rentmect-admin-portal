@@ -10021,7 +10021,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
         </article>)}
       </ChargeScrollList>
     </section>}
-    {otherCharges.map(renderChargeRow)}
+    {otherCharges.length > 0 && <ChargeScrollList className="manual-charge-list" visibleRows={1} label="Manual charge history — scroll for more">{otherCharges.map(renderChargeRow)}</ChargeScrollList>}
       </div>
     </details>}
     {!compact && <>
@@ -10050,7 +10050,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
           </article>)}
         </ChargeScrollList>
       </section>}
-      {otherCharges.map(renderChargeRow)}
+      {otherCharges.length > 0 && <ChargeScrollList className="manual-charge-list" visibleRows={1} label="Manual charge history — scroll for more">{otherCharges.map(renderChargeRow)}</ChargeScrollList>}
     </>}
     {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
       <div className="manual-charge-heading"><strong>Manual rental charge</strong><small>Start from an internal template or enter a one-off charge. Nothing is billed until you submit it for this reservation.</small></div>
