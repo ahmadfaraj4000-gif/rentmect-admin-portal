@@ -1,11 +1,64 @@
-.admin-modal.receive-payment-modal { color: #24372c; }
-.receive-payment-modal .modal-field { color: #334155; }
-.receive-payment-modal .toll-payment-selection,
-.receive-payment-modal .select-all-tolls { grid-column: 1 / -1; }
-.receive-payment-modal .external-payment-total { margin: 8px 0; }
-.admin-modal.receive-payment-modal .modal-actions { position: static !important; margin-top: 12px; }
-.receive-payment-modal .admin-modal-header strong { color: #24372c; }
-.receive-payment-modal .admin-modal-header span { display: block; color: #53635b; }
+/* Scoped payment form: avoid inherited toll-modal field and total styles. */
+.admin-modal-backdrop.receive-payment-backdrop { padding: 20px; z-index: 1500; }
+.receive-payment-modal { width: min(640px, 100%); max-width: 640px; max-height: calc(100dvh - 40px); padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0; overflow: hidden; border: 1px solid #dce5df; border-radius: 16px; background: #fff; color: #24372c; box-shadow: 0 24px 80px #10281b33; text-align: left; }
+.receive-payment-modal *, .receive-payment-modal *::before { box-sizing: border-box; }
+.receive-payment-modal .rp-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; border-bottom: 1px solid #e4ebe6; flex-shrink: 0; }
+.receive-payment-modal .rp-header h2 { font-size: 19px; line-height: 1.3; margin: 0; color: #1e3326; letter-spacing: -.3px; }
+.receive-payment-modal .rp-header p { font-size: 13px; margin: 5px 0 0; color: #65746b; }
+.receive-payment-modal .rp-close { width: 36px; height: 36px; min-height: 36px; padding: 0; flex-shrink: 0; border: 1px solid #e1e8e3; border-radius: 8px; background: #f6f8f6; color: #526359; font-size: 24px; box-shadow: none; }
+.receive-payment-modal .rp-body { padding: 20px 24px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.receive-payment-modal .rp-fields { padding: 0; margin: 0; border: 0; min-width: 0; display: block; }
+.receive-payment-modal .rp-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px 16px; }
+.receive-payment-modal .rp-field { display: flex; flex-direction: column; gap: 7px; margin: 0; min-width: 0; font-size: 13px; font-weight: 600; color: #35493c; }
+.receive-payment-modal .rp-field small { font-size: 11px; font-weight: 400; color: #6a796f; }
+.receive-payment-modal .rp-field input, .receive-payment-modal .rp-field select, .receive-payment-modal .rp-field textarea { width: 100%; min-width: 0; height: 44px; min-height: 44px; max-height: 44px; margin: 0; padding: 11px 12px; border: 1px solid #cbd8cf; border-radius: 8px; background: #fff; color: #203b2b; font: inherit; font-size: 14px; font-weight: 500; line-height: 20px; box-shadow: none; resize: none; }
+.receive-payment-modal .rp-field select { padding-right: 28px; appearance: auto; -webkit-appearance: menulist; }
+.receive-payment-modal .rp-field input::placeholder, .receive-payment-modal .rp-field textarea::placeholder { color: #7e8a82; font-weight: 400; font-size: 12px; opacity: 1; }
+.receive-payment-modal .rp-money { position: relative; }
+.receive-payment-modal .rp-money > span { position: absolute; top: 12px; left: 13px; font-size: 16px; color: #738277; }
+.receive-payment-modal .rp-money input { padding-left: 30px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.receive-payment-modal input:focus-visible, .receive-payment-modal textarea:focus-visible, .receive-payment-modal select:focus-visible, .receive-payment-modal button:focus-visible { outline: 2px solid #37825b; outline-offset: 2px; }
+.receive-payment-modal .rp-allocation { margin-top: 22px; }
+.receive-payment-modal .rp-allocation h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+.receive-payment-modal input[type=checkbox] { appearance: auto; -webkit-appearance: checkbox; width: 17px; height: 17px; min-width: 17px; min-height: 17px; max-height: 17px; padding: 0; margin: 0; flex: 0 0 17px; accent-color: #236847; vertical-align: middle; box-shadow: none; cursor: pointer; }
+.receive-payment-modal .rp-choice { display: flex; align-items: center; gap: 12px; padding: 12px; min-height: 46px; margin: 0; cursor: pointer; font-size: 13px; font-weight: 400; border-bottom: 1px solid #e7ede9; }
+.receive-payment-modal .rp-choice:last-child { border-bottom: 0; }
+.receive-payment-modal .rp-choice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.receive-payment-modal .rp-choice strong { font-size: 13px; display: block; }
+.receive-payment-modal .rp-choice small { display: block; font-size: 12px; color: #6c7b71; margin-top: 3px; }
+.receive-payment-modal .rp-choice b { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.receive-payment-modal .rp-rental { border: 1px solid #d8e2db !important; border-radius: 9px; }
+.receive-payment-modal .rp-choice.is-selected { background: #f2f8f4; }
+.receive-payment-modal .rp-rental.is-selected { border-color: #a9c8b5 !important; }
+.receive-payment-modal .rp-help { margin: 8px 1px 14px; font-size: 12px; line-height: 1.5; color: #69796f; }
+.receive-payment-modal .rp-charges-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin: 0 0 5px; }
+.receive-payment-modal .rp-charges-heading h4 { margin: 0; font-size: 12px; color: #586c5e; font-weight: 600; }
+.receive-payment-modal .rp-select-all { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 12px; margin: 0; cursor: pointer; }
+.receive-payment-modal .rp-charge-list { border: 1px solid #dfe7e1; border-radius: 9px; overflow: hidden; }
+.receive-payment-modal .rp-summary { display: grid; gap: 9px; margin: 18px 0 14px; padding: 14px; background: #f6f8f6; border: 1px solid #e3eae5; border-radius: 9px; font-size: 13px; }
+.receive-payment-modal .rp-summary > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.receive-payment-modal .rp-summary dt { color: #607066; }
+.receive-payment-modal .rp-summary dd { margin: 0; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.receive-payment-modal .rp-summary .rp-balance { border-top: 1px solid #dfe7e1; padding-top: 10px; }
+.receive-payment-modal .rp-balance dt { font-weight: 600; color: #304b39; }
+.receive-payment-modal .rp-confirmation { display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.receive-payment-modal .rp-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 24px; border-top: 1px solid #e4ebe6; background: #fcfdfc; flex-shrink: 0; }
+.receive-payment-modal .rp-footer button { min-height: 42px; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; box-shadow: none; }
+.receive-payment-modal .rp-secondary { border: 1px solid #d3dfd6; background: white; color: #3c5243; }
+.receive-payment-modal .rp-primary { border: 1px solid #236847; background: #236847; color: white; }
+.receive-payment-modal button:disabled { opacity: .5; cursor: not-allowed; }
+.receive-payment-modal .rp-notice { padding: 10px 12px; border-radius: 7px; background: #fff8e9; color: #70561c; font-size: 12px; line-height: 1.5; }
+.receive-payment-modal .rp-error { margin: 12px 0 0; color: #a32e25; font-size: 13px; line-height: 1.5; }
+@media (max-width: 540px) {
+ .admin-modal-backdrop.receive-payment-backdrop { padding: 10px; }
+ .receive-payment-modal { max-height: calc(100dvh - 20px); border-radius: 12px; }
+ .receive-payment-modal .rp-header { padding: 16px; }
+ .receive-payment-modal .rp-body { padding: 16px; }
+ .receive-payment-modal .rp-grid { grid-template-columns: minmax(0,1fr); gap: 12px; }
+ .receive-payment-modal .rp-field input, .receive-payment-modal .rp-field select, .receive-payment-modal .rp-field textarea { font-size: 16px; }
+ .receive-payment-modal .rp-footer { padding: 12px 16px; }
+ .receive-payment-modal .rp-footer .rp-primary { flex: 1; }
+}
 .rental-payment-history li > .payment-ledger-detail {
   grid-column: 1 / -1; grid-row: 2; display: grid; gap: 6px;
   min-width: 0; overflow-wrap: anywhere; color: #53635b;

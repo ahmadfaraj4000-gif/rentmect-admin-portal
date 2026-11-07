@@ -9,15 +9,21 @@ const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',yea
 export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose,canCollectRent=true,canManageCharges=true}) {
  const [saving,setSaving]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[done,setDone]=useState(null),[recoveryReady,setRecoveryReady]=useState(false);
  const [form,setForm,clearDraft]=useTaskDraft(`receive-payment:${rental.id}`,{
-  amount:'',paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:'[]',receiptId:'',requestJson:'',confirmed:false,
- },['amount','paymentMethod','receivedDate','receivedTime','reference','notes','selectedJson','receiptId','requestJson']);
+  amount:'0.00',applyToRental:true,paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:'[]',receiptId:'',requestJson:'',confirmed:false,
+ },['amount','applyToRental','paymentMethod','receivedDate','receivedTime','reference','notes','selectedJson','receiptId','requestJson']);
  const pending=form.requestJson?JSON.parse(form.requestJson):null;
  const selected=JSON.parse(form.selectedJson);
  const eligible=canManageCharges?eligiblePaymentCharges(charges):[], due=canCollectRent?paymentCents(Number(rentalDue).toFixed(2)):0;
  const selectedTotal=eligible.filter(c=>selected.includes(c.id)).reduce((n,c)=>n+paymentCents(c.total_amount),0);
- const remainder=pending?.rentalAmountCents??Math.max(0,Math.round(Number(form.amount||0)*100)-selectedTotal);
+ const amountNumber=Number(form.amount||0), amountValid=Number.isFinite(amountNumber)&&amountNumber>0;
+ const unallocated=Math.max(0,Math.round((Number.isFinite(amountNumber)?amountNumber:0)*100)-selectedTotal);
+ const appliesToRental=pending?pending.rentalAmountCents>0:form.applyToRental!==false&&canCollectRent;
+ const remainder=pending?.rentalAmountCents??(appliesToRental?unallocated:0);
+ const tolls=eligible.filter(c=>c.charge_type==='toll');
+ const formatAmount=()=>{try{change('amount',(paymentCents(form.amount||'0')/100).toFixed(2));}catch{/* Keep invalid input visible for validation. */}};
  const dialog=useRef(null);
  useEffect(()=>trackTaskDialog(),[]);
+ useEffect(()=>{if(form.amount==='')setForm(f=>({...f,amount:'0.00'}));},[]);
  useEffect(()=>{const previous=document.activeElement;dialog.current?.focus();return()=>previous?.focus?.();},[]);
  useEffect(()=>{let active=true;(async()=>{
   try{
@@ -43,28 +49,40 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   clearDraft();onClose();
  }catch(e){setError(e.message);}finally{setSaving(false);}}
  function keyboard(e){if(e.key==='Escape'&&!saving){e.stopPropagation();onClose();}if(e.key==='Tab'){
-  const nodes=[...dialog.current.querySelectorAll('button,input,textarea,select')].filter(n=>!n.disabled);const first=nodes[0],last=nodes.at(-1);
+  const nodes=[...dialog.current.querySelectorAll('button,input,textarea,select')].filter(n=>!n.matches(':disabled'));const first=nodes[0],last=nodes.at(-1);
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
  }}
- return createPortal(<div className="admin-modal-backdrop external-charge-payment-backdrop"><form ref={dialog} tabIndex={-1} onKeyDown={keyboard} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="receive-payment-title" className="admin-modal external-charge-payment-modal toll-payment-modal receive-payment-modal">
-  <header className="admin-modal-header"><div><strong id="receive-payment-title">Receive payment</strong><span>{rental.vehicles?.name} · {rental.profiles?.full_name}</span></div><button type="button" className="admin-close-button" disabled={saving} onClick={onClose} aria-label="Close payment dialog">×</button></header>
-  {loading?<p>Checking for an unfinished payment…</p>:done?<><p role="status">{done.status === 'refunded' ? 'This payment was already refunded. No new payment was recorded.' : `${money(done.amountCents/100)} recorded. Rental balance: ${money(done.balanceDue)}.`}</p><small>Receipt {done.receiptId}</small><button type="button" onClick={onClose}>Done</button></>:<>
-  {pending&&<p role="status">This payment is awaiting confirmation. Resume the same receipt, or cancel its recording. Cancelling does not return funds.</p>}
-  <fieldset disabled={saving||!!pending||!recoveryReady} className="toll-payment-fields">
-   <label className="modal-field"><span>Amount received</span><input required type="number" min="0.01" step="0.01" value={pending?(pending.amountCents/100).toFixed(2):form.amount} onChange={e=>change('amount',e.target.value)}/></label>
-   <label className="modal-field"><span>Payment method</span><select value={pending?.paymentMethod||form.paymentMethod} onChange={e=>change('paymentMethod',e.target.value)}>{[['cash_app','Cash App'],['cash','Cash'],['terminal','Card terminal'],['card','Card collected externally'],['bank_transfer','Bank transfer'],['other','Other']].map(([v,label])=><option key={v} value={v}>{label}</option>)}</select></label>
-   <label className="modal-field"><span>Date received</span><input type="date" required max={today()} value={pending?.receivedDate||form.receivedDate} onChange={e=>change('receivedDate',e.target.value)}/></label>
-   <label className="modal-field"><span>Time received (optional, Eastern)</span><input type="time" value={pending?.receivedTime??form.receivedTime} onChange={e=>change('receivedTime',e.target.value)}/></label>
-   <label className="modal-field"><span>Reference</span><input maxLength={120} value={pending?.reference??form.reference} onChange={e=>change('reference',e.target.value)}/></label>
-   <label className="modal-field"><span>Payment notes</span><textarea maxLength={2000} value={pending?.notes??form.notes} onChange={e=>change('notes',e.target.value)}/></label>
-   {!pending&&<><label className="select-all-tolls"><input type="checkbox" checked={eligible.some(c=>c.charge_type==='toll')&&eligible.filter(c=>c.charge_type==='toll').every(c=>selected.includes(c.id))} onChange={e=>change('selected',e.target.checked?[...new Set([...selected,...eligible.filter(c=>c.charge_type==='toll').map(c=>c.id)])]:selected.filter(id=>!eligible.some(c=>c.id===id&&c.charge_type==='toll')))}/>Select all tolls</label>
-   <div className="toll-payment-selection">{eligible.map(c=><label className="toll-payment-option" key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>change('selected',e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span>{c.name}</span><b>{money(c.total_amount)}</b></label>)}</div></>}
+ return createPortal(<div className="admin-modal-backdrop receive-payment-backdrop"><form ref={dialog} tabIndex={-1} onKeyDown={keyboard} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="receive-payment-title" className="receive-payment-modal">
+  <header className="rp-header"><div><h2 id="receive-payment-title">Receive payment</h2><p>{rental.vehicles?.name} · {rental.profiles?.full_name}</p></div><button type="button" className="rp-close" disabled={saving} onClick={onClose} aria-label="Close payment dialog">×</button></header>
+  <div className="rp-body">
+  {loading?<p>Checking for an unfinished payment…</p>:done?<><p role="status">{done.status === 'refunded' ? 'This payment was already refunded. No new payment was recorded.' : `${money(done.amountCents/100)} recorded. Rental balance: ${money(done.balanceDue)}.`}</p><small>Receipt {done.receiptId}</small></>:<>
+  {pending&&<p className="rp-notice" role="status">This payment is awaiting confirmation. Resume the same receipt, or cancel its recording. Cancelling does not return funds.</p>}
+  <fieldset disabled={saving||!!pending||!recoveryReady} className="rp-fields">
+   <div className="rp-grid">
+    <label className="rp-field"><span>Amount received</span><div className="rp-money"><span aria-hidden="true">$</span><input required type="text" inputMode="decimal" autoComplete="off" aria-label="Amount received" value={pending?(pending.amountCents/100).toFixed(2):form.amount} onFocus={e=>e.target.select()} onBlur={formatAmount} onChange={e=>change('amount',e.target.value)}/></div></label>
+    <label className="rp-field"><span>Payment method</span><select value={pending?.paymentMethod||form.paymentMethod} onChange={e=>change('paymentMethod',e.target.value)}>{[['cash_app','Cash App'],['cash','Cash'],['terminal','Card terminal'],['card','Card collected externally'],['bank_transfer','Bank transfer'],['other','Other']].map(([v,label])=><option key={v} value={v}>{label}</option>)}</select></label>
+    <label className="rp-field"><span>Date received</span><input type="date" required max={today()} value={pending?.receivedDate||form.receivedDate} onChange={e=>change('receivedDate',e.target.value)}/></label>
+    <label className="rp-field"><span>Time received <small>(Eastern, optional)</small></span><input type="time" value={pending?.receivedTime??form.receivedTime} onChange={e=>change('receivedTime',e.target.value)}/></label>
+    <label className="rp-field"><span>Reference <small>(optional)</small></span><input aria-label="Reference" placeholder="Transaction or receipt ID" maxLength={120} value={pending?.reference??form.reference} onChange={e=>change('reference',e.target.value)}/></label>
+    <label className="rp-field"><span>Payment notes <small>(optional)</small></span><textarea aria-label="Payment notes" placeholder="Add a note to the ledger" rows={1} maxLength={2000} value={pending?.notes??form.notes} onChange={e=>change('notes',e.target.value)}/></label>
+   </div>
+   <section className="rp-allocation" aria-labelledby="rp-allocation-title">
+    <h3 id="rp-allocation-title">Apply payment</h3>
+    {canCollectRent&&<label className={`rp-choice rp-rental ${appliesToRental?'is-selected':''}`}><input type="checkbox" aria-label="Apply to rental" checked={appliesToRental} onChange={e=>change('applyToRental',e.target.checked)}/><span><strong>Apply to rental</strong><small>{money((pending?.expectedRentalDueCents??due)/100)} rental balance due</small></span><b>{money(remainder/100)}</b></label>}
+    {canCollectRent&&<p className="rp-help">To pay rent only, leave additional charges unchecked. Selected charges are paid first; the remainder goes to rent.</p>}
+    {!pending&&eligible.length>0&&<><div className="rp-charges-heading"><h4>Additional charges</h4>{tolls.length>0&&<label className="rp-select-all"><input type="checkbox" checked={tolls.every(c=>selected.includes(c.id))} onChange={e=>change('selected',e.target.checked?[...new Set([...selected,...tolls.map(c=>c.id)])]:selected.filter(id=>!tolls.some(c=>c.id===id)))}/>Select all tolls</label>}</div>
+    <div className="rp-charge-list">{eligible.map(c=><label className={`rp-choice ${selected.includes(c.id)?'is-selected':''}`} key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>change('selected',e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span>{c.name}</span><b>{money(c.total_amount)}</b></label>)}</div></>}
+   </section>
   </fieldset>
-  <div className="external-payment-total"><span>Selected charges</span><strong>{money((pending?pending.amountCents-pending.rentalAmountCents:selectedTotal)/100)}</strong></div>
-  <div className="external-payment-total"><span>Applied to rental</span><strong>{money(remainder/100)}</strong></div>
-  <div className="external-payment-total"><span>Rental balance after payment</span><strong>{money(Math.max(0,(pending?.expectedRentalDueCents??due)-remainder)/100)}</strong></div>
-  <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} disabled={saving} onChange={e=>setForm(f=>({...f,confirmed:e.target.checked}))}/>I confirm this payment was received and cleared.</label>
-  <div className="modal-actions"><button type="button" disabled={saving} onClick={pending?cancel:onClose}>{pending?'Cancel recording':'Cancel'}</button><button className="approve" disabled={saving||!recoveryReady||!form.confirmed}>{saving?'Recording…':pending?'Resume recording':`Record ${money(Number(form.amount||0))} payment`}</button></div>
-  </>}{error&&<p role="alert" className="form-error">{error}</p>}
+  <dl className="rp-summary" aria-label="Payment summary">
+   <div><dt>Selected charges</dt><dd>{money((pending?pending.amountCents-pending.rentalAmountCents:selectedTotal)/100)}</dd></div>
+   <div><dt>Applied to rental</dt><dd>{money(remainder/100)}</dd></div>
+   <div className="rp-balance"><dt>Rental balance after payment</dt><dd>{money(Math.max(0,(pending?.expectedRentalDueCents??due)-remainder)/100)}</dd></div>
+  </dl>
+  {!pending&&!appliesToRental&&unallocated>0&&<p className="rp-notice">{money(unallocated/100)} is unassigned. Select “Apply to rental” or change the amount to match the selected charges.</p>}
+  <label className="rp-confirmation"><input type="checkbox" checked={form.confirmed} disabled={saving||!recoveryReady} onChange={e=>setForm(f=>({...f,confirmed:e.target.checked}))}/><span>I confirm this payment was received and cleared.</span></label>
+  </>}{error&&<p role="alert" className="rp-error">{error}</p>}
+  </div>
+  <footer className="rp-footer">{done?<button type="button" className="rp-primary" onClick={onClose}>Done</button>:<><button type="button" className="rp-secondary" disabled={saving||loading} onClick={pending?cancel:onClose}>{pending?'Cancel recording':'Cancel'}</button><button type="submit" className="rp-primary" disabled={saving||loading||!recoveryReady||!form.confirmed||(!pending&&!amountValid)}>{saving?'Recording…':pending?'Resume recording':`Record ${money(Number.isFinite(amountNumber)?amountNumber:0)} payment`}</button></>}</footer>
  </form></div>,document.body);
 }

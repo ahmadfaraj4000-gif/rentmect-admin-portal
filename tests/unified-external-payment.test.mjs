@@ -36,3 +36,11 @@ test('refunded extras preserve original receipt month and reduce refund month on
  const march=calculatePaymentRevenue({charges:[row]},new Date('2026-03-10T18:00:00Z'));
  assert.equal(march.month,-26);assert.equal(march.year,0);assert.deepEqual(march.issues,[]);
 });
+
+test('rental allocation can be disabled without silently applying surplus to rent',()=>{
+ const chargeOnly=buildExternalPayment([toll],['toll'],18900,{...form,amount:'26.00',applyToRental:false});
+ assert.equal(chargeOnly.rentalAmountCents,0);
+ assert.throws(()=>buildExternalPayment([toll],['toll'],18900,{...form,applyToRental:false}),/Select Apply to rental/);
+ assert.throws(()=>buildExternalPayment([],[],18900,{...form,amount:'100',applyToRental:false}),/Select Apply to rental/);
+ assert.equal(buildExternalPayment([],[],18900,{...form,amount:'189.00',applyToRental:true}).rentalAmountCents,18900);
+});

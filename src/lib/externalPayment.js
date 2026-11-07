@@ -17,6 +17,7 @@ export function buildExternalPayment(charges, selectedIds, rentalDueCents, form)
   const selectedCents = selected.reduce((sum,c) => sum + paymentCents(c.total_amount), 0);
   const rentalAmountCents = amountCents - selectedCents;
   if (!amountCents || rentalAmountCents < 0) throw new Error('The payment must cover the selected charges in full.');
+  if (form.applyToRental === false && rentalAmountCents > 0) throw new Error('Select Apply to rental or change the amount to match the selected charges.');
   if (!Number.isSafeInteger(rentalDueCents) || rentalAmountCents > rentalDueCents) throw new Error('The payment exceeds the selected charges and remaining rental balance.');
   if (!form.receivedDate || !form.confirmed) throw new Error('Choose the received date and confirm the payment cleared.');
   return { kind:'rental_payment', charges:selected.map(c=>({id:c.id,amountCents:paymentCents(c.total_amount)})),
