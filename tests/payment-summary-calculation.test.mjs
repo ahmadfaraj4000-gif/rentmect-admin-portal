@@ -130,3 +130,13 @@ test('deposit settlement clears the exact closeout without inflating cash receip
   assert.equal(Math.abs(cents(result.total-(result.paidAmount-result.depositAppliedToRental)-result.additionalPaymentsReceived-result.depositAppliedToRental-result.depositAppliedToCharges)),0);
  }
 });
+
+
+test('refunded and reissued extras preserve the balance equation without inflating charges or net receipts', () => {
+  const result = summary([
+    { total_amount: 26, status: 'paid', external_refunded_amount: 26 },
+    { total_amount: 26, status: 'pending' },
+  ]);
+  assert.equal(result.additionalPaymentsReceived, 0);
+  assert.equal(cents(result.total - result.paidAmount - result.additionalPaymentsReceived), cents(result.balanceDue));
+});

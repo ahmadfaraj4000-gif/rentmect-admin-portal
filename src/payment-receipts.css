@@ -1,0 +1,22 @@
+.admin-modal.receive-payment-modal { color: #24372c; }
+.receive-payment-modal .modal-field { color: #334155; }
+.receive-payment-modal .toll-payment-selection,
+.receive-payment-modal .select-all-tolls { grid-column: 1 / -1; }
+.receive-payment-modal .external-payment-total { margin: 8px 0; }
+.admin-modal.receive-payment-modal .modal-actions { position: static !important; margin-top: 12px; }
+.receive-payment-modal .admin-modal-header strong { color: #24372c; }
+.receive-payment-modal .admin-modal-header span { display: block; color: #53635b; }
+.rental-payment-history li > .payment-ledger-detail {
+  grid-column: 1 / -1; grid-row: 2; display: grid; gap: 6px;
+  min-width: 0; overflow-wrap: anywhere; color: #53635b;
+}
+.payment-ledger-detail small { display: block; }
+.payment-ledger-detail .payment-note { white-space: pre-wrap; }
+.payment-ledger-detail details p { margin: 6px 0; }
+.payment-ledger-detail > button { justify-self: start; }
+.receipt-correction { display: grid; gap: 8px; padding: 10px 0; }
+.receipt-correction label { display: grid; gap: 5px; }
+.receipt-correction input:not([type=checkbox]), .receipt-correction textarea {
+  width: 100%; box-sizing: border-box; border: 1px solid #bacbc1;
+  border-radius: 6px; padding: 8px; background: white; color: #24372c;
+}

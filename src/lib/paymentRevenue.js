@@ -1,3 +1,4 @@
+const cashReceiptDate = row => row.payment_received_date || row.paid_at;
 // Cash-based revenue reporting, separate from the existing cash/deposit cards.
 // All arithmetic is in cents. Never use updated_at as a receipt date.
 export const REVENUE_ACCOUNT = 'anconamgt@aol.com';
@@ -7,6 +8,7 @@ const positive = (value) => Math.max(0, cents(value));
 const paid = (status) => ['paid', 'partially_paid', 'succeeded', 'refunded', 'partially_refunded'].includes(String(status || '').toLowerCase());
 const dateFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
 const dateKey = (date) => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return date;
   const value = new Date(date || 'invalid');
   if (!Number.isFinite(value.getTime())) return null;
   const parts = dateFormatter.formatToParts(value);
@@ -48,6 +50,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       || receipt.gross < 0 || receipt.deposit < 0 || receipt.tax < 0 || receipt.deposit + receipt.tax > receipt.gross) {
       issue(source, 'A receipt has inconsistent amounts.'); return;
     }
+    receipt.date = cashReceiptDate(source) || receipt.date;
     receipt.net = receipt.gross - receipt.deposit - receipt.tax;
     receipt.aliases = [receipt.id];
     receipts.push(receipt);
@@ -214,13 +217,18 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       : alias(`initial:${row.rental_id}`) || originalReceipts.get(row.rental_id);
     addRefund(row, source, amount, row.created_at);
   }
+  for (const row of charges) {
+    if (Number(row.external_refunded_amount || 0) > 0) {
+      addRefund(row, alias(`charge:${row.id}`), positive(row.external_refunded_amount), row.external_refunded_at);
+    }
+  }
   events.push(...receipts);
   let monthCents = 0, yearCents = 0;
   for (const row of events) {
     if (!row.net) continue;
     const key = dateKey(row.date);
     if (!key) { issue({ rental_id: row.rentalId }, 'A revenue transaction is missing its payment date.'); continue; }
-    if (new Date(row.date) > now || key.slice(0, 4) !== today.slice(0, 4)) continue;
+    if ((/^\d{4}-\d{2}-\d{2}$/.test(String(row.date)) ? key > today : new Date(row.date) > now) || key.slice(0, 4) !== today.slice(0, 4)) continue;
     yearCents += row.net;
     if (key.slice(0, 7) === today.slice(0, 7)) monthCents += row.net;
   }
@@ -241,10 +249,10 @@ export const REVENUE_TABLES = {
 // Reporting needs receipt amounts and links, never agreement snapshots, notes,
 // customer contact details, or provider error payloads.
 export const REVENUE_COLUMNS = {
-  rentals: 'id,rental_total,service_fee_total,tax_amount,security_deposit,paid_at,payment_amount_cents,deposit_held_amount,deposit_released_amount,deposit_status,stripe_payment_intent_id,stripe_checkout_session_id,created_at',
-  rental_payments: 'id,rental_id,status,payment_type,total_amount,rental_amount,tax_amount,deposit_amount,paid_at,refunded_amount,deposit_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at',
-  rental_charge_items: 'id,rental_id,charge_type,included_in_initial_payment,status,payment_provider,total_amount,tax_amount,payment_amount_cents,paid_at,stripe_payment_intent_id,stripe_checkout_session_id,amount,created_at',
-  rental_extension_requests: 'id,rental_id,replacement_rental_id,status,payment_status,request_kind,extension_rental_amount,extension_tax_amount,extension_total_amount,extension_deposit_amount,payment_amount_cents,paid_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at',
+  rentals: 'id,rental_total,service_fee_total,tax_amount,security_deposit,paid_at,payment_amount_cents,deposit_held_amount,deposit_released_amount,deposit_status,stripe_payment_intent_id,stripe_checkout_session_id,created_at,payment_received_date',
+  rental_payments: 'id,rental_id,status,payment_type,total_amount,rental_amount,tax_amount,deposit_amount,paid_at,refunded_amount,deposit_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at,payment_received_date',
+  rental_charge_items: 'id,rental_id,charge_type,included_in_initial_payment,status,payment_provider,total_amount,tax_amount,payment_amount_cents,paid_at,payment_received_date,external_refunded_amount,external_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,amount,created_at',
+  rental_extension_requests: 'id,rental_id,replacement_rental_id,status,payment_status,request_kind,extension_rental_amount,extension_tax_amount,extension_total_amount,extension_deposit_amount,payment_amount_cents,paid_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at,payment_received_date',
   rental_payment_refunds: 'id,rental_id,status,source_type,stripe_refund_id,stripe_payment_intent_id,extension_request_id,amount,created_at',
   rental_external_payment_actions: 'id,rental_id,action_type,amount,deposit_amount_returned,payment_charge_id,created_at',
   rental_deposit_charge_applications: 'id,rental_id,allocation_id,charge_id,amount,created_at',

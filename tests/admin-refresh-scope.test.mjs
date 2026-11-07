@@ -1,3 +1,4 @@
+import { groupPaymentHistory } from '../src/lib/externalPayment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ test('initial domain reads do not restart revenue; forced financial refreshes do
   const start=source.indexOf('  async function loadAdminDomain(');
   const code=source.slice(start,source.indexOf('\n  function refreshAfterSavedTask',start));
   let revisions=0;const activeTabRef={current:'payments'};
-  const context=vm.createContext({activeTabRef,requestedAdminDomainsRef:{current:new Set()},loadedAdminDomainsRef:{current:new Set()},
+  const context=vm.createContext({ groupPaymentHistory,activeTabRef,requestedAdminDomainsRef:{current:new Set()},loadedAdminDomainsRef:{current:new Set()},
     adminDomainLoadsRef:{current:new Map()},setDataHealth(){},setPaymentRevenueRevision(update){revisions=update(revisions);},
     freshDomainLoad:async()=>{},rentalWorkspaceRef:{current:{refresh:async()=>{}}}});
   vm.runInContext(code,context);
@@ -26,7 +27,7 @@ test('manual refresh only reloads the current page, even after visiting other se
   const start = source.indexOf('  async function loadAllData({');
   const code = source.slice(start, source.indexOf('  async function loadAllDataLegacy', start));
   const calls = [];
-  const context = vm.createContext({
+  const context = vm.createContext({ groupPaymentHistory,
     ADMIN_TAB_DOMAINS: tabs, activeTabRef: { current: 'dashboard' }, adminRefreshDomains,
     loadedAdminDomainsRef: { current: new Set(['core', 'payments', 'settings']) },
     setLoading() {}, loadAdminDomain: async (domain, options) => calls.push([domain, options.force]),
@@ -47,7 +48,7 @@ test('realtime changes invalidate inactive pages without starting background dow
   const callbacks = [];
   const calls = [];
   const activeTabRef = { current: 'dashboard' };
-  const context = vm.createContext({
+  const context = vm.createContext({ groupPaymentHistory,
     ADMIN_TAB_DOMAINS: tabs, activeTabRef, adminRefreshDomains,
     domainInvalidationsRef: { current: versions }, loadedAdminDomainsRef: { current: loaded },
     rentalWorkspaceRef: { current: { invalidate() {}, refresh: (options) => calls.push(['rental-workspace', options.details]) } }, rentalDetailDirty: false,
@@ -71,7 +72,7 @@ test('payment events retain customer and vehicle context without repeated rental
   const start = source.indexOf('function buildPaymentEvents(');
   const end = source.indexOf('\nfunction ', start + 1);
   const code = source.slice(start, end > start ? end : undefined);
-  const context = vm.createContext({
+  const context = vm.createContext({ groupPaymentHistory,
     normalizeLedgerStatus: (value) => value, prettyStatus: (value) => value,
     paymentSourceDetail: () => 'Stripe', buildDepositRefundHistory: () => [],
   });

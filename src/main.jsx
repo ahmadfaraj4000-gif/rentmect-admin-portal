@@ -1,3 +1,7 @@
+import { typedSignatureImage } from './lib/typedSignature.js';
+import { ReceiptActions } from './ReceiptActions.jsx';
+import { ReceivePayment } from './ReceivePayment.jsx';
+import { groupPaymentHistory, receivedDateLabel } from './lib/externalPayment.js';
 import { swapTimeMessage, swapAvailabilityLabel } from './lib/rentalSwapTime.js';
 import { eligibleExternalTolls, buildTollPayment, tollCents } from './lib/externalTollPayment.js';
 import Merchants from './Merchants.jsx';
@@ -84,6 +88,7 @@ import './vehicle-editor.css';
 import './admin-list-details.css';
 import './emails.css';
 import './final-overrides.css';
+import './payment-receipts.css';
 import './settings-layout.css';
 
 const PerformanceTab = React.lazy(() => import('./PerformanceTab.jsx'));
@@ -2502,9 +2507,23 @@ function App() {
   }
 
   async function recordExternalTollPayment(rentalId, receiptId, tollPayment, cancel) {
-    if (!requireStaffPermission('charge.manage', 'record external toll payments')) throw new Error('Charge management permission required.');
+    if (cancel === 'correct' || cancel === 'refund' || cancel === 'legacycorrect') {
+      const args = cancel === 'legacycorrect'
+        ? { p_source_type: tollPayment.legacySource.type, p_source_id: tollPayment.legacySource.id, p_received_date: tollPayment.receivedDate, p_received_time: tollPayment.receivedTime || null, p_reference: tollPayment.reference, p_notes: tollPayment.notes, p_reason: tollPayment.reason }
+        : cancel === 'correct'
+        ? { p_receipt_id: receiptId, p_received_date: tollPayment.receivedDate, p_received_time: tollPayment.receivedTime || null, p_reference: tollPayment.reference, p_notes: tollPayment.notes, p_reason: tollPayment.reason }
+        : { p_receipt_id: receiptId, p_reason: tollPayment.reason, p_reference: tollPayment.reference };
+      const { data, error } = await supabase.rpc(cancel === 'legacycorrect' ? 'admin_correct_legacy_external_payment' : cancel === 'correct' ? 'admin_correct_external_payment' : 'admin_refund_external_payment', args);
+      if (error) throw error;
+      refreshAfterSavedTask(['core', 'payments', 'snapshot']);
+      return data;
+    }
+    const combined = tollPayment?.kind === 'rental_payment';
+    if (!combined && !requireStaffPermission('charge.manage', 'record external toll payments')) throw new Error('Charge management permission required.');
     const { data, error } = await withPaymentProcessing(cancel ? 'Cancelling the toll recording…' : 'Recording the toll payment…', () => supabase.functions.invoke('stripe-web-hook', {
-      body: { action: cancel ? 'admin_cancel_external_tolls' : 'admin_record_external_tolls', rentalId, idempotencyKey: receiptId, tollPayment },
+      body: combined
+        ? { action: cancel ? 'admin_cancel_external_payment' : 'admin_record_external_payment', rentalId, idempotencyKey: receiptId, externalPayment: tollPayment }
+        : { action: cancel ? 'admin_cancel_external_tolls' : 'admin_record_external_tolls', rentalId, idempotencyKey: receiptId, tollPayment },
     }));
     if (error || data?.error) {
       let detail = data?.error || error?.message || 'The payment result could not be confirmed.';
@@ -3833,7 +3852,7 @@ function App() {
 
   async function signAdminRentalAgreement(rental, signature) {
     if (!requireStaffPermission('rental.edit', 'sign rental agreements')) return false;
-    const snapshot = buildAdminAgreementSnapshot(rental, signature.name, signature.image);
+    const snapshot = buildAdminAgreementSnapshot(rental, signature.name, signature.image, signature.method);
     const hashBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(snapshot));
     const agreementHash = [...new Uint8Array(hashBytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
     const { data, error } = await supabase.rpc('admin_sign_rental_agreement_in_office', {
@@ -3843,7 +3862,7 @@ function App() {
       p_agreement_snapshot: snapshot,
       p_agreement_hash: agreementHash,
       p_signature_data: signature.image,
-      p_note: signature.note,
+      p_note: `${signature.note} [Signature entry: ${signature.method === 'typed_name' ? 'typed name' : 'drawn'}]`,
     });
     if (error) {
       notify(error.message);
@@ -4252,7 +4271,7 @@ function App() {
         {activeTab === 'tickets' && <TicketResolution focusId={ticketFocusId} canFlagCustomer={canUsePermission('ticket.manage') && canUsePermission('customer.manage')} canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={(rentalId) => { setManualBookingFocusId(rentalId); selectAdminTab('rentals'); }} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
-        {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} recordExternalTollPayment={canUsePermission('charge.manage') ? recordExternalTollPayment : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
+        {activeTab === 'rentals' && <Rentals manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} recordExternalTollPayment={(canUsePermission('charge.manage') || canUsePermission('payment.collect')) ? recordExternalTollPayment : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} setCustomerStatus={setCustomerStatus} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
@@ -4507,7 +4526,7 @@ function PaymentsTab({ revenueRefreshKey = 0, canViewFinancialSummary = false, a
           <span>Type</span>
           <select value={paymentTypeFilter} onChange={(event) => setPaymentTypeFilter(event.target.value)}>
             <option value="all">All types</option>
-            <option value="rental">Rentals</option>
+            <option value="payment">Combined payments</option><option value="rental">Rentals</option>
             <option value="deposit">Deposits</option>
             <option value="extension">Extensions and switches</option>
             <option value="charge">Additional charges</option>
@@ -4534,7 +4553,8 @@ function PaymentsTab({ revenueRefreshKey = 0, canViewFinancialSummary = false, a
             <span role="cell" data-label="Status"><em className={event.statusGroup === 'paid' ? 'active-status' : 'paused-status'}>{prettyStatus(event.displayStatus || event.statusGroup)}</em></span>
             <span role="cell" data-label="Amount">{money(event.amount)}</span>
             <span role="cell" data-label="Date" className="payment-date-cell">
-              {event.date ? new Date(event.date).toLocaleDateString() : '—'}
+              {event.receivedDate ? receivedDateLabel(event.receivedDate, event.receivedTime) : event.date ? new Date(event.date).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) : '—'}
+              {event.receivedDate && <small>Posted {formatEasternDateTime(event.date)}</small>}
               {event.rentalId && <button type="button" className="payment-open-rental" onClick={() => onOpenRental?.(event.rentalId)}>Open rental</button>}
             </span>
           </div>
@@ -6001,7 +6021,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
                   <div className="customer-agreement-integrity">
                     <span><strong>Agreement version</strong>{rental.agreement_version || 'Not recorded'}</span>
                     <span><strong>Agreement hash</strong>{rental.agreement_hash || 'Not recorded'}</span>
-                    <span><strong>Electronic signature</strong>{signatureImage ? 'Typed and drawn signature stored' : 'Typed signature stored'}</span>
+                    <span><strong>Electronic signature</strong>{signatureImage ? 'Electronic signature stored' : 'Typed signature stored'}</span>
                   </div>
                   <pre>{printableAgreement}</pre>
                   {signatureImage && <div className="customer-agreement-signature"><strong>Stored electronic signature</strong><img src={signatureImage} alt={`Electronic signature for ${rental.agreement_signature_name || 'customer'}`}/></div>}
@@ -7998,6 +8018,7 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
 }
 
 function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, recordExternalTollPayment, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
+  const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   const [merchantVerification, setMerchantVerification] = useState(null);
   useEffect(() => {
     let active = true;
@@ -8172,10 +8193,10 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     && depositDeductionOptions(rental, depositAllocations, depositCloseoutCharges).some(a => a.available);
   const additionalChargeTotal = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status !== 'waived')
-    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+    .reduce((sum, charge) => sum + Math.max(0, Number(charge.total_amount || 0) - Number(charge.external_refunded_amount || 0)), 0);
   const additionalPaymentsReceived = trueAdditionalCharges
     .filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid' && charge.payment_provider !== 'deposit')
-    .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+    .reduce((sum, charge) => sum + Math.max(0, Number(charge.total_amount || 0) - Number(charge.external_refunded_amount || 0)), 0);
   const depositAppliedToRental = rentalBalanceCharges
     .filter(charge => charge.status === 'paid' && charge.payment_provider === 'deposit')
     .reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
@@ -8373,7 +8394,9 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
             <dt>Payment status</dt><dd>{prettyStatus(rental.payment_status || 'pending')}</dd>
           </dl>
           {Number(rental.under_25_markup_amount || 0) > 0 && <small className="rental-card-detail-note">Under-25 pricing: {money(rental.base_rental_total)} base + {money(rental.under_25_markup_amount)} ({Number(rental.under_25_markup_percentage || 0)}%) markup.</small>}
-          <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} />
+          {(import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" className="approve" onClick={() => setReceivePaymentOpen(true)}>{rental.pending_external_payment_id ? 'Resume payment recording' : 'Receive payment'}</button>}
+          {receivePaymentOpen && <ReceivePayment client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>}
+          <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? (id, form, action) => recordExternalTollPayment(rental.id, id, form, action) : null} canRefund={Boolean(refundRentalPayment)} />
         </section>
 
         <section className="rental-card-section rental-card-documents" aria-labelledby={`rental-documents-${rental.id}`}>
@@ -9441,6 +9464,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [signatureName, setSignatureName] = useState(rental.profiles?.full_name || rental.customer_name_snapshot || '');
   const [signatureImage, setSignatureImage] = useState('');
+  const [signatureMethod, setSignatureMethod] = useState('');
   const label = prettyStatus(scope);
   const isDocument = ['license', 'insurance'].includes(scope);
   const alreadySigned = scope === 'agreement' && Boolean(rental.agreement_signed && rental.agreement_snapshot);
@@ -9516,7 +9540,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
       if (!agreementReviewed) return setError('Scroll through the complete rental agreement before signing.');
       if (!agreementChecked) return setError('The customer must check “I Agree to the Terms.”');
       if (signatureName.trim().length < 2) return setError('Enter the customer’s full legal signature name.');
-      if (!signatureImage) return setError('The customer must draw an e-signature.');
+      if (!signatureImage) return setError('Use the typed name or draw an e-signature.');
     }
     setBusy(true);
     setError('');
@@ -9527,7 +9551,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
         if (!uploaded) return;
       }
       const saved = scope === 'agreement'
-        ? await onSignAgreement?.({ name: signatureName.trim(), image: signatureImage, note: note.trim() })
+        ? await onSignAgreement?.({ name: signatureName.trim(), image: signatureImage, method: signatureMethod, note: note.trim() })
         : await onComplete?.(note.trim(), scope === 'deposit' ? { disposition: depositDisposition } : { verified_in_person: true, uploaded_document: scope === 'insurance' ? insuranceItems.length > 0 : Boolean(file) });
       if (saved) { clearStepDraft(); onCancel(); }
     } finally {
@@ -9588,8 +9612,13 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
         </div>
         {!alreadySigned && <div className="admin-agreement-sign-box">
           <label className="checkbox-row"><input type="checkbox" checked={agreementChecked} onChange={(event) => setAgreementChecked(event.target.checked)} disabled={!agreementReviewed}/> I have read and agree to the rental agreement.</label>
-          <label><span>Customer’s full legal signature</span><input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} placeholder="Full legal name" autoComplete="name" disabled={!agreementReviewed}/></label>
-          <AdminSignaturePad value={signatureImage} onChange={setSignatureImage} disabled={!agreementReviewed}/>
+          <label><span>Customer’s full legal signature</span><input value={signatureName} onChange={(event) => { setSignatureName(event.target.value); setSignatureImage(''); setSignatureMethod(''); }} placeholder="Full legal name" autoComplete="name" disabled={!agreementReviewed}/></label>
+          <button type="button" className="secondary-btn" disabled={!agreementReviewed || busy || signatureName.trim().length < 2} onClick={() => {
+            try { setSignatureImage(typedSignatureImage(signatureName)); setSignatureMethod('typed_name'); setError(''); }
+            catch (error) { setError(error.message); }
+          }}>Use typed name</button>
+          <AdminSignaturePad value={signatureImage} onChange={(image) => { setSignatureImage(image); setSignatureMethod(image ? 'drawn' : ''); }} disabled={!agreementReviewed || busy}/>
+          <small role="status">{signatureImage ? 'Signature ready. Save the signed agreement to finish.' : 'Use the typed name or draw in the signature field.'}</small>
         </div>}
       </>}
       {(!alreadySigned || scope !== 'agreement') && <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/><small>{Math.min(note.trim().length, 5)}/5 minimum characters</small></label>}
@@ -9675,8 +9704,16 @@ function AdminSignaturePad({ value, onChange, disabled = false }) {
     onChange('');
   }
   useEffect(() => {
-    if (!value) clear();
-  }, []);
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (!value) return;
+    let active = true;
+    const image = new Image();
+    image.onload = () => { if (active) context.drawImage(image, 0, 0, canvas.width, canvas.height); };
+    image.src = value;
+    return () => { active = false; };
+  }, [value]);
   return <div className={`admin-signature-pad ${disabled ? 'disabled' : ''}`}><span>Customer e-signature</span><canvas ref={canvasRef} width="900" height="240" aria-disabled={disabled} onMouseDown={start} onMouseMove={draw} onMouseUp={finish} onMouseLeave={finish} onTouchStart={start} onTouchMove={draw} onTouchEnd={finish}/><button type="button" onClick={clear} disabled={disabled}>Clear signature</button></div>;
 }
 
@@ -9905,7 +9942,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
   }
   const collectible = charges.filter((charge) => !charge.included_in_initial_payment && !charge.external_toll_receipt_id && ['pending', 'failed', 'checkout_open'].includes(charge.status));
   const outstandingTotal = collectible.reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
-  const paidTotal = charges.filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid').reduce((sum, charge) => sum + Number(charge.total_amount || 0), 0);
+  const paidTotal = charges.filter((charge) => !charge.included_in_initial_payment && charge.status === 'paid').reduce((sum, charge) => sum + Math.max(0, Number(charge.total_amount || 0) - Number(charge.external_refunded_amount || 0)), 0);
   const automaticSources = new Set(['late_return', 'tollspot']);
   const automaticCharges = charges.filter((charge) => automaticSources.has(String(charge.source_type || '').toLowerCase()));
   const otherCharges = charges.filter((charge) => !automaticSources.has(String(charge.source_type || '').toLowerCase()));
@@ -10904,6 +10941,9 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
         id: `ledger-payment-${payment.id}`,
         amount: totalAmount,
         date: payment.paid_at || payment.updated_at || payment.created_at,
+        reference: payment.payment_reference ?? payment.external_payment_reference,
+        receivedDate: payment.payment_received_date, receivedTime: payment.payment_received_time, notes: payment.payment_notes,
+        legacySource: provider === 'external' ? { type: 'payment', id: payment.id } : null,
         provider,
         method: provider === 'external' ? externalPaymentMethodLabel(payment.external_payment_method) : '',
         label: paymentType.includes('extension')
@@ -10939,6 +10979,13 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
           ? Number(charge.payment_amount_cents) / 100
           : Number(charge.total_amount || 0),
         date: charge.paid_at || charge.updated_at || charge.created_at,
+        receivedDate: charge.payment_received_date,
+        receivedTime: charge.payment_received_time,
+        receiptId: charge.payment_receipt_id || charge.external_toll_receipt_id,
+        correctableReceiptId: charge.receipt_status === 'refunded' ? null : charge.payment_receipt_id,
+        notes: charge.payment_notes,
+        reference: charge.payment_reference ?? charge.external_payment_reference,
+        legacySource: provider === 'external' && !charge.payment_receipt_id && !charge.external_toll_receipt_id ? { type: 'rental_charge', id: charge.id } : null,
         provider,
         method: provider === 'deposit' ? 'Applied from held security deposit; no new payment collected' : provider === 'external' ? externalPaymentMethodLabel(charge.external_payment_method) : '',
         label: chargeType === 'rental_amendment'
@@ -10961,6 +11008,9 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
           ? Number(request.payment_amount_cents) / 100
           : Number(request.extension_total_amount || 0),
         date: request.paid_at || request.updated_at || request.created_at,
+        receivedDate: request.payment_received_date, receivedTime: request.payment_received_time, notes: request.payment_notes,
+        reference: request.payment_reference ?? request.external_payment_reference,
+        legacySource: provider === 'external' ? { type: 'extension', id: request.id } : null,
         provider,
         method: provider === 'external' ? externalPaymentMethodLabel(request.external_payment_method) : '',
         label: request.request_kind === 'switch_car_continuation' ? 'Vehicle switch' : 'Rental extension',
@@ -10976,6 +11026,9 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
         ? Number(rental.payment_amount_cents) / 100
         : Number(initialPaymentTotal || 0),
       date: rental.paid_at || rental.external_payment_recorded_at || rental.updated_at,
+      receivedDate: rental.payment_received_date, receivedTime: rental.payment_received_time, notes: rental.payment_notes,
+      reference: rental.payment_reference ?? rental.external_payment_reference,
+      legacySource: provider === 'external' ? { type: 'rental', id: rental.id } : null,
       provider,
       method: provider === 'external' ? externalPaymentMethodLabel(rental.external_payment_method) : '',
       label: 'Original rental payment',
@@ -11031,14 +11084,18 @@ function buildRentalPaymentHistory(rental, rentalPayments = [], rentalCharges = 
       });
     });
 
+  rentalCharges.filter(c => Number(c.external_refunded_amount || 0) > 0).forEach(c => payments.push({
+    id: `charge-refund-${c.id}`, amount: Number(c.external_refunded_amount), date: c.external_refunded_at,
+    kind: 'refund', status: 'succeeded', moneyReturned: true, provider: 'external', label: `External refund · ${c.name}`,
+  }));
   payments.push(...buildDepositRefundHistory(rental, depositAllocations, externalPaymentActions));
 
-  return payments
+  return groupPaymentHistory(payments)
     .filter((payment) => Math.abs(payment.amount) > 0 && (payment.date || payment.allowUnknownDate))
     .sort((left, right) => (right.date ? new Date(right.date).getTime() : 0) - (left.date ? new Date(left.date).getTime() : 0));
 }
 
-function RentalPaymentHistory({ payments = [], rental = {}, allocations = [] }) {
+function RentalPaymentHistory({ payments = [], rental = {}, allocations = [], onReceiptAction, canRefund = false }) {
   const held = allocations.reduce((sum, a) => sum + Math.max(0, Math.round(Number(a.amount_held || 0) * 100)
     - Math.round(Number(a.amount_applied || 0) * 100) - Math.round(Number(a.amount_released || 0) * 100)), 0) / 100;
   const applied = allocations.reduce((sum, a) => sum + Number(a.amount_applied || 0), 0);
@@ -11064,10 +11121,17 @@ function RentalPaymentHistory({ payments = [], rental = {}, allocations = [] }) 
             ? 'Refund failed'
             : 'Refund pending');
         return <li key={payment.id} className={payment.kind === 'refund' ? `is-refund is-${payment.status}` : ''}>
-          <time dateTime={payment.date || undefined}>{payment.date ? formatEasternDateTime(payment.date) : 'Date not recorded'}</time>
+          <time dateTime={payment.receivedDate || payment.date || undefined}>{payment.receivedDate ? `Received ${receivedDateLabel(payment.receivedDate, payment.receivedTime)}` : payment.date ? `Recorded ${formatEasternDateTime(payment.date)}` : 'Date not recorded'}</time>
           <strong className={payment.kind === 'refund' ? 'is-refund' : ''}>{payment.kind === 'refund' && payment.moneyReturned ? '−' : ''}{money(payment.amount)}</strong>
           <span className={`rental-payment-source ${payment.kind === 'refund' ? `refund ${payment.status}` : payment.provider}`}>{payment.kind === 'refund' ? refundStatus : payment.provider === 'stripe' ? 'Stripe' : payment.provider === 'deposit' ? 'Deposit applied' : 'External'}</span>
+          <div className="payment-ledger-detail">
+          {payment.receivedDate && <small>Posted {formatEasternDateTime(payment.date)}</small>}
           <small>{[payment.label, payment.method].filter(Boolean).join(' • ')}</small>
+          {payment.reference && <small>Reference: {payment.reference}</small>}
+          {payment.notes && <small className="payment-note">{payment.notes}</small>}
+          {(payment.correctableReceiptId || payment.legacySource) && onReceiptAction && <ReceiptActions payment={payment} onAction={onReceiptAction} canRefund={canRefund}/>}
+          {payment.allocations && <details><summary>Payment allocations</summary>{payment.allocations.map(a => <p key={a.id}>{a.label}: {money(a.amount)}</p>)}</details>}
+          </div>
         </li>;
       })}</ol>
       : <p>No payment or refund transactions recorded yet.</p>}
@@ -12138,7 +12202,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
   return items.sort((a, b) => rank[a.severity] - rank[b.severity]);
 }
 
-function buildAdminAgreementSnapshot(rental, signatureName, signatureImage) {
+function buildAdminAgreementSnapshot(rental, signatureName, signatureImage, signatureMethod) {
   const profile = rental.profiles || {};
   const vehicle = rental.vehicles || {};
   const details = `
@@ -12174,6 +12238,7 @@ Tax Amount: ${rental.tax_amount ? money(rental.tax_amount) : 'Pending'}
 Security Deposit: ${rental.security_deposit ? money(rental.security_deposit) : vehicle.security_deposit ? money(vehicle.security_deposit) : 'Pending'}
 Mileage Policy: ${MILEAGE_POLICY}
 Cancellation Terms: ${CANCELLATION_TERMS}
+Signature Entry Method: ${signatureMethod || 'recorded'}
 Typed Signature: ${signatureName || rental.agreement_signature_name || 'Pending'}
 Drawn Signature Image: ${signatureImage || extractSignatureImage(rental.agreement_snapshot) || 'Pending'}
 
@@ -12598,6 +12663,7 @@ function buildPaymentEvents({
           payment.failure_reason,
         ].filter(Boolean).join(' • '),
         date: payment.paid_at || payment.updated_at || payment.created_at,
+        receivedDate: payment.payment_received_date, receivedTime: payment.payment_received_time,
       });
     }
 
@@ -12619,6 +12685,7 @@ function buildPaymentEvents({
         outstandingAmount: depositCollected ? 0 : depositAmount,
         detail: [prettyStatus(payment.payment_type || 'Rental payment'), sourceDetail].filter(Boolean).join(' • '),
         date: payment.paid_at || payment.updated_at || payment.created_at,
+        receivedDate: payment.payment_received_date, receivedTime: payment.payment_received_time,
       });
     }
 
@@ -12697,6 +12764,7 @@ function buildPaymentEvents({
           paymentSourceDetail(rental),
         ].filter(Boolean).join(' • '),
         date: rental.paid_at || rental.updated_at || rental.created_at,
+        receivedDate: rental.payment_received_date, receivedTime: rental.payment_received_time,
       });
 
       if (Number(rental.security_deposit || 0) > 0 && !allocationHolderIds.has(rental.id)) {
@@ -12716,6 +12784,7 @@ function buildPaymentEvents({
           outstandingAmount: depositCollected ? 0 : Number(rental.security_deposit || 0),
           detail: [paymentSourceDetail(rental), rental.deposit_release_error].filter(Boolean).join(' • '),
           date: rental.paid_at || rental.updated_at || rental.created_at,
+        receivedDate: rental.payment_received_date, receivedTime: rental.payment_received_time,
         });
 
       }
@@ -12809,6 +12878,7 @@ function buildPaymentEvents({
           paymentSourceDetail(request),
         ].filter(Boolean).join(' • '),
         date: request.paid_at || request.updated_at || request.created_at,
+        receivedDate: request.payment_received_date, receivedTime: request.payment_received_time,
       });
     });
 
@@ -12842,6 +12912,10 @@ function buildPaymentEvents({
           charge.last_admin_charge_error,
         ].filter(Boolean).join(' • '),
         date: charge.paid_at || charge.updated_at || charge.created_at,
+        receivedDate: charge.payment_received_date,
+        receivedTime: charge.payment_received_time,
+        receiptId: charge.status === 'paid' ? charge.payment_receipt_id || charge.external_toll_receipt_id : null,
+        label: charge.name,
       });
     });
 
@@ -12874,7 +12948,13 @@ function buildPaymentEvents({
     });
   });
 
-  return events.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  rentalCharges.filter(c => Number(c.external_refunded_amount || 0) > 0).forEach(c => {
+    const { customer, vehicle } = contextFor(c, c.rental_id);
+    events.push({ id: `extra-refund-${c.id}`, rentalId: c.rental_id, customer, vehicle, type: 'refund', typeLabel: 'External refund',
+      statusGroup: 'refunded', displayStatus: 'refunded', amount: -Number(c.external_refunded_amount), cashImpact: -Number(c.external_refunded_amount),
+      outstandingAmount: 0, detail: c.name, date: c.external_refunded_at });
+  });
+  return groupPaymentHistory(events).map(e => e.receiptId ? { ...e, type: 'payment', typeLabel: 'Payment received', detail: e.allocations.map(a => `${a.label}: ${money(a.amount)}`).join(' • ') } : e).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
 function paymentEventMatchesFilter(event, filter, typeFilter = 'all') {
   if (typeFilter !== 'all' && event.type !== typeFilter) return false;
@@ -13063,7 +13143,7 @@ function downloadAgreement(rental) {
   if (!rental?.agreement_snapshot) return;
   const signatureImage = extractSignatureImage(rental.agreement_snapshot);
   const printableText = String(rental.agreement_snapshot).replace(/Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/, 'Drawn Signature Image: embedded below');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Rent Me CT Agreement</title><style>body{font-family:Arial,sans-serif;color:#172033;line-height:1.5;padding:32px;max-width:900px;margin:auto}pre{white-space:pre-wrap;font-family:inherit}.signature{margin-top:24px;border:1px solid #d6dee8;border-radius:10px;padding:16px}.signature img{max-width:420px;width:100%;height:auto;display:block}</style></head><body><pre>${escapeHtml(printableText)}</pre>${signatureImage ? `<div class="signature"><strong>Drawn Signature</strong><img src="${signatureImage}" alt="Drawn renter signature"></div>` : ''}</body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Rent Me CT Agreement</title><style>body{font-family:Arial,sans-serif;color:#172033;line-height:1.5;padding:32px;max-width:900px;margin:auto}pre{white-space:pre-wrap;font-family:inherit}.signature{margin-top:24px;border:1px solid #d6dee8;border-radius:10px;padding:16px}.signature img{max-width:420px;width:100%;height:auto;display:block}</style></head><body><pre>${escapeHtml(printableText)}</pre>${signatureImage ? `<div class="signature"><strong>Electronic Signature</strong><img src="${signatureImage}" alt="Electronic renter signature"></div>` : ''}</body></html>`;
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
