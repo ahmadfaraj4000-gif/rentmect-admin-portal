@@ -17,10 +17,14 @@ export function ChargeScrollList({ children, className = '', label = 'Rental cha
       if (height > 0) node.style.setProperty('--charge-list-height', `${Math.ceil(height)}px`);
     }
     measure();
-    const observer = new ResizeObserver(measure);
+    let frame;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
     observer.observe(node);
     rows.forEach(row => observer.observe(row));
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [children, visibleRows]);
   return <div ref={list} className={`${className} charge-scroll-list`} role="region" aria-label={label} tabIndex={0}>{children}</div>;
 }

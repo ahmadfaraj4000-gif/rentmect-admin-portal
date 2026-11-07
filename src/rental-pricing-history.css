@@ -1,0 +1,38 @@
+.rental-pricing-history {
+  min-width: 0;
+  border: 1px solid #d6e3da;
+  border-radius: 9px;
+  background: #f7fbf8;
+  color: #294333;
+}
+.rental-pricing-history > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+}
+.rental-pricing-history > summary::-webkit-details-marker { display: none; }
+.rental-pricing-history > summary > strong { flex: 1; }
+.rental-pricing-history > summary > span { color: #697b6f; font-size: 12px; }
+.rental-pricing-history > summary > svg { flex-shrink: 0; }
+.rental-pricing-history[open] > summary > svg { transform: rotate(180deg); }
+.rental-pricing-history-list { border-top: 1px solid #e0e9e3; }
+.rental-pricing-history-list > p {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid #e4ece6;
+}
+.rental-pricing-history-list > p:last-child { border-bottom: 0; }
+@media (max-width: 540px) {
+  .rental-pricing-history > summary { gap: 8px; }
+  .rental-pricing-history > summary > span { font-size: 11px; }
+}
+/* Keep closed content out of layout consistently, including WebKit. */
+.rental-card-activity:not([open]) > .rental-card-activity-body { display: none !important; }
+.rental-pricing-history:not([open]) > .rental-pricing-history-list { display: none; }

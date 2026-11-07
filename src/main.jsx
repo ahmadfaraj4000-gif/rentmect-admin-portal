@@ -1,3 +1,4 @@
+import { RentalPricingHistory } from './RentalPricingHistory.jsx';
 import { ChargeScrollList } from './ChargeScrollList.jsx';
 import { typedSignatureImage } from './lib/typedSignature.js';
 import { ReceiptActions } from './ReceiptActions.jsx';
@@ -8471,8 +8472,9 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     </div>
 
     <details className="rental-card-activity" open={activityNeedsAttention || undefined}>
-      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length + activityEvents.length} items</em><ChevronDown size={16}/></summary>
+      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length + activityEvents.length + (rentalAccount?.pricing_periods?.length || 0) + (rentalAccount?.swaps?.length || 0)} items</em><ChevronDown size={16}/></summary>
       <div className="rental-card-activity-body">
+        <RentalPricingHistory account={rentalAccount} formatDate={formatEasternDateTime} />
         {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
           {stepCompletions.map((completion) => <button type="button" className="admin-completion-badge" key={completion.id} onClick={() => setAdminStepScope(completion.step_key)}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</button>)}
           {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
@@ -8481,7 +8483,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         <RentalActivityTimeline events={activityEvents} actorById={activityActorById} />
         <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} onManageInsurance={uploadAdminBookingDocument ? (request) => setExtensionInsuranceRequestId(request.id) : null} />
         {rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
-        {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && activityEvents.length === 0 && <small>No extension, payment, waiver, incident, or admin-completion activity is attached to this rental.</small>}
+        {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && !rentalAccount?.pricing_periods?.length && !rentalAccount?.swaps?.length && activityEvents.length === 0 && <small>No extension, payment, waiver, incident, or admin-completion activity is attached to this rental.</small>}
       </div>
     </details>
     </div>}
@@ -8586,7 +8588,6 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
           return restored;
         }}
       />}
-      {detailsExpanded && rentalAccount?.pricing_periods?.length > 0 && <section className="rental-amendment-preview"><strong>Agreed pricing periods</strong>{rentalAccount.pricing_periods.map((period) => <p key={period.id}>{formatEasternDateTime(period.starts_at)} → {formatEasternDateTime(period.ends_at)}: {money(period.daily_rate)}/day · {money(Number(period.rental_amount) + Number(period.tax_amount))} including tax</p>)}{rentalAccount.swaps.map((swap) => <p key={swap.id}>Swap effective {formatEasternDateTime(swap.effective_at)} · recorded {formatEasternDateTime(swap.recorded_at)} · {swap.reason}</p>)}</section>}
       {swapOpen && createPortal(<VehicleSwapModal rental={rental} vehicles={vehicles} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => setSwapOpen(false)} onExtend={() => { setSwapOpen(false); setExtensionOpen(true); }} />, document.body)}
       {extensionOpen && createPortal(<AdminRentalExtensionModal rental={rental} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => { setExtensionOpen(false); setDetailsExpanded(true); }} />, document.body)}
       {editRentalOpen && createPortal(<RentalAmendmentModal
