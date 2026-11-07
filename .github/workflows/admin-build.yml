@@ -1,6 +1,7 @@
 name: Deploy Admin Portal
 
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -12,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: admin-pages
+  group: admin-pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'production' }}
   cancel-in-progress: true
 
 jobs:
@@ -64,18 +65,24 @@ jobs:
       - name: Verify unified payment allocation and typed signatures
         run: node --test tests/unified-external-payment.test.mjs tests/typed-signature.test.mjs
 
+      - name: Verify discount previews and removal
+        run: node --test tests/manual-discount-preview.test.mjs tests/manual-rental-discount.test.mjs
+
       - name: Build production assets
         run: npm run build
 
       - name: Setup Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: build
 

@@ -1,3 +1,4 @@
+import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
 import { RentalPricingHistory } from './RentalPricingHistory.jsx';
 import { ChargeScrollList } from './ChargeScrollList.jsx';
 import { typedSignatureImage } from './lib/typedSignature.js';
@@ -10341,8 +10342,12 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
   const [error, setError] = useState('');
   const numericValue = Number(form.value || 0);
 
+  const previewValid = manualDiscountPreviewMatches(preview, rental.id, form.mode, numericValue);
+
   useEffect(() => {
-    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    setPreview(null);
+    setPreviewing(false);
+    if (form.mode !== 'remove' && (!Number.isFinite(numericValue) || numericValue <= 0)) {
       setPreview(null);
       return undefined;
     }
@@ -10375,7 +10380,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       setError('Enter a specific internal reason of at least 10 characters.');
       return;
     }
-    if (mode !== 'remove' && !preview) {
+    if (previewing || !manualDiscountPreviewMatches(preview, rental.id, mode, numericValue)) {
       setError('Wait for a valid total preview before saving.');
       return;
     }
@@ -10411,14 +10416,14 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
         <button type="button" className={form.mode === 'percentage' ? 'active' : ''} onClick={() => setForm((current) => ({ ...current, mode: 'percentage', value: '' }))}>Percentage off</button>
       </div>
 
-      <label className="modal-field">
+      {form.mode !== 'remove' && <label className="modal-field">
         <span>{form.mode === 'percentage' ? 'Percentage to take off the rental price' : 'Exact dollar amount to take off the rental price'}</span>
         <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><input type="number" min="0.01" max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
-      </label>
+      </label>}
 
       {previewing && <div className="manual-discount-preview loading">Calculating rental and CT tax…</div>}
-      {preview && !previewing && <div className="manual-discount-preview" aria-live="polite">
-        <div><span>Entered discount</span><strong>{preview.manual_discount_type === 'percentage' ? `${Number(preview.manual_discount_value || 0)}% off` : `${money(preview.manual_discount_value)} off`}</strong></div>
+      {previewValid && !previewing && <div className="manual-discount-preview" aria-live="polite">
+        <div><span>Entered discount</span><strong>{form.mode === 'remove' ? 'Remove existing discount' : preview.manual_discount_type === 'percentage' ? `${Number(preview.manual_discount_value || 0)}% off` : `${money(preview.manual_discount_value)} off`}</strong></div>
         <div><span>Rental before manual discount</span><strong>{money(preview.pre_manual_discount_rental_total)}</strong></div>
         <div className="discount"><span>Rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
         <div><span>Recalculated CT tax</span><strong>{money(preview.tax_amount)}</strong></div>
@@ -10427,7 +10432,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
         <small>Total savings including tax: {money(preview.total_savings)}</small>
       </div>}
 
-      {Number(preview?.paid_credit_due || 0) > 0 && <div className="manual-discount-credit-warning"><AlertTriangle size={17}/><span><strong>{money(preview.paid_credit_due)} customer credit will be due.</strong> The captured payment will remain unchanged and must be returned through the correct refund or external-payment process.</span></div>}
+      {previewValid && Number(preview?.paid_credit_due || 0) > 0 && <div className="manual-discount-credit-warning"><AlertTriangle size={17}/><span><strong>{money(preview.paid_credit_due)} customer credit will be due.</strong> The captured payment will remain unchanged and must be returned through the correct refund or external-payment process.</span></div>}
       {rental.discount_code && <small className="manual-discount-promo-note"><Tag size={13}/> Existing promotion {rental.discount_code} remains applied. This manual adjustment is separate.</small>}
 
       <label className="modal-field">
@@ -10438,9 +10443,9 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       {error && <small className="form-error" role="alert">{error}</small>}
 
       <div className="modal-actions">
-        {hasManualDiscount && <button type="button" className="reject manual-discount-remove" onClick={(event) => submit(event, 'remove')} disabled={saving || form.reason.trim().length < 10}>Remove Discount</button>}
+        {hasManualDiscount && <button type="button" className="reject manual-discount-remove" onClick={() => setForm(current => ({ ...current, mode: 'remove', value: '0' }))} disabled={saving || form.mode === 'remove'}>Remove Discount</button>}
         <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className="approve" disabled={saving || previewing || !preview || form.reason.trim().length < 10}><CheckCircle2 size={15}/> {saving ? 'Saving…' : 'Apply Discount'}</button>
+        <button type="submit" className="approve" disabled={saving || previewing || !previewValid || form.reason.trim().length < 10}><CheckCircle2 size={15}/> {saving ? 'Saving…' : form.mode === 'remove' ? 'Confirm Removal' : 'Apply Discount'}</button>
       </div>
     </form>
   </div>;
