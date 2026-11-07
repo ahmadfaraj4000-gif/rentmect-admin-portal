@@ -22,7 +22,20 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
  const remainder=pending?.rentalAmountCents??(appliesToRental?unallocated:0);
  const tolls=eligible.filter(c=>c.charge_type==='toll');
  const formatAmount=()=>{try{change('amount',(paymentCents(form.amount||'0')/100).toFixed(2));}catch{/* Keep invalid input visible for validation. */}};
- const dialog=useRef(null);
+ const dialog=useRef(null), selectAmountOnClick=useRef(false);
+ function focusAmount(event){
+  if(Number(form.amount||0)===0)change('amount','');
+  else event.currentTarget.select();
+ }
+ function finishAmountClick(event){
+  // Mouse-up can undo focus selection in Safari. Select after the completed click.
+  if(selectAmountOnClick.current){
+   const input=event.currentTarget, value=input.value;
+   input.select();
+   window.setTimeout(()=>{if(document.activeElement===input&&input.value===value)input.select();},0);
+  }
+  selectAmountOnClick.current=false;
+ }
  useEffect(()=>trackTaskDialog(),[]);
  useEffect(()=>{if(form.amount==='')setForm(f=>({...f,amount:'0.00'}));},[]);
  useEffect(()=>{const previous=document.activeElement;dialog.current?.focus();return()=>previous?.focus?.();},[]);
@@ -60,7 +73,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   {pending&&<p className="rp-notice" role="status">This payment is awaiting confirmation. Resume the same receipt, or cancel its recording. Cancelling does not return funds.</p>}
   <fieldset disabled={saving||!!pending||!recoveryReady} className="rp-fields">
    <div className="rp-grid">
-    <label className="rp-field"><span>Amount received</span><div className="rp-money"><span aria-hidden="true">$</span><input required type="text" inputMode="decimal" autoComplete="off" aria-label="Amount received" value={pending?(pending.amountCents/100).toFixed(2):form.amount} onFocus={e=>e.target.select()} onBlur={formatAmount} onChange={e=>change('amount',e.target.value)}/></div></label>
+    <label className="rp-field"><span>Amount received</span><div className="rp-money"><span aria-hidden="true">$</span><input required type="text" inputMode="decimal" autoComplete="off" aria-label="Amount received" value={pending?(pending.amountCents/100).toFixed(2):form.amount} placeholder="0.00" onPointerDown={e=>{selectAmountOnClick.current=document.activeElement!==e.currentTarget;}} onClick={finishAmountClick} onFocus={focusAmount} onBlur={formatAmount} onChange={e=>change('amount',e.target.value)}/></div></label>
     <label className="rp-field"><span>Payment method</span><select value={pending?.paymentMethod||form.paymentMethod} onChange={e=>change('paymentMethod',e.target.value)}>{[['cash_app','Cash App'],['cash','Cash'],['terminal','Card terminal'],['card','Card collected externally'],['bank_transfer','Bank transfer'],['other','Other']].map(([v,label])=><option key={v} value={v}>{label}</option>)}</select></label>
     <label className="rp-field"><span>Date received</span><input type="date" required max={today()} value={pending?.receivedDate||form.receivedDate} onChange={e=>change('receivedDate',e.target.value)}/></label>
     <label className="rp-field"><span>Time received <small>(Eastern, optional)</small></span><input type="time" value={pending?.receivedTime??form.receivedTime} onChange={e=>change('receivedTime',e.target.value)}/></label>

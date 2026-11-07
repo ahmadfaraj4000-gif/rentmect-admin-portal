@@ -1,3 +1,10 @@
+/* Separate the payment action from the status rows above it. */
+.rental-card-details > .rental-receive-payment-button {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
 /* Scoped payment form: avoid inherited toll-modal field and total styles. */
 .admin-modal-backdrop.receive-payment-backdrop { padding: 20px; z-index: 1500; }
 .receive-payment-modal { width: min(640px, 100%); max-width: 640px; max-height: calc(100dvh - 40px); padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0; overflow: hidden; border: 1px solid #dce5df; border-radius: 16px; background: #fff; color: #24372c; box-shadow: 0 24px 80px #10281b33; text-align: left; }
@@ -16,7 +23,8 @@
 .receive-payment-modal .rp-field input::placeholder, .receive-payment-modal .rp-field textarea::placeholder { color: #7e8a82; font-weight: 400; font-size: 12px; opacity: 1; }
 .receive-payment-modal .rp-money { position: relative; }
 .receive-payment-modal .rp-money > span { position: absolute; top: 12px; left: 13px; font-size: 16px; color: #738277; }
-.receive-payment-modal .rp-money input { padding-left: 30px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.receive-payment-modal .rp-money input { padding-left: 30px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: left; direction: ltr; }
+.receive-payment-modal .rp-money input::placeholder { font-size: 18px; font-weight: 600; }
 .receive-payment-modal input:focus-visible, .receive-payment-modal textarea:focus-visible, .receive-payment-modal select:focus-visible, .receive-payment-modal button:focus-visible { outline: 2px solid #37825b; outline-offset: 2px; }
 .receive-payment-modal .rp-allocation { margin-top: 22px; }
 .receive-payment-modal .rp-allocation h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }

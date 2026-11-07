@@ -3,7 +3,7 @@ import {readFile,writeFile,mkdtemp,rm,mkdir} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
+const {chromium,webkit}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
 const artifacts=process.env.PAYMENT_BROWSER_ARTIFACTS||'/tmp/rentme-payment-browser';
 await mkdir(artifacts,{recursive:true});
 const root=resolve(import.meta.dirname,'..'),folder=await mkdtemp(root+'/.unified-test-');
@@ -22,13 +22,31 @@ const result={status:'posted',receiptId:id,amountCents:request.amountCents,balan
 const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5198','--strictPort'],{cwd:root,stdio:['ignore','pipe','pipe']});let browser;
 try{
  await new Promise((ok,no)=>{server.stdout.on('data',d=>{if(d.toString().includes('Local:'))ok()});server.on('error',no);server.on('exit',()=>no(Error('Server exited')))});
- browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'});
+ browser=process.env.PAYMENT_BROWSER==='webkit'?await webkit.launch({headless:true}):await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'});
  for(const [mobile,height] of [[false,1000],[true,780],[false,720]]){
-  const context=await browser.newContext({viewport:mobile?{width:390,height:780}:{width:1280,height}}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  console.log('Checking',process.env.PAYMENT_BROWSER||'chromium',mobile?'touch':'mouse',height);
+  const context=await browser.newContext({hasTouch:mobile,isMobile:mobile,viewport:mobile?{width:390,height:780}:{width:1280,height}}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://127.0.0.1:5198/'+folder.split('/').at(-1)+'/index.html');
   assert.equal(await page.getByLabel('Amount received',{exact:true}).inputValue(),'0.00');
-  await page.getByLabel('Amount received',{exact:true}).focus();
-  assert.deepEqual(await page.getByLabel('Amount received',{exact:true}).evaluate(e=>[e.selectionStart,e.selectionEnd]),[0,4]);
+  const amount=page.getByLabel('Amount received',{exact:true});
+  // Real click + typing catches cursor placement that fill() bypasses.
+  if(mobile)await amount.tap({position:{x:120,y:20}});else await amount.click({position:{x:120,y:20}});
+  assert.equal(await amount.inputValue(),'');
+  assert.equal(await amount.getAttribute('placeholder'),'0.00');
+  await amount.pressSequentially('200');
+  assert.equal(await amount.inputValue(),'200');
+  await page.getByLabel('Payment method').focus();
+  assert.equal(await amount.inputValue(),'200.00');
+  if(mobile)await amount.tap({position:{x:120,y:20}});else await amount.click({position:{x:120,y:20}});
+  await amount.pressSequentially('125.50');
+  await page.getByLabel('Payment method').focus();
+  assert.equal(await amount.inputValue(),'125.50','Refocusing replaces the previous amount, including after pointer-up');
+  await amount.focus();await amount.pressSequentially('75');
+  await page.getByLabel('Payment method').focus();
+  assert.equal(await amount.inputValue(),'75.00','Keyboard focus also replaces the amount');
+  await amount.focus();await amount.press('Backspace');
+  await page.getByLabel('Payment method').focus();
+  assert.equal(await amount.inputValue(),'0.00','Clearing an amount returns to zero');
   assert.equal(await page.getByLabel('Apply to rental',{exact:true}).isChecked(),true);
   await page.getByLabel('Amount received',{exact:true}).fill('100');
   assert.match(await page.locator('.rp-summary').innerText(),/Applied to rental\s*\$100.00/);
@@ -69,5 +87,5 @@ try{
   assert.equal(await page.getByLabel('Amount received',{exact:true}).inputValue(),'0.00');
   await context.close();
  }
- console.log('PASS: desktop/mobile $200 allocation, underfunded rejection, notes/date persistence, failed-request resume, lost-response recovery with no duplicate payment.');
+ console.log('PASS: dollar typing, click/tap replacement, decimal formatting, desktop/mobile $200 allocation, underfunded rejection, notes/date persistence, failed-request resume, lost-response recovery with no duplicate payment.');
 }finally{await browser?.close();server.kill();await rm(folder,{recursive:true,force:true});}
