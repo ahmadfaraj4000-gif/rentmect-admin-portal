@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { needsReturnEvidenceReport } from '../src/lib/returnEvidence.js';
 import { returnMileageContext, returnCustomerAction } from '../src/lib/rentalMileage.js';
 test('a historical swap never uses the original car odometer as its return minimum', () => {
   assert.deepEqual(returnMileageContext({ starting_mileage:104244, return_starting_mileage:null, vehicles:{current_mileage:69335}}), {baseline:null,minimum:69335,missingBaseline:true});
@@ -26,25 +27,25 @@ const {readFileSync}=await import('node:fs');
 const {default:vm}=await import('node:vm');
 const main=readFileSync(new URL('../src/main.jsx',import.meta.url),'utf8');
 const action=main.slice(main.indexOf('  async function completeRentalReturn('),main.indexOf('  async function releaseSecurityDeposit('));
-function returnFixture({closeError=null,flagError=null}={}) {
-  const calls=[],notices=[];
-  const context=vm.createContext({returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport:()=>false,
-    parseMileageInput:Number,prettyStatus:String,supabase:{rpc:async(name)=>{calls.push(name);return name==='admin_inspect_and_complete_rental_return'
-      ? {data:{id:'rental',status:'completed'},error:closeError}:{data:null,error:flagError};}},
-    setProfiles:()=>{},setRentals:()=>{},setVehicles:()=>{},setEmergencyExceptions:()=>{},refreshAfterSavedTask:()=>{},notify:(...args)=>{notices.push(args);}});
+function returnFixture({closeError=null}={}) {
+  const calls=[],notices=[],refreshes=[];
+  const context=vm.createContext({returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport,
+    parseMileageInput:Number,prettyStatus:String,supabase:{rpc:async(name,args)=>{calls.push({name,args});return {data:closeError?null:{id:'rental',status:'completed'},error:closeError};}},
+    setProfiles:()=>{},setRentals:()=>{},setVehicles:()=>{},setEmergencyExceptions:()=>{},refreshAfterSavedTask:domains=>refreshes.push(Array.from(domains)),notify:(...args)=>{notices.push(args);}});
   vm.runInContext(action,context);
-  return {calls,notices,run:inspection=>context.completeRentalReturn({id:'rental',user_id:'customer',vehicle_id:'car'},inspection)};
+  return {calls,notices,refreshes,run:inspection=>context.completeRentalReturn({id:'rental',user_id:'customer',vehicle_id:'car'},inspection)};
 }
-test('successful normal return does not send the default customer flag',async()=>{
+test('normal return sends no customer flag in its single atomic request',async()=>{
  const f=returnFixture();assert.equal(await f.run({endingMileage:2000,customerAction:'review'}),true);
- assert.deepEqual(f.calls,['admin_inspect_and_complete_rental_return']);
+ assert.equal(f.calls.length,1);assert.equal(f.calls[0].args.p_return_context.customer_action,'none');
 });
-test('failed return cannot flag the customer',async()=>{
+test('failed return has no separate report, message or customer flag writes',async()=>{
  const f=returnFixture({closeError:{message:'Mileage conflict'}});await f.run({damageFound:true,customerAction:'block'});
- assert.deepEqual(f.calls,['admin_inspect_and_complete_rental_return']);
+ assert.equal(f.calls.length,1);assert.match(f.notices.at(-1)[0],/Mileage conflict/);
 });
-test('customer flag failure stays visible after a committed return',async()=>{
- const f=returnFixture({flagError:{message:'Permission denied'}});assert.equal(await f.run({damageFound:true,customerAction:'block'}),true);
- assert.deepEqual(f.calls,['admin_inspect_and_complete_rental_return','admin_set_customer_status']);
- assert.match(f.notices.at(-1)[0],/Return closed.*Permission denied/);assert.equal(f.notices.at(-1)[1],'error');
+test('damage return sends the requested flag through the same return transaction',async()=>{
+ const f=returnFixture();assert.equal(await f.run({damageFound:true,customerAction:'block',damageNote:'Verified return damage'}),true);
+ assert.equal(f.calls.length,1);assert.equal(f.calls[0].args.p_return_context.customer_action,'block');
+ assert.equal(f.calls[0].name,'admin_inspect_and_complete_rental_return');
+ assert.deepEqual(f.refreshes[0],['core','snapshot','workflow','customer-directory']);
 });

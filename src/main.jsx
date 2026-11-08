@@ -1852,8 +1852,8 @@ function App() {
     if (!requireStaffPermission('rental.return', 'complete rental returns')) return false;
     if (!rental?.id) return;
 
+    const photoPaths = [];
     if (needsReturnEvidenceReport(inspection)) {
-      const photoPaths = [];
       for (const file of inspection.files || []) {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
         const path = `${rental.user_id || 'admin'}/return-damage/${rental.id}/${crypto.randomUUID()}-${safeName}`;
@@ -1864,46 +1864,6 @@ function App() {
         photoPaths.push(path);
       }
 
-      const reportPayload = {
-        rental_id: rental.id,
-        user_id: rental.user_id,
-        vehicle_id: rental.vehicle_id,
-        status: 'open',
-        description: inspection.damageNote || 'Damage found during admin return inspection.',
-        report_type: 'admin_return_damage',
-        issue_type: inspection.damageFound ? inspection.issueType || 'damage' : 'other',
-        photo_paths: photoPaths,
-        deposit_held_amount: Number(rental.security_deposit || 0),
-        admin_notes: inspection.damageNote || '',
-      };
-      const { data: report, error: reportError } = await supabase
-        .from('vehicle_reports')
-        .insert(reportPayload)
-        .select('*, profiles(*), rentals(*, vehicles(*))')
-        .single();
-      if (reportError) return notify(reportError.message);
-      if (report) setReports((current) => [report, ...current]);
-
-      const issueLabel = inspection.damageFound ? prettyStatus(inspection.issueType || 'damage').toLowerCase() : 'deposit';
-      const customerMessage = [
-        `RETURN REVIEW OPENED: Rent Me CT opened a ${issueLabel} review for your returned rental.`,
-        'Your security deposit is being held while the review is completed.',
-        inspection.damageNote ? `Admin note: ${inspection.damageNote}` : 'We will update you when the case is resolved.',
-      ].join(' ');
-
-      const { data: messageData, error: messageError } = await supabase
-        .from('rental_messages')
-        .insert({
-          rental_id: rental.id,
-          user_id: rental.user_id,
-          sender_role: 'admin',
-          message: customerMessage,
-          read_by_admin: true,
-        })
-        .select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))')
-        .single();
-      if (messageError) return notify(messageError.message);
-      if (messageData) setMessages((current) => [...current, messageData]);
     }
 
     const depositDecision = inspection.damageFound ? 'hold' : inspection.depositDecision || 'release';
@@ -1920,26 +1880,9 @@ function App() {
       p_notes: inspection.damageNote || null,
       p_vehicle_disposition: vehicleDisposition,
       p_mileage_override: Boolean(inspection.mileageOverride),
+      p_return_context: { photo_paths: photoPaths, issue_type: inspection.issueType || 'damage', customer_action: returnCustomerAction(inspection) },
     });
     if (inspectionError) return notify(inspectionError.message);
-
-    let customerFlagError = '';
-    if (returnCustomerAction(inspection) !== 'none') {
-      const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
-      const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
-        p_user_id: rental.user_id,
-        p_customer_status: customerStatus,
-        p_block_reason: inspection.damageNote || `${prettyStatus(inspection.issueType || 'damage')} case opened from return inspection.`,
-      });
-      if (profileError) customerFlagError = `Return closed, but the customer flag could not be updated: ${profileError.message}`;
-      if (updatedProfile) {
-        setProfiles((current) => current.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile));
-        setRentals((current) => current.map((item) =>
-          item.user_id === updatedProfile.id ? { ...item, profiles: { ...(item.profiles || {}), ...updatedProfile } } : item
-        ));
-      }
-    }
-
 
     setRentals((current) => current.map((item) => item.id === rental.id ? {
       ...item,
@@ -1965,14 +1908,17 @@ function App() {
         }
         : exception
     ));
-    refreshAfterSavedTask(['core', 'snapshot']);
+    refreshAfterSavedTask(['core', 'snapshot',
+      ...(needsReturnEvidenceReport(inspection) ? ['workflow'] : []),
+      ...(returnCustomerAction(inspection) !== 'none' ? ['customer-directory'] : []),
+    ]);
     notify(
-      customerFlagError || (inspection.mileageOverride
+      inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
         : vehicleDisposition === 'available'
           ? 'Return inspected and rental closed. The vehicle is available again.'
-          : 'Return inspected and rental closed. The vehicle is held out of service.'),
-      customerFlagError ? 'error' : 'success',
+          : 'Return inspected and rental closed. The vehicle is held out of service.',
+      'success',
     );
     return true;
   }
@@ -8404,7 +8350,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         <section className="rental-card-section rental-card-details" aria-labelledby={`rental-details-${rental.id}`}>
           <div className="rental-card-section-heading"><div><small>Operations</small><h4 id={`rental-details-${rental.id}`}>Rental Details</h4></div></div>
           <dl>
-            <dt>Pickup</dt><dd>{rental.starting_mileage != null ? `Recorded · ${formatMiles(rental.starting_mileage)}` : 'Not recorded'}</dd>
+            <dt>Pickup</dt><dd>{returnMileageContext(rental).baseline != null ? `Recorded · ${formatMiles(returnMileageContext(rental).baseline)}` : 'Not recorded for this vehicle'}</dd>
             <dt>Return</dt><dd>{rental.ending_mileage != null ? `Recorded · ${formatMiles(rental.ending_mileage)}` : 'Not recorded'}</dd>
             <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.mileage_history_complete === false ? null : (rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage))) : 'Not recorded'}</dd>
             <dt>Intended use</dt><dd>{rental.profiles?.intended_vehicle_use || 'Not provided'}</dd>
@@ -10248,7 +10194,7 @@ function MileageSummary({ rental }) {
   const milesDriven = rental.mileage_history_complete === false ? null : (rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage));
 
   return <div className="mileage-summary" aria-label="Mileage summary">
-    <span><strong>Pickup</strong> {formatMiles(rental.starting_mileage)}</span>
+    <span><strong>Pickup</strong> {formatMiles(returnMileageContext(rental).baseline)}</span>
     <span><strong>Return</strong> {formatMiles(rental.ending_mileage)}</span>
     <span><strong>Driven</strong> {formatMiles(milesDriven)}</span>
   </div>;
@@ -11356,7 +11302,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     issueType: 'damage',
     depositDecision: 'release',
     damageNote: '',
-    customerAction: 'review',
+    customerAction: 'none',
     vehicleDisposition: 'available',
     files: [],
     ...readReturnDraft(rental.id),
