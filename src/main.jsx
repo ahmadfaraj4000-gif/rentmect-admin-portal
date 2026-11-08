@@ -1908,7 +1908,10 @@ function App() {
         }
         : exception
     ));
-    refreshAfterSavedTask(['core', 'snapshot']);
+    refreshAfterSavedTask(['core', 'snapshot',
+      ...(needsReturnEvidenceReport(inspection) ? ['workflow'] : []),
+      ...(returnCustomerAction(inspection) !== 'none' ? ['customer-directory'] : []),
+    ]);
     notify(
       inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'

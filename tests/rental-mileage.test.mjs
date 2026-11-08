@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { needsReturnEvidenceReport } from '../src/lib/returnEvidence.js';
 import { returnMileageContext, returnCustomerAction } from '../src/lib/rentalMileage.js';
 test('a historical swap never uses the original car odometer as its return minimum', () => {
   assert.deepEqual(returnMileageContext({ starting_mileage:104244, return_starting_mileage:null, vehicles:{current_mileage:69335}}), {baseline:null,minimum:69335,missingBaseline:true});
@@ -27,12 +28,12 @@ const {default:vm}=await import('node:vm');
 const main=readFileSync(new URL('../src/main.jsx',import.meta.url),'utf8');
 const action=main.slice(main.indexOf('  async function completeRentalReturn('),main.indexOf('  async function releaseSecurityDeposit('));
 function returnFixture({closeError=null}={}) {
-  const calls=[],notices=[];
-  const context=vm.createContext({returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport:()=>false,
+  const calls=[],notices=[],refreshes=[];
+  const context=vm.createContext({returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport,
     parseMileageInput:Number,prettyStatus:String,supabase:{rpc:async(name,args)=>{calls.push({name,args});return {data:closeError?null:{id:'rental',status:'completed'},error:closeError};}},
-    setProfiles:()=>{},setRentals:()=>{},setVehicles:()=>{},setEmergencyExceptions:()=>{},refreshAfterSavedTask:()=>{},notify:(...args)=>{notices.push(args);}});
+    setProfiles:()=>{},setRentals:()=>{},setVehicles:()=>{},setEmergencyExceptions:()=>{},refreshAfterSavedTask:domains=>refreshes.push(Array.from(domains)),notify:(...args)=>{notices.push(args);}});
   vm.runInContext(action,context);
-  return {calls,notices,run:inspection=>context.completeRentalReturn({id:'rental',user_id:'customer',vehicle_id:'car'},inspection)};
+  return {calls,notices,refreshes,run:inspection=>context.completeRentalReturn({id:'rental',user_id:'customer',vehicle_id:'car'},inspection)};
 }
 test('normal return sends no customer flag in its single atomic request',async()=>{
  const f=returnFixture();assert.equal(await f.run({endingMileage:2000,customerAction:'review'}),true);
@@ -46,4 +47,5 @@ test('damage return sends the requested flag through the same return transaction
  const f=returnFixture();assert.equal(await f.run({damageFound:true,customerAction:'block',damageNote:'Verified return damage'}),true);
  assert.equal(f.calls.length,1);assert.equal(f.calls[0].args.p_return_context.customer_action,'block');
  assert.equal(f.calls[0].name,'admin_inspect_and_complete_rental_return');
+ assert.deepEqual(f.refreshes[0],['core','snapshot','workflow','customer-directory']);
 });
