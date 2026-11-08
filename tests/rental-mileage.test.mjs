@@ -20,3 +20,31 @@ test('normal returns and mileage overrides never flag a customer from a stale/de
   assert.equal(returnCustomerAction({damageFound:true,customerAction:'block'}),'block');
   assert.equal(returnCustomerAction({damageFound:true,customerAction:'none'}),'none');
 });
+
+// Execute the actual return action with isolated API/state responses.
+const {readFileSync}=await import('node:fs');
+const {default:vm}=await import('node:vm');
+const main=readFileSync(new URL('../src/main.jsx',import.meta.url),'utf8');
+const action=main.slice(main.indexOf('  async function completeRentalReturn('),main.indexOf('  async function releaseSecurityDeposit('));
+function returnFixture({closeError=null,flagError=null}={}) {
+  const calls=[],notices=[];
+  const context=vm.createContext({returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport:()=>false,
+    parseMileageInput:Number,prettyStatus:String,supabase:{rpc:async(name)=>{calls.push(name);return name==='admin_inspect_and_complete_rental_return'
+      ? {data:{id:'rental',status:'completed'},error:closeError}:{data:null,error:flagError};}},
+    setProfiles:()=>{},setRentals:()=>{},setVehicles:()=>{},setEmergencyExceptions:()=>{},refreshAfterSavedTask:()=>{},notify:(...args)=>{notices.push(args);}});
+  vm.runInContext(action,context);
+  return {calls,notices,run:inspection=>context.completeRentalReturn({id:'rental',user_id:'customer',vehicle_id:'car'},inspection)};
+}
+test('successful normal return does not send the default customer flag',async()=>{
+ const f=returnFixture();assert.equal(await f.run({endingMileage:2000,customerAction:'review'}),true);
+ assert.deepEqual(f.calls,['admin_inspect_and_complete_rental_return']);
+});
+test('failed return cannot flag the customer',async()=>{
+ const f=returnFixture({closeError:{message:'Mileage conflict'}});await f.run({damageFound:true,customerAction:'block'});
+ assert.deepEqual(f.calls,['admin_inspect_and_complete_rental_return']);
+});
+test('customer flag failure stays visible after a committed return',async()=>{
+ const f=returnFixture({flagError:{message:'Permission denied'}});assert.equal(await f.run({damageFound:true,customerAction:'block'}),true);
+ assert.deepEqual(f.calls,['admin_inspect_and_complete_rental_return','admin_set_customer_status']);
+ assert.match(f.notices.at(-1)[0],/Return closed.*Permission denied/);assert.equal(f.notices.at(-1)[1],'error');
+});

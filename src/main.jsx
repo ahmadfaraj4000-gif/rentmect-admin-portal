@@ -1923,6 +1923,7 @@ function App() {
     });
     if (inspectionError) return notify(inspectionError.message);
 
+    let customerFlagError = '';
     if (returnCustomerAction(inspection) !== 'none') {
       const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
       const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
@@ -1930,7 +1931,7 @@ function App() {
         p_customer_status: customerStatus,
         p_block_reason: inspection.damageNote || `${prettyStatus(inspection.issueType || 'damage')} case opened from return inspection.`,
       });
-      if (profileError) notify(`Return closed, but the customer flag could not be updated: ${profileError.message}`);
+      if (profileError) customerFlagError = `Return closed, but the customer flag could not be updated: ${profileError.message}`;
       if (updatedProfile) {
         setProfiles((current) => current.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile));
         setRentals((current) => current.map((item) =>
@@ -1966,12 +1967,12 @@ function App() {
     ));
     refreshAfterSavedTask(['core', 'snapshot']);
     notify(
-      inspection.mileageOverride
+      customerFlagError || (inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
         : vehicleDisposition === 'available'
           ? 'Return inspected and rental closed. The vehicle is available again.'
-          : 'Return inspected and rental closed. The vehicle is held out of service.',
-      'success',
+          : 'Return inspected and rental closed. The vehicle is held out of service.'),
+      customerFlagError ? 'error' : 'success',
     );
     return true;
   }
