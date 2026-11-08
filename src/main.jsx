@@ -1,3 +1,4 @@
+import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
 import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
 import { RentalPricingHistory } from './RentalPricingHistory.jsx';
 import { ChargeScrollList } from './ChargeScrollList.jsx';
@@ -1905,22 +1906,6 @@ function App() {
       if (messageData) setMessages((current) => [...current, messageData]);
     }
 
-    if (inspection.customerAction && inspection.customerAction !== 'none') {
-      const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
-      const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
-        p_user_id: rental.user_id,
-        p_customer_status: customerStatus,
-        p_block_reason: inspection.damageNote || `${prettyStatus(inspection.issueType || 'damage')} case opened from return inspection.`,
-      });
-      if (profileError) return notify(profileError.message);
-      if (updatedProfile) {
-        setProfiles((current) => current.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile));
-        setRentals((current) => current.map((item) =>
-          item.user_id === updatedProfile.id ? { ...item, profiles: { ...(item.profiles || {}), ...updatedProfile } } : item
-        ));
-      }
-    }
-
     const depositDecision = inspection.damageFound ? 'hold' : inspection.depositDecision || 'release';
     const vehicleDisposition = inspection.damageFound ? 'maintenance' : inspection.vehicleDisposition || 'available';
     const endingMileage = inspection.mileageOverride ? null : parseMileageInput(inspection.endingMileage);
@@ -1937,6 +1922,23 @@ function App() {
       p_mileage_override: Boolean(inspection.mileageOverride),
     });
     if (inspectionError) return notify(inspectionError.message);
+
+    if (returnCustomerAction(inspection) !== 'none') {
+      const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
+      const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
+        p_user_id: rental.user_id,
+        p_customer_status: customerStatus,
+        p_block_reason: inspection.damageNote || `${prettyStatus(inspection.issueType || 'damage')} case opened from return inspection.`,
+      });
+      if (profileError) notify(`Return closed, but the customer flag could not be updated: ${profileError.message}`);
+      if (updatedProfile) {
+        setProfiles((current) => current.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile));
+        setRentals((current) => current.map((item) =>
+          item.user_id === updatedProfile.id ? { ...item, profiles: { ...(item.profiles || {}), ...updatedProfile } } : item
+        ));
+      }
+    }
+
 
     setRentals((current) => current.map((item) => item.id === rental.id ? {
       ...item,
@@ -2352,6 +2354,8 @@ function App() {
         action: form.operation === 'extension_revision' ? 'admin_apply_rental_extension_revision' : form.operation === 'swap' ? 'admin_apply_vehicle_swap' : form.operation === 'extension' ? 'admin_apply_rental_extension' : 'admin_apply_rental_amendment',
         effectiveAt: form.operation === 'swap' ? easternDateTimeInputToIso(form.effectiveAt) : undefined,
         swapKind: form.swapKind,
+        outgoingMileage: Number(form.outgoingMileage),
+        incomingMileage: Number(form.incomingMileage),
         expectedRevision: form.revision,
         rentalId: rental.id,
         vehicleId: form.vehicleId,
@@ -8401,7 +8405,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
           <dl>
             <dt>Pickup</dt><dd>{rental.starting_mileage != null ? `Recorded · ${formatMiles(rental.starting_mileage)}` : 'Not recorded'}</dd>
             <dt>Return</dt><dd>{rental.ending_mileage != null ? `Recorded · ${formatMiles(rental.ending_mileage)}` : 'Not recorded'}</dd>
-            <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage)) : 'Not recorded'}</dd>
+            <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.mileage_history_complete === false ? null : (rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage))) : 'Not recorded'}</dd>
             <dt>Intended use</dt><dd>{rental.profiles?.intended_vehicle_use || 'Not provided'}</dd>
             {isMerchantRental && <><dt>Booking source</dt><dd>Merchant rental{rental.merchant_reservation_number ? ` · ${rental.merchant_reservation_number}` : ''}</dd></>}
             <dt>Rental status</dt><dd>{prettyStatus(rental.status || 'pending')}</dd>
@@ -8883,6 +8887,7 @@ function swapRpcArguments(rental, form) {
   return {
     p_rental_id: rental.id, p_vehicle_id: form.vehicleId,
     p_effective_at: easternDateTimeInputToIso(form.effectiveAt),
+    p_outgoing_mileage: Number(form.outgoingMileage), p_incoming_mileage: Number(form.incomingMileage),
     p_swap_kind: form.swapKind, p_reason: form.reason.trim(),
     p_daily_rate: form.swapKind === 'customer_request' ? Number(form.dailyRate) : null,
   };
@@ -8990,7 +8995,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
 
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onExtend }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
-  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'now', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', reason: '' }, ['operation', 'vehicleId', 'timeMode', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
+  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'now', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', outgoingMileage: '', incomingMileage: '', reason: '' }, ['outgoingMileage', 'incomingMileage', 'operation', 'vehicleId', 'timeMode', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
   const currentSwapTime = () => {
     const date = new Date();
     return `${formatEasternDateTimeInput(date)}:${String(date.getUTCSeconds()).padStart(2, '0')}`;
@@ -9027,6 +9032,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
   }
   async function review(event) {
     event.preventDefault();
+    if (parseMileageInput(form.outgoingMileage) === null || parseMileageInput(form.incomingMileage) === null) { setError('Record both vehicles’ verified odometer readings.'); return; }
     if (!availabilityReady) { setError('Choose available dates and a vehicle before reviewing.'); return; }
     setBusy(true); setError('');
     try { setPreview(await onPreview(rental, { ...form, effectiveAt })); }
@@ -9055,13 +9061,15 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
           <label><span>When are the vehicles being exchanged?</span><select value={form.timeMode} onChange={e => change('timeMode', e.target.value)}><option value="now">Swap now</option><option value="custom">Enter actual swap time</option></select></label>
           {form.timeMode === 'custom' && <label><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
           {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><input type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
+          <label><span>Outgoing vehicle return odometer</span><input type="number" min={returnMileageContext(rental).minimum} max={MILEAGE_MAX} step="1" required value={form.outgoingMileage} onChange={e => change('outgoingMileage', e.target.value)}/></label>
+          <label><span>Replacement vehicle pickup odometer</span><input type="number" min={vehicles.find(v => v.id === form.vehicleId)?.current_mileage || 0} max={MILEAGE_MAX} step="1" required value={form.incomingMileage} onChange={e => change('incomingMileage', e.target.value)}/></label>
           <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <p>{form.timeMode === 'custom' ? 'Use the time the vehicles were actually exchanged. Your entered time is kept when reopening this form.' : 'The swap time defaults to now. Choose a replacement vehicle and review the swap.'}</p>
         <p>Checking availability from <strong>{formatEasternDateTime(effectiveIso) || 'Select Swap now or enter a valid time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
         <button type="button" disabled={busy || availability.loading} onClick={availability.retry}>Recheck availability</button>
 
-        {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong>
+        {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong><p>Outgoing odometer: {formatMiles(Number(form.outgoingMileage))} · Replacement pickup: {formatMiles(Number(form.incomingMileage))}</p>
           {preview.periods.map((period, i) => <p key={i}>{formatEasternDateTime(period.from)} → {formatEasternDateTime(period.until)}: {money(period.old_rate)} → {money(period.new_rate)} per day</p>)}
           <div className="rental-amendment-ledger"><span>Previous unpaid balance <strong>{money(preview.previous_balance)}</strong></span><span>Charge adjustment, including tax <strong>{money(preview.total_delta)}</strong></span><span>Balance after swap <strong>{money(preview.balance_due)}</strong></span><span>Deposit held separately <strong>{money(preview.deposit_held)}</strong></span></div>
           {Number(preview.credit_due) > 0 && <p>Customer credit: {money(preview.credit_due)}</p>}
@@ -10236,7 +10244,7 @@ function ChargeExternalPaymentModal({ rental, charge, onCancel, onConfirm }) {
 }
 
 function MileageSummary({ rental }) {
-  const milesDriven = rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage);
+  const milesDriven = rental.mileage_history_complete === false ? null : (rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage));
 
   return <div className="mileage-summary" aria-label="Mileage summary">
     <span><strong>Pickup</strong> {formatMiles(rental.starting_mileage)}</span>
@@ -11335,6 +11343,7 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, initialAm
 }
 
 function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
+  const mileage = returnMileageContext(rental);
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
   const [inspection, setInspection] = useState(() => ({
     mileageChecked: false,
@@ -11354,7 +11363,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
   }));
   const [saving, setSaving] = useState(false);
   const [mileageError, setMileageError] = useState('');
-  const milesDriven = inspection.mileageOverride ? null : calculateMilesDriven(rental.starting_mileage, inspection.endingMileage);
+  const milesDriven = inspection.mileageOverride ? null : calculateMilesDriven(mileage.baseline, inspection.endingMileage);
 
   useEffect(() => {
     saveReturnDraft(rental.id, inspection);
@@ -11368,13 +11377,16 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       setMileageError('Enter the ending mileage as a whole number.');
       return;
     }
-    if (!inspection.mileageOverride && rental.starting_mileage !== null && rental.starting_mileage !== undefined && endingMileage < Number(rental.starting_mileage)) {
-      setMileageError(`Ending mileage cannot be below pickup mileage (${formatMiles(rental.starting_mileage)}).`);
+    if (!inspection.mileageOverride && endingMileage < mileage.minimum) {
+      setMileageError(`Ending mileage cannot be below this vehicle’s recorded mileage (${formatMiles(mileage.minimum)}).`);
       return;
     }
     if ((!inspection.mileageOverride && !inspection.mileageChecked) || !inspection.fuelChecked || !inspection.damageChecked) {
       setMileageError('Complete the required mileage, fuel, and condition checks before closing the rental.');
       return;
+    }
+    if ((inspection.mileageOverride || mileage.missingBaseline) && inspection.damageNote.trim().length < 10) {
+      setMileageError('Explain the missing mileage or override in at least 10 characters.'); return;
     }
     if ((inspection.damageFound || inspection.depositDecision === 'hold') && inspection.damageNote.trim().length < 5) {
       setMileageError('Add a note explaining the damage or deposit hold.');
@@ -11409,7 +11421,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     </header>
     <section className={`return-mileage-card${inspection.mileageOverride ? ' override-active' : ''}`}>
       <label className="field-label return-mileage-field"><span>Ending mileage</span>
-        <input type="number" min={rental.starting_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" placeholder="Enter the return odometer mileage" title={`Whole-number mileage, max ${MILEAGE_MAX.toLocaleString('en-US')}.`} value={inspection.endingMileage} disabled={inspection.mileageOverride} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: Boolean(event.target.value), mileageOverride: false }))} required={!inspection.mileageOverride} />
+        <input type="number" min={mileage.minimum} max={MILEAGE_MAX} step="1" inputMode="numeric" placeholder="Enter the return odometer mileage" title={`Whole-number mileage, max ${MILEAGE_MAX.toLocaleString('en-US')}.`} value={inspection.endingMileage} disabled={inspection.mileageOverride} onChange={(event) => setInspection((current) => ({ ...current, endingMileage: event.target.value, mileageChecked: Boolean(event.target.value), mileageOverride: false }))} required={!inspection.mileageOverride} />
       </label>
       <button type="button" className={`return-mileage-override-button${inspection.mileageOverride ? ' active' : ''}`} aria-pressed={inspection.mileageOverride} onClick={() => setInspection((current) => ({ ...current, mileageOverride: !current.mileageOverride, mileageChecked: current.mileageOverride ? Boolean(current.endingMileage) : false }))}>
         <AlertTriangle size={16}/>{inspection.mileageOverride ? 'Use mileage input instead' : 'Admin override — skip mileage'}
@@ -11417,7 +11429,8 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       {inspection.mileageOverride && <div className="return-mileage-override-warning" role="alert"><AlertTriangle size={20}/><span><strong>Mileage is being skipped.</strong> Tracking maintenance will be difficult. Make sure to input the returning mileage as soon as possible.</span></div>}
     </section>
     {mileageError && <small className="form-error">{mileageError}</small>}
-    {rental.starting_mileage !== null && rental.starting_mileage !== undefined && <small className="return-mileage-summary">Pickup mileage: {formatMiles(rental.starting_mileage)} • Miles driven: {inspection.mileageOverride ? 'Not recorded' : formatMiles(milesDriven)}</small>}
+    {mileage.missingBaseline && <p role="status">The replacement vehicle’s pickup mileage was not recorded. Enter its verified return odometer and explain the missing reading below; total miles will remain unrecorded.</p>}
+    {mileage.baseline !== null && <small className="return-mileage-summary">This vehicle’s pickup mileage: {formatMiles(mileage.baseline)} • Miles driven: {inspection.mileageOverride ? 'Not recorded' : formatMiles(milesDriven)}</small>}
     <div className="return-required-checks">
       <strong>Required release checks</strong>
       <label className={inspection.mileageOverride ? 'override-check' : ''}><input type="checkbox" checked={inspection.mileageChecked} disabled={inspection.mileageOverride} onChange={(event) => update('mileageChecked', event.target.checked)} /> {inspection.mileageOverride ? 'Mileage skipped by admin override' : 'Mileage recorded and verified'}</label>
@@ -11461,10 +11474,10 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
           </select>
         </label>
       </>}
-      {(inspection.damageFound || inspection.depositDecision === 'hold') && <>
-        <label className="field-label return-damage-notes"><span>Damage / incident notes <strong>Required</strong></span>
+      {(inspection.damageFound || inspection.depositDecision === 'hold' || inspection.mileageOverride || mileage.missingBaseline) && <>
+        <label className="field-label return-damage-notes"><span>Inspection notes <strong>Required</strong></span>
           <textarea value={inspection.damageNote} maxLength="1000" onChange={(event) => update('damageNote', limitText(event.target.value, 1000))} placeholder="Clearly describe the damage, where it is located, when it was found, and any customer explanation..." />
-          <small>These notes are saved to the damage case and used during the deposit review.</small>
+          <small>These notes are saved with the return inspection and any damage or deposit review.</small>
         </label>
       </>}
       {(inspection.damageFound || inspection.depositDecision === 'hold' || inspection.files.length > 0) && <ReturnEvidencePicker files={inspection.files} disabled={saving} setFiles={(change) => setInspection((current) => ({ ...current, files: change(current.files) }))}/>}
