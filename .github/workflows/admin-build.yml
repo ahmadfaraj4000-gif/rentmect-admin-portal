@@ -40,36 +40,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify refund history integrity
-        run: node --test tests/vehicle-deposit-policy.test.mjs tests/admin-refresh-scope.test.mjs tests/rental-workspace.test.mjs tests/rental-archive.test.mjs tests/compact-rental-card.test.mjs tests/auth-refresh-recovery.test.mjs tests/refresh-consistency.test.mjs tests/external-refund-history.test.mjs tests/rental-refund-ledger.test.mjs tests/deposit-charge-settlement.test.mjs tests/deposit-deduction-choice.test.mjs tests/payment-summary-calculation.test.mjs
+      - name: Checkout tested backend contracts
+        uses: actions/checkout@v4
+        with:
+          repository: ahmadfaraj4000-gif/rentmect
+          ref: 08804e64cbca1d25fd410a1b7f86c4c72be9dca9
+          path: .ci-backend
+          persist-credentials: false
 
-      - name: Verify admin extension and edit actions
-        run: node --test tests/vehicle-availability.test.mjs tests/rental-swap-time.test.mjs tests/admin-direct-extension.test.mjs tests/rental-change-dates.test.mjs tests/rental-billing-time.test.mjs tests/rental-amendment-guardrails.test.mjs
+      - name: Connect backend contract fixtures
+        run: ln -s "$GITHUB_WORKSPACE/.ci-backend/supabase" "$GITHUB_WORKSPACE/../supabase"
 
-      - name: Verify task recovery and preserved drafts
-        run: node --test tests/task-recovery.test.mjs tests/task-draft-hooks.test.mjs tests/payment-task-recovery.test.mjs tests/admin-startup-timeout.test.mjs
-
-      - name: Verify account-specific revenue totals
-        run: node --test tests/payment-revenue.test.mjs tests/payment-revenue-cards.test.mjs tests/per-staff-financial-visibility.test.mjs
-
-      - name: Verify bounded performance collection
-        run: node --test tests/performance-telemetry.test.mjs tests/performance-view.test.mjs
-
-      - name: Verify ticket workflow
-        # Keep ticket date conversion, draft recovery, and upload retries covered in deployment.
-        run: node --test tests/ticket-resolution.test.mjs
-
-      - name: Verify grouped external toll payments
-        run: node --test tests/external-toll-payment.test.mjs
-
-      - name: Verify unified payment allocation and typed signatures
-        run: node --test tests/unified-external-payment.test.mjs tests/typed-signature.test.mjs
-
-      - name: Verify discount previews and removal
-        run: node --test tests/manual-discount-preview.test.mjs tests/manual-rental-discount.test.mjs
-
-      - name: Verify mileage returns and complete payment notes
-        run: node --test tests/rental-mileage.test.mjs tests/manual-charge-collection.test.mjs
+      - name: Run every admin regression test
+        run: node --test tests/*.test.mjs
 
       - name: Build production assets
         run: npm run build
