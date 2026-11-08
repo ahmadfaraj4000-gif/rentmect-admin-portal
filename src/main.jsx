@@ -1852,8 +1852,8 @@ function App() {
     if (!requireStaffPermission('rental.return', 'complete rental returns')) return false;
     if (!rental?.id) return;
 
+    const photoPaths = [];
     if (needsReturnEvidenceReport(inspection)) {
-      const photoPaths = [];
       for (const file of inspection.files || []) {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
         const path = `${rental.user_id || 'admin'}/return-damage/${rental.id}/${crypto.randomUUID()}-${safeName}`;
@@ -1864,46 +1864,6 @@ function App() {
         photoPaths.push(path);
       }
 
-      const reportPayload = {
-        rental_id: rental.id,
-        user_id: rental.user_id,
-        vehicle_id: rental.vehicle_id,
-        status: 'open',
-        description: inspection.damageNote || 'Damage found during admin return inspection.',
-        report_type: 'admin_return_damage',
-        issue_type: inspection.damageFound ? inspection.issueType || 'damage' : 'other',
-        photo_paths: photoPaths,
-        deposit_held_amount: Number(rental.security_deposit || 0),
-        admin_notes: inspection.damageNote || '',
-      };
-      const { data: report, error: reportError } = await supabase
-        .from('vehicle_reports')
-        .insert(reportPayload)
-        .select('*, profiles(*), rentals(*, vehicles(*))')
-        .single();
-      if (reportError) return notify(reportError.message);
-      if (report) setReports((current) => [report, ...current]);
-
-      const issueLabel = inspection.damageFound ? prettyStatus(inspection.issueType || 'damage').toLowerCase() : 'deposit';
-      const customerMessage = [
-        `RETURN REVIEW OPENED: Rent Me CT opened a ${issueLabel} review for your returned rental.`,
-        'Your security deposit is being held while the review is completed.',
-        inspection.damageNote ? `Admin note: ${inspection.damageNote}` : 'We will update you when the case is resolved.',
-      ].join(' ');
-
-      const { data: messageData, error: messageError } = await supabase
-        .from('rental_messages')
-        .insert({
-          rental_id: rental.id,
-          user_id: rental.user_id,
-          sender_role: 'admin',
-          message: customerMessage,
-          read_by_admin: true,
-        })
-        .select('*, profiles!rental_messages_user_id_profiles_fkey(*), rentals(*, vehicles(*))')
-        .single();
-      if (messageError) return notify(messageError.message);
-      if (messageData) setMessages((current) => [...current, messageData]);
     }
 
     const depositDecision = inspection.damageFound ? 'hold' : inspection.depositDecision || 'release';
@@ -1920,26 +1880,9 @@ function App() {
       p_notes: inspection.damageNote || null,
       p_vehicle_disposition: vehicleDisposition,
       p_mileage_override: Boolean(inspection.mileageOverride),
+      p_return_context: { photo_paths: photoPaths, issue_type: inspection.issueType || 'damage', customer_action: returnCustomerAction(inspection) },
     });
     if (inspectionError) return notify(inspectionError.message);
-
-    let customerFlagError = '';
-    if (returnCustomerAction(inspection) !== 'none') {
-      const customerStatus = inspection.customerAction === 'block' ? 'blocked' : 'review_required';
-      const { data: updatedProfile, error: profileError } = await supabase.rpc('admin_set_customer_status', {
-        p_user_id: rental.user_id,
-        p_customer_status: customerStatus,
-        p_block_reason: inspection.damageNote || `${prettyStatus(inspection.issueType || 'damage')} case opened from return inspection.`,
-      });
-      if (profileError) customerFlagError = `Return closed, but the customer flag could not be updated: ${profileError.message}`;
-      if (updatedProfile) {
-        setProfiles((current) => current.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile));
-        setRentals((current) => current.map((item) =>
-          item.user_id === updatedProfile.id ? { ...item, profiles: { ...(item.profiles || {}), ...updatedProfile } } : item
-        ));
-      }
-    }
-
 
     setRentals((current) => current.map((item) => item.id === rental.id ? {
       ...item,
@@ -1967,12 +1910,12 @@ function App() {
     ));
     refreshAfterSavedTask(['core', 'snapshot']);
     notify(
-      customerFlagError || (inspection.mileageOverride
+      inspection.mileageOverride
         ? 'Return closed with a mileage override. Enter the returning mileage as soon as possible so maintenance tracking remains accurate.'
         : vehicleDisposition === 'available'
           ? 'Return inspected and rental closed. The vehicle is available again.'
-          : 'Return inspected and rental closed. The vehicle is held out of service.'),
-      customerFlagError ? 'error' : 'success',
+          : 'Return inspected and rental closed. The vehicle is held out of service.',
+      'success',
     );
     return true;
   }
@@ -11356,7 +11299,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     issueType: 'damage',
     depositDecision: 'release',
     damageNote: '',
-    customerAction: 'review',
+    customerAction: 'none',
     vehicleDisposition: 'available',
     files: [],
     ...readReturnDraft(rental.id),
