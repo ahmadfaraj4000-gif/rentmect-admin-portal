@@ -1,3 +1,4 @@
+import { returnMileageContext } from '../src/lib/rentalMileage.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -45,7 +46,7 @@ const getComponent=async(name,next)=>{
  const code=source.slice(source.indexOf(`function ${name}(`),source.indexOf(`function ${next}(`));
  return (await transformWithOxc(`${code};${name};`,'availability.jsx',{jsx:{runtime:'classic'}})).code;
 };
-const helpers={React,swapTimeMessage:()=>'',swapAvailabilityLabel:()=>'Checking availability…',useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
+const helpers={React,returnMileageContext,MILEAGE_MAX:9999999,formatMiles:String,swapTimeMessage:()=>'',swapAvailabilityLabel:()=>'Checking availability…',useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
  useState:(initial)=>[typeof initial==='function'?initial():initial,()=>{}],crypto:{randomUUID:()=> 'fixture'},supabase:{},
  money:(v)=>String(v),Car:()=>null,CalendarClock:()=>null,X:()=>null,MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
  formatRentalDate:(d,t)=>`${d} ${t}`,formatEasternDateTime:(v)=>v,formatEasternDateTimeInput:()=> '2026-10-24T16:21',easternDateTimeInputToIso:()=> '2026-10-24T20:21:00Z',

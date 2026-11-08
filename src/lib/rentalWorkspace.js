@@ -46,23 +46,28 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
         if (cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) records.set(row.id, cached.data);
         else missing.push(row.id);
       }
-      // One bounded request per page, rather than one HTTP request per card.
-      for (let offset = 0; offset < missing.length && isCurrent(); offset += RENTAL_PAGE_SIZE) {
-        const ids = missing.slice(offset, offset + RENTAL_PAGE_SIZE);
-        const readGeneration = generation;
-        const batch = await readDetails(ids);
-        if (!isCurrent()) return [];
-        const byId = new Map((Array.isArray(batch) ? batch : []).map((item) => [item?.rental?.id, item]));
-        if (!Array.isArray(batch) || batch.length !== ids.length || byId.size !== ids.length || ids.some((id) => !byId.has(id))) {
-          throw new Error('Rental details were incomplete. Please retry.');
+      // Two bounded batches overlap network waits without flooding the database.
+      let nextBatch = 0;
+      await Promise.all(Array.from({ length: Math.min(2, Math.ceil(missing.length / RENTAL_PAGE_SIZE)) }, async () => {
+        while (nextBatch < missing.length && isCurrent()) {
+          const offset = nextBatch;
+          nextBatch += RENTAL_PAGE_SIZE;
+          const ids = missing.slice(offset, offset + RENTAL_PAGE_SIZE);
+          const readGeneration = generation;
+          const batch = await readDetails(ids);
+          if (!isCurrent()) return;
+          const byId = new Map((Array.isArray(batch) ? batch : []).map((item) => [item?.rental?.id, item]));
+          if (!Array.isArray(batch) || batch.length !== ids.length || byId.size !== ids.length || ids.some((id) => !byId.has(id))) {
+            throw new Error('Rental details were incomplete. Please retry.');
+          }
+          for (const id of ids) {
+            const record = byId.get(id);
+            records.set(id, record);
+            details.set(id, { data: record, at: now(), generation: readGeneration });
+            if (details.size > 150) details.delete(details.keys().next().value);
+          }
         }
-        for (const id of ids) {
-          const record = byId.get(id);
-          records.set(id, record);
-          details.set(id, { data: record, at: now(), generation: readGeneration });
-          if (details.size > 150) details.delete(details.keys().next().value);
-        }
-      }
+      }));
       return data.rows.map((row) => records.get(row.id));
     }
     const records = new Array(data.rows.length);

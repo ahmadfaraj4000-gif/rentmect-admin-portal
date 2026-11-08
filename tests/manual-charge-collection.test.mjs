@@ -47,6 +47,8 @@ test('left-side payment history uses the canonical ledger and scrolls after four
   assert.match(mainSource, /payments\.length > 4 \? 'is-scrollable'/);
   assert.match(styles, /\.rental-payment-history ol\.is-scrollable/);
   assert.match(styles, /max-height: 253px !important/);
-  assert.match(styles, /height: 58px !important/);
+  const rowRule = styles.match(/\.rental-payment-history ol\.is-scrollable > li\s*\{([^}]+)\}/)?.[1];
+  assert.match(rowRule, /height: auto !important/);
+  assert.match(rowRule, /overflow: visible !important/);
   assert.match(styles, /overflow-y: auto !important/);
 });

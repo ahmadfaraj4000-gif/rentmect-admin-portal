@@ -339,3 +339,19 @@ test('an old cached ledger cannot unlock a failed explicit detail refresh', asyn
   assert.equal(hydrated.at(-1).balance, 20);
   assert.equal(workspace.getState().detailError, '');
 });
+
+test('large-list detail reads overlap two batches and never hydrate a stale or incomplete view', async () => {
+  const gates = []; let active=0; let peak=0;
+  const rows = Array.from({length:76},(_,i)=>({id:`r${i}`}));
+  const {workspace,hydrated} = setup({inline:true,readList:async()=>({rows,total:76}),readDetails:async(ids)=>{
+    active++;peak=Math.max(peak,active);const gate=deferred();gates.push(gate);await gate.promise;active--;return ids.map(id=>({rental:{id}}));
+  }});
+  const pending=workspace.list(params());
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(gates.length,2);assert.equal(hydrated.length,0);
+  gates[0].resolve();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(gates.length,3);assert.equal(peak,2);
+  gates[1].resolve();gates[2].resolve();await new Promise(resolve=>setImmediate(resolve));
+  gates[3].resolve();await pending;
+  assert.equal(hydrated.length,76);assert.equal(peak,2);
+});

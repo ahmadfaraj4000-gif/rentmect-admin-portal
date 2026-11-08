@@ -9186,9 +9186,9 @@ input[type="radio"] {
 
 .rental-payment-history ol.is-scrollable > li {
   box-sizing: border-box !important;
-  height: 58px !important;
+  height: auto !important;
   min-height: 58px !important;
-  overflow: hidden !important;
+  overflow: visible !important;
 }
 
 .rental-payment-history ol.is-scrollable time,

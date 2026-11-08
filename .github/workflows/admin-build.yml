@@ -34,7 +34,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -67,6 +67,9 @@ jobs:
 
       - name: Verify discount previews and removal
         run: node --test tests/manual-discount-preview.test.mjs tests/manual-rental-discount.test.mjs
+
+      - name: Verify mileage returns and complete payment notes
+        run: node --test tests/rental-mileage.test.mjs tests/manual-charge-collection.test.mjs
 
       - name: Build production assets
         run: npm run build
