@@ -4295,7 +4295,7 @@ function Dashboard({ canViewFinancialSummary = false, snapshot, dashboard, vehic
     </section>}
     <Panel title="Due Soon / Overdue" eyebrow="Return Monitor">
       {returnRows.length === 0 && <p className="muted">No due-soon rentals right now.</p>}
-      {returnRows.slice(0, 6).map((r) => <ReturnMonitorRow key={r.id} rental={r} sendManualReminder={sendManualReminder} />)}
+      {returnRows.slice(0, 6).map((r) => <ReturnMonitorRow key={r.id} rental={r} sendManualReminder={sendManualReminder} onOpenRental={onOpenRental} />)}
     </Panel>
   </>;
 }
@@ -4327,6 +4327,7 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
         </div>
         <div className="row-actions">
           <em>{item.severity}</em>
+          {item.bucket === 'return_attention' && item.rental && onOpenRental && <button type="button" onClick={() => onOpenRental(item.rental.id)}><FileText size={16}/> View rental</button>}
           {item.rental && item.localPaymentAction && <small>Complete verification and document review in Rental Manager before recording payment.</small>}
           {item.rental && item.nextStatus && updateRentalStatus && <button className="approve" onClick={() => updateRentalStatus(item.rental.id, item.nextStatus)}><CheckCircle2 size={16}/> {prettyStatus(item.nextStatus)}</button>}
           {item.extensionInsurance && <button onClick={() => openDocument(item.extensionInsurance)}><FileText size={16}/> Open Insurance</button>}
@@ -7914,7 +7915,7 @@ function SettingsTab({
   </section>;
 }
 
-function ReturnMonitorRow({ rental, sendManualReminder }) {
+function ReturnMonitorRow({ rental, sendManualReminder, onOpenRental }) {
   const today = isToday(rental.return_date);
   const returnState = getLateReturnState(rental.return_date, rental.return_time, rental.status);
   const overdue = returnState.overdue;
@@ -7932,6 +7933,7 @@ function ReturnMonitorRow({ rental, sendManualReminder }) {
       {returnState.inGrace && <em className="due-pill">3-Hour Grace</em>}
       {overdue && <em className="overdue-pill">Hard Locked</em>}
       <em>{prettyStatus(rental.status)}</em>
+      {onOpenRental && <button type="button" onClick={() => onOpenRental(rental.id)}><FileText size={16}/> View rental</button>}
       <ReminderMenu rental={rental} sendManualReminder={sendManualReminder} />
     </div>
   </div>;
