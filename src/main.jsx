@@ -8347,7 +8347,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         <section className="rental-card-section rental-card-details" aria-labelledby={`rental-details-${rental.id}`}>
           <div className="rental-card-section-heading"><div><small>Operations</small><h4 id={`rental-details-${rental.id}`}>Rental Details</h4></div></div>
           <dl>
-            <dt>Pickup</dt><dd>{rental.starting_mileage != null ? `Recorded · ${formatMiles(rental.starting_mileage)}` : 'Not recorded'}</dd>
+            <dt>Pickup</dt><dd>{returnMileageContext(rental).baseline != null ? `Recorded · ${formatMiles(returnMileageContext(rental).baseline)}` : 'Not recorded for this vehicle'}</dd>
             <dt>Return</dt><dd>{rental.ending_mileage != null ? `Recorded · ${formatMiles(rental.ending_mileage)}` : 'Not recorded'}</dd>
             <dt>Miles driven</dt><dd>{rental.miles_driven != null || (rental.starting_mileage != null && rental.ending_mileage != null) ? formatMiles(rental.mileage_history_complete === false ? null : (rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage))) : 'Not recorded'}</dd>
             <dt>Intended use</dt><dd>{rental.profiles?.intended_vehicle_use || 'Not provided'}</dd>
@@ -10191,7 +10191,7 @@ function MileageSummary({ rental }) {
   const milesDriven = rental.mileage_history_complete === false ? null : (rental.miles_driven ?? calculateMilesDriven(rental.starting_mileage, rental.ending_mileage));
 
   return <div className="mileage-summary" aria-label="Mileage summary">
-    <span><strong>Pickup</strong> {formatMiles(rental.starting_mileage)}</span>
+    <span><strong>Pickup</strong> {formatMiles(returnMileageContext(rental).baseline)}</span>
     <span><strong>Return</strong> {formatMiles(rental.ending_mileage)}</span>
     <span><strong>Driven</strong> {formatMiles(milesDriven)}</span>
   </div>;
