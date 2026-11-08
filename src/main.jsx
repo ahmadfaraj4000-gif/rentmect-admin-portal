@@ -9031,6 +9031,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
 
 function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview, onApply, onCancel }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
+  const reviewRef = useRef(null);
   const tripStartLocked = tripStartIsLocked(rental);
   const rentalDays = Math.max(1, Math.round(
     (new Date(`${rental.return_date}T12:00:00`).getTime() - new Date(`${rental.pickup_date}T12:00:00`).getTime())
@@ -9061,6 +9062,9 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
   const depositRequest = useRef(0);
   const [closedCorrectionConfirmed, setClosedCorrectionConfirmed] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  useEffect(() => {
+    if (preview) reviewRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [preview]);
   const paymentCaptured = Boolean(rental.paid_at)
     || ['paid', 'partially_paid', 'partial'].includes(String(rental.payment_status || '').toLowerCase());
   const completed = String(rental.status || '').toLowerCase() === 'completed';
@@ -9210,17 +9214,20 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
           <div className="rental-amendment-grid">
             <label><span>Daily rental rate</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(event) => update('dailyRate', event.target.value)} required /></div></label>
             <label><span>Security deposit</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} placeholder="Use vehicle deposit" disabled={checkingDeposit || saving || reviewing} /></div><small>{form.securityDeposit === '' ? `Using the new vehicle’s calculated deposit${calculatedDeposit === null ? '' : `: ${money(calculatedDeposit)}`}.` : 'Deposit amount applies only to this rental.'}{paymentCaptured ? ' Money already held remains recorded; a price decrease does not itself issue a refund.' : ''}</small></label>
-            <label className="wide"><span>Admin notes</span><textarea maxLength="2000" value={form.adminNotes} onChange={(event) => update('adminNotes', event.target.value)} placeholder="Operational notes visible to staff."/></label>
           </div>
         </section>
 
         <section className="rental-amendment-section">
           <div className="rental-amendment-section-heading"><span>3</span><div><strong>Reason and review</strong><small>The reason and exact before/after values become permanent audit history.</small></div></div>
-          <label className="rental-amendment-reason"><span>Reason for change</span><textarea minLength={completed ? 20 : 10} maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Example: Customer moved pickup to Monday and needs the Audi Q5 instead." required /></label>
+          <label className="rental-amendment-reason"><span>Reason for change (required)</span><textarea minLength={completed ? 20 : 10} maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} onInvalid={() => setError(`Enter a reason for change of at least ${completed ? 20 : 10} characters. Admin notes do not replace the required reason.`)} placeholder="Example: Customer requested a later return and a $250 deposit." required /></label>
+          <details className="rental-amendment-notes" open={form.adminNotes ? true : undefined}>
+            <summary>Admin notes (optional)</summary>
+            <label className="rental-amendment-reason"><span>Admin notes</span><textarea maxLength="2000" value={form.adminNotes} onChange={(event) => update('adminNotes', event.target.value)} placeholder="Additional operational notes visible to staff."/></label>
+          </details>
           {completed && <label className="closed-rental-confirmation"><input type="checkbox" checked={closedCorrectionConfirmed} onChange={(event) => setClosedCorrectionConfirmed(event.target.checked)}/><span><strong>Correct this completed rental</strong><small>I understand the settled payment and original audit history will remain intact.</small></span></label>}
         </section>
 
-        {preview && <section className="rental-amendment-preview" aria-live="polite">
+        {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite">
           <div className="rental-amendment-preview-heading"><CheckCircle2 size={20}/><div><strong>Safe to apply</strong><span>The schedule and financial preview passed all database guardrails.</span></div></div>
           <div className="rental-amendment-comparison">
             <article><small>Current</small><strong>{preview.old?.vehicle_name}</strong><span>{formatRentalDate(preview.old?.pickup_date, preview.old?.pickup_time)} → {formatRentalDate(preview.old?.return_date, preview.old?.return_time)}</span><em>{money(preview.old?.total)} total</em></article>
@@ -9243,10 +9250,10 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
           {preview.new?.vehicle_published === false && <div className="rental-amendment-warning"><AlertTriangle size={17}/><span>The replacement vehicle is unpublished. Admin assignment is allowed, but customers cannot select it for new bookings.</span></div>}
         </section>}
 
-        {error && <p className="form-error rental-amendment-error" role="alert">{error}</p>}
       </div>
 
-      <footer className="rental-amendment-actions">
+      <footer className="rental-amendment-actions rental-edit-actions">
+        <p className={error ? 'form-error rental-amendment-error' : 'rental-amendment-save-hint'} role={error ? 'alert' : undefined}>{error || (preview ? 'Review the updated amounts, then apply to save.' : 'Enter a reason, review your changes, then apply to save.')}</p>
         <button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Cancel</button>
         {!preview
           ? <button type="submit" className="primary-btn" disabled={reviewing || saving || checkingDeposit || Boolean(depositChoice)}>{checkingDeposit ? 'Checking deposit…' : reviewing ? 'Checking availability…' : 'Review Changes'}</button>
