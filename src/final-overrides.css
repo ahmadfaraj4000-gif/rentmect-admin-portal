@@ -10097,3 +10097,17 @@ input[type="radio"] {
 .deposit-review-dialog .modal-actions { flex-wrap: wrap; }
 .deposit-review-note { padding: 12px; background: #fff8eb; border-radius: 8px; }
 .rental-card-financial > .stripe-attempt-block { margin-block: 16px !important; }
+
+.deposit-review-balance-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #e6b84c;
+  border-radius: 10px;
+  background: #fff7d6;
+  color: #654b0e;
+  line-height: 1.5;
+}
+.deposit-review-balance-banner span { overflow-wrap: anywhere; }
