@@ -1,6 +1,7 @@
 import { freshDomainLoad } from './freshDomainLoad.js';
 
 export const RENTAL_PAGE_SIZE = 25;
+export const ARCHIVE_PAGE_SIZE = 5;
 export const RENTAL_CACHE_MS = 30_000;
 export const rentalPageKey = ({ filter, search = '', focusId = '', offset = 0 }) =>
   JSON.stringify([filter, search.trim(), focusId, offset]);

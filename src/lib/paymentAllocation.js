@@ -12,10 +12,14 @@ export const chargePaid = charge => charge.allocated_payment_cents != null && Nu
 
 // Explicit allocations never change when staff changes the received amount.
 // Checkbox defaults are a convenience; both client and server validate cents.
-export function buildPaymentAllocation({ charges = [], rentalDueCents, availableCreditCents = 0, form }) {
+export function buildPaymentAllocation({ charges = [], rentalDueCents, depositDueCents, availableCreditCents = 0, form }) {
   const amountCents = paymentCents(form.amount);
   const rentalAmountCents = paymentCents(form.rentalAmount || '0');
+  const explicitDeposit = Number.isSafeInteger(depositDueCents);
+  const depositAmountCents = explicitDeposit ? paymentCents(form.depositAmount || '0') : 0;
+  if (explicitDeposit && (depositDueCents < 0 || depositAmountCents > depositDueCents)) throw new Error('Deposit allocation exceeds the deposit still needed.');
   const funding = form.funding || 'external';
+  if (funding === 'credit' && depositAmountCents > 0) throw new Error('Collect deposits using Stripe or an external payment.');
   if (!['external', 'credit', 'stripe', 'stripe_link', 'saved_card'].includes(funding)) throw new Error('Choose a collection method.');
   if (!amountCents) throw new Error('Enter an amount greater than zero.');
   if (!Number.isSafeInteger(rentalDueCents) || rentalAmountCents > rentalDueCents) throw new Error('Rental allocation exceeds the remaining rental balance.');
@@ -32,7 +36,7 @@ export function buildPaymentAllocation({ charges = [], rentalDueCents, available
     return { id, amountCents: amount, expectedRemainingCents: remaining };
   }).sort((a, b) => a.id.localeCompare(b.id));
   if (allocations.length > 500) throw new Error('Select up to 500 charges.');
-  const allocatedCents = rentalAmountCents + allocations.reduce((sum, item) => sum + item.amountCents, 0);
+  const allocatedCents = rentalAmountCents + depositAmountCents + allocations.reduce((sum, item) => sum + item.amountCents, 0);
   if (allocatedCents > amountCents) throw new Error('Allocations exceed the payment amount. Increase the amount or reduce the allocations.');
   const creditAmountCents = amountCents - allocatedCents;
   if (funding === 'credit' && (amountCents > availableCreditCents || creditAmountCents !== 0)) {
@@ -40,7 +44,7 @@ export function buildPaymentAllocation({ charges = [], rentalDueCents, available
   }
   if (!form.confirmed) throw new Error('Review and confirm the payment.');
   if (funding === 'external' && !form.receivedDate) throw new Error('Choose the received date.');
-  return { kind: 'rental_payment', version: 2, funding, charges: allocations, amountCents, rentalAmountCents,
+  return { kind: 'rental_payment', version: 2, ...(explicitDeposit ? { depositAmountCents, expectedDepositDueCents: depositDueCents } : {}), funding, charges: allocations, amountCents, rentalAmountCents,
     creditAmountCents, expectedRentalDueCents: rentalDueCents, paymentMethod: form.paymentMethod || 'other',
     receivedDate: form.receivedDate, receivedTime: form.receivedTime || '', reference: (form.reference || '').trim(), notes: (form.notes || '').trim() };
 }
@@ -53,8 +57,9 @@ export function receiptHistory(receipts = [], allocations = []) {
     provider: r.funding_kind === 'credit' ? 'credit' : r.funding_kind === 'stripe' ? 'stripe' : 'external',
     label: r.funding_kind === 'credit' ? 'Customer credit applied · no new money received' : 'Payment received',
     method: r.payment_method, reference: r.reference, notes: r.notes, creditAmount: r.credit_amount_cents / 100,
-    status: r.status, refundBlockReason: r.refund_block_reason || '', allocations: allocations.filter(a => a.receipt_id === r.id).map(a => ({ id: a.charge_id,
-      label: a.snapshot?.name || 'Rental', amount: a.amount_cents / 100 })),
+    status: r.status, refundBlockReason: r.refund_block_reason || '', allocations: allocations.filter(a => a.receipt_id === r.id).flatMap(a => a.snapshot?.charge_type === 'rental_amendment' && r.deposit_amount_cents > 0
+      ? [{ id: a.charge_id, label: 'Rental', amount: (a.amount_cents - r.deposit_amount_cents) / 100 }, { id: `${a.charge_id}-deposit`, label: 'Security deposit', amount: r.deposit_amount_cents / 100 }].filter(a => a.amount > 0)
+      : [{ id: a.charge_id, label: a.snapshot?.name || 'Rental', amount: a.amount_cents / 100 }]),
     };
     return r.status === 'refunded' ? [payment, { ...payment, id: `flex-refund-${r.id}`, correctableReceiptId: null,
       amount: payment.amount, creditAmount: 0, kind: 'refund', status: 'succeeded', moneyReturned: r.funding_kind !== 'credit', date: r.refunded_at, receivedDate: null, receivedTime: null,

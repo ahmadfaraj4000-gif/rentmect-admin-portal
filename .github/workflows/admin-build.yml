@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ahmadfaraj4000-gif/rentmect
-          ref: 5118b7d1cd8fe1c070c63d3c21c11df0fd51f0f8
+          ref: c54958e951dea5151aefada0423bd6e2cc09a62a
           path: .ci-backend
           persist-credentials: false
 
@@ -67,6 +67,8 @@ jobs:
           node tools/check-contact-stripe-browser.mjs
           node tools/check-allocated-stripe-card-browser.mjs
           node tools/check-ticket-flags-browser.mjs
+          node tools/check-deposit-payment-browser.mjs
+          node tools/check-deposit-review-browser.mjs
 
       - name: Build production assets
         run: npm run build

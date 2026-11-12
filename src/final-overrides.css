@@ -10030,3 +10030,67 @@ input[type="radio"] {
   min-height: 0 !important;
   overflow: hidden !important;
 }
+
+/* Size the charge editor to its panel, including the narrow ledger workspace. */
+.rental-charge-manager .rental-charge-heading {
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+}
+.rental-charge-manager .rental-charge-heading > div { flex: 1 1 180px; }
+.rental-charge-manager .rental-charge-heading > button { flex: 0 0 auto; white-space: nowrap; }
+.rental-charge-manager .rental-charge-form.portal-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: start !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+.rental-charge-manager .rental-charge-form > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+.rental-charge-manager .rental-charge-form .manual-charge-heading,
+.rental-charge-manager .rental-charge-form .full-field,
+.rental-charge-manager .rental-charge-form .charge-name-field,
+.rental-charge-manager .rental-charge-form .charge-description-field,
+.rental-charge-manager .rental-charge-form .checkbox-row,
+.rental-charge-manager .rental-charge-form .manual-charge-actions { grid-column: 1 / -1 !important; }
+.rental-charge-manager .rental-charge-form label:not(.checkbox-row) { display: grid !important; gap: 7px !important; }
+.rental-charge-manager .rental-charge-form input,
+.rental-charge-manager .rental-charge-form select { box-sizing: border-box !important; max-width: 100% !important; }
+.rental-charge-manager .rental-charge-form .manual-charge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--admin-line);
+}
+.rental-charge-form .manual-charge-actions > button {
+  width: auto !important;
+  min-height: 42px;
+  padding: 10px 14px !important;
+  border: 1px solid var(--admin-line);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.rental-charge-form .manual-charge-actions > button:not(.approve) { background: #fff; color: #263d30; }
+.rental-charge-form .manual-charge-actions > button:disabled { opacity: .55; cursor: default; }
+@media (max-width: 540px) {
+  .rental-charge-manager .rental-charge-form.portal-form { grid-template-columns: minmax(0, 1fr) !important; }
+  .rental-charge-form .manual-charge-actions > button { flex: 1 1 auto; }
+}
+
+.deposit-review-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
+.deposit-review-fields > label:not(.deposit-review-charge) { display: grid; gap: 8px; }
+.deposit-review-charge { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid #d3dfd6; }
+.deposit-review-charge input { width: 18px; height: 18px; }
+.deposit-review-fields textarea, .deposit-review-fields input[type=datetime-local] { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #cbd8d0; border-radius: 8px; font: inherit; }
+.deposit-review-fields textarea { min-height: 80px; }
+.deposit-review-dialog .modal-actions { flex-wrap: wrap; }
+.deposit-review-note { padding: 12px; background: #fff8eb; border-radius: 8px; }
+.rental-card-financial > .stripe-attempt-block { margin-block: 16px !important; }

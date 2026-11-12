@@ -22,7 +22,8 @@ import { rentalDayShortcut } from './lib/rentalChangeDates.js';
 import { depositDeductionOptions } from './lib/depositDeduction.js';
 import { ReturnEvidencePicker, SavedReturnEvidence } from './ReturnEvidence.jsx';
 import { needsReturnEvidenceReport } from './lib/returnEvidence.js';
-import { depositSettlementPreview } from './lib/depositSettlement.js';
+import { DepositReview } from './DepositReview.jsx';
+import { depositSettlementPreview, needsDepositReview } from './lib/depositSettlement.js';
 import { tripStartIsLocked, replacementRentalForm } from './lib/rentalTripStart.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
 import { adminRefreshDomains } from './lib/adminRefreshDomains.js';
@@ -1936,7 +1937,12 @@ function App() {
   async function releaseSecurityDeposit(rental, settlement = null) {
     if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
     if (!rental?.id) return false;
-    if (settlement && !requireStaffPermission('charge.manage', 'apply deposits to charges')) return false;
+    if (settlement?.hold) {
+      const { error } = await supabase.rpc('admin_hold_deposit_review', { p_rental_id: rental.id, p_note: settlement.reason, p_follow_up_at: easternDateTimeInputToIso(settlement.followUp) });
+      if (error) { notify(error.message, 'error'); return false; }
+      refreshAfterSavedTask(); notify('Deposit held for review.', 'success'); return true;
+    }
+    if (settlement && (!settlement.review || settlement.chargeIds?.length > 0) && !requireStaffPermission('charge.manage', 'apply deposits to charges')) return false;
     const amount = Number(settlement?.expectedRefund ?? rental.deposit_held_amount ?? rental.security_deposit ?? 0);
     const confirmed = settlement || window.confirm(`Refund ${money(amount)} of the captured Stripe payment to this customer now?`);
     if (!confirmed) return;
@@ -1944,7 +1950,7 @@ function App() {
     const { data, error } = await withPaymentProcessing('Reconciling Stripe and returning the security deposit…', () => supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'release_deposit',
-        ...(settlement ? { action: 'settle_deposit_charges' } : {}),
+        ...(settlement ? { action: settlement.review ? 'review_deposit' : 'settle_deposit_charges' } : {}),
         rentalId: rental.id,
         ...(settlement || {}),
         reason: settlement?.reason || 'Released manually from the admin portal.',
@@ -1970,6 +1976,11 @@ function App() {
       return false;
     }
 
+    if (settlement?.review) {
+      refreshAfterSavedTask();
+      notify(data.refundError ? `Deductions saved. Refund needs attention: ${data.refundError}` : 'Deposit review saved.', data.refundError ? 'error' : 'success');
+      return data;
+    }
     const nextStatus = data?.status === 'succeeded' || data?.status === 'released' ? 'released' : 'release_pending';
     setRentals((current) => current.map((item) => item.id === rental.id ? {
       ...item,
@@ -4398,7 +4409,7 @@ function DepositActionPanel({ tasks = [], rentals = [], depositAllocations = [],
   const visibleTasks = compact ? tasks.slice(0, 5) : tasks;
   return <>
     <Panel title="Deposit Action Required" eyebrow="Completed Returns">
-      <p className="muted">Completed rentals stay here until the held deposit is refunded, externally returned, or escalated. Open blockers must be cleared first.</p>
+      <p className="muted">Completed rentals stay in Deposit Review until the deposit is fully resolved. Holds and escalations remain visible. Open blockers must be cleared first.</p>
       <div className="table-list deposit-action-list">
         {visibleTasks.map((task) => {
           const rental = rentals.find((item) => item.id === task.rental_id) || task.rentals;
@@ -4415,7 +4426,7 @@ function DepositActionPanel({ tasks = [], rentals = [], depositAllocations = [],
             </div>
             <div className="row-actions">
               <em>{prettyStatus(task.status)}</em>
-              {!blockers.length && hasStripe && onStripeRefund && <button type="button" className="approve" onClick={() => onStripeRefund(rental)}><DollarSign size={15}/> Quick Refund Deposit</button>}
+              {!blockers.length && hasStripe && onStripeRefund && <button type="button" className="approve" onClick={() => onOpenRental?.(rental.id)}><DollarSign size={15}/> Review Deposit</button>}
               {!blockers.length && hasLocal && onExternalRefund && <button type="button" className="approve" onClick={() => setExternalRental(rental)}><Banknote size={15}/> Mark Returned Externally</button>}
               <button type="button" onClick={() => onOpenRental?.(rental.id)}>Open rental</button>
               {task.status !== 'escalated' && onEscalate && <button type="button" onClick={() => setEscalationRental(rental)}>Escalate</button>}
@@ -5507,7 +5518,7 @@ function Rentals({ manager, rentals, allRentals = [], focusRentalId, clearRental
       {manager.detailError && <p role="alert" className="form-error">{manager.detailError} <button type="button" onClick={manager.retryDetail}>Retry rental</button></p>}
       {!manager.loading && !manager.error && displayedRentals.length === 0 && <p className="muted">No rentals match this view.</p>}
       <div className="table-list">{displayedRentals.map((r) => <RentalRow key={r.id} onInteract={() => manager.open(r.id)} refreshing={manager.selectedId === r.id && (manager.detailLoading || Boolean(manager.detailError))} rental={r} showNeedsActionSummary={rentalFilter === 'needs_action'} rentalPayments={rentalPayments.filter((payment) => payment.rental_id === r.id)} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={updateRentalPaymentDeadline} restoreCancelledRental={restoreCancelledRental} completeRentalReturn={completeRentalReturn} releaseSecurityDeposit={releaseSecurityDeposit} refundRentalPayment={refundRentalPayment} adjustExternalRentalPayment={adjustExternalRentalPayment} externalPaymentActions={externalPaymentActions.filter((item) => item.rental_id === r.id)} rentalRefunds={rentalRefunds.filter((item) => item.rental_id === r.id)} recordLocalDepositRelease={recordLocalDepositRelease} depositAllocations={depositAllocations.filter((item) => item.holder_rental_id === r.id)} recordTestPayment={recordTestPayment} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions.filter((item) => item.rental_id === r.id)} emergencyAuthorized={emergencyAuthorized} activateRentalWithEmergencyException={activateRentalWithEmergencyException} addEmergencyExceptionScope={addEmergencyExceptionScope} resolveEmergencyExceptionScope={resolveEmergencyExceptionScope} vehicles={vehicles} reports={reports} decideExtension={decideExtension} sendManualReminder={sendManualReminder} detailed rentalDocuments={documentsByRentalId[r.id] || []} allDocuments={documents} openDocument={openDocument} markDocument={markDocument} deleteDocument={deleteDocument} rentalCharges={rentalCharges.filter((charge) => charge.rental_id === r.id)} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} previewRentalAmendment={previewRentalAmendment} applyRentalAmendment={applyRentalAmendment} previewManualRentalDiscount={previewManualRentalDiscount} applyManualRentalDiscount={applyManualRentalDiscount} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={sendBookingCompletionLink} uploadAdminBookingDocument={uploadAdminBookingDocument} createAdminPaymentLink={createAdminPaymentLink} createManualStripePaymentLink={createManualStripePaymentLink} stepCompletions={rentalStepCompletions.filter((item) => item.rental_id === r.id)} completeAdminRentalStep={completeAdminRentalStep} signAdminRentalAgreement={signAdminRentalAgreement} />)}</div>
-      {rentalFilter === 'archive' && displayedRentals.length < manager.total && <button type="button" className="secondary-btn rental-archive-load-more" disabled={manager.loading} onClick={() => { performanceTelemetry.intent('rental_archive', 'load_more'); manager.setOffset(manager.offset + 25); }}>Load 25 more archived rentals</button>}
+      {rentalFilter === 'archive' && displayedRentals.length < manager.total && <button type="button" className="secondary-btn rental-archive-load-more" disabled={manager.loading} onClick={() => { performanceTelemetry.intent('rental_archive', 'load_more'); manager.setOffset(manager.offset + 5); }}>Load 5 more archived rentals</button>}
     </Panel>
   </>;
 }
@@ -8034,7 +8045,9 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   const [paymentBrowserOpen, setPaymentBrowserOpen] = useState(false);
   const [flexibleState, setFlexibleState] = useState(null);
   const [flexibleReadError, setFlexibleReadError] = useState('');
-  function openReceivePayment(ids = [], tab = 'external') { setReceivePaymentTab(tab); setReceiveChargeIds(ids); setReceivePaymentOpen(true); }
+  const pendingPayment = flexibleState?.receipts?.find(receipt => receipt.status === 'pending');
+  const hasPendingPayment = Boolean(pendingPayment || (!flexibleState && rental.pending_external_payment_id));
+  function openReceivePayment(ids = [], tab = pendingPayment?.funding_kind === 'stripe' ? 'stripe' : 'external') { setReceivePaymentTab(tab); setReceiveChargeIds(ids); setReceivePaymentOpen(true); }
   function openPaymentStep() {
     setDetailsExpanded(true);
     window.requestAnimationFrame(() => document.getElementById(`take-payment-${rental.id}`)?.focus());
@@ -8057,6 +8070,8 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   }, [rental.id, rental.merchant_id, rental.updated_at]);
   const isMerchantRental = Boolean(rental.merchant_id || rental.booking_source === 'merchant');
   const checklistRental = { ...rental, merchant_identity_verified: merchantVerification?.rental_id === rental.id && merchantVerification?.verified === true };
+  const [depositReviewOpen, setDepositReviewOpen] = useState(false);
+  const depositReviewRequired = needsDepositReview(rental);
   const [depositSettlementOpen, setDepositSettlementOpen] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [activityEvents, setActivityEvents] = useState([]);
@@ -8261,6 +8276,8 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
   const depositHeldAmount = depositAllocations.length
     ? depositAllocations.reduce((sum, a) => sum + Math.max(0, Number(a.amount_held || 0) - Number(a.amount_applied || 0) - Number(a.amount_released || 0)), 0)
     : Number(rental.deposit_held_amount ?? fallbackProtectedDeposit);
+  const depositBalanceDue = Math.min(invoiceBalanceDue, Number(flexibleState?.dueParts?.depositDueCents || 0) / 100);
+  const rentalOnlyBalanceDue = Math.max(0, invoiceBalanceDue - depositBalanceDue);
   const paymentAction = rental.status === 'cancelled' ? null : getRentalPaymentAction({
     customerName,
     balanceDue,
@@ -8390,6 +8407,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     </div>
 
     {(rental.customer_auth_deleted_at || returnState.inGrace || returnState.hardLocked) && <div className="rental-card-alerts">
+      {depositReviewRequired && <small className="deposit-review-note">{rental.deposit_status === 'release_pending' ? 'Refund processing' : rental.deposit_release_error ? 'Refund needs attention' : rental.deposit_review_follow_up_at ? 'On hold' : 'Needs deposit review'} · Returned {rental.inspection_completed_at ? formatEasternDateTime(rental.inspection_completed_at) : '—'}{rental.deposit_review_follow_up_at ? ` · Follow up ${formatEasternDateTime(rental.deposit_review_follow_up_at)}` : ''}</small>}
       {rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
       {returnState.inGrace && <small className="late-return-warning"><Clock size={14}/> Three-hour grace is active until {returnState.graceEnds.toLocaleString()}.</small>}
       {returnState.hardLocked && <small className="late-return-critical"><AlertTriangle size={14}/> PHYSICAL RETURN LOCK — complete the return inspection before another booking.</small>}
@@ -8405,7 +8423,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && chargeRemaining(c)>=0.5).map(c=>({id:c.id,label:c.name,amount:chargeRemaining(c),charge:c})) : []),
       ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
       onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,paymentReceiptId:target.paymentReceiptId,paymentAmount:target.amount,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
- client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} initialChargeIds={receiveChargeIds} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={async (...args) => { const result = await recordExternalTollPayment(...args); await refreshFlexibleState(); return result; }} onClose={() => setReceivePaymentOpen(false)}/>
+ client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} initialChargeIds={receiveChargeIds} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={async (...args) => { const result = await recordExternalTollPayment(...args); await refreshFlexibleState(); return result; }} onClose={() => { setReceivePaymentOpen(false); void refreshFlexibleState(); }}/>
        : <ReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
       onStripeOpen={async target => {if(target.id==='rental')return createAdminPaymentLink(rental,'open',target.amount);const win=window.open('about:blank','_blank');if(!win)throw Error('Allow pop-ups to open Stripe checkout.');win.opener=null;try{const url=await createManualStripePaymentLink({rental,charge:target.charge});win.location.replace(url);}catch(e){win.close();throw e;}}}
       onStripeSavedCard={chargeRentalSavedCard ? target=>target.id==='rental' ? createAdminPaymentLink(rental,'saved',target.amount) : chargeRentalSavedCard({...target.charge,total_amount:target.amount}) : null}
@@ -8414,7 +8432,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && chargeRemaining(c)>=0.5).map(c=>({id:c.id,label:c.name,amount:chargeRemaining(c),charge:c})) : []),
       ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
       onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,paymentReceiptId:target.paymentReceiptId,paymentAmount:target.amount,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
-      client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>)}
+      client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => { setReceivePaymentOpen(false); void refreshFlexibleState(); }}/>)}
     {paymentBrowserOpen && <RentalReceiptDialog title="Payment history and details" onClose={() => setPaymentBrowserOpen(false)}>
       <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)}/>
       {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <div className="payment-history-actions"><button type="button" onClick={() => { setPaymentBrowserOpen(false); setPaymentDetailsOpen(true); }}>Correct legacy rental payment method / refund</button></div>}
@@ -8433,7 +8451,10 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     {detailsExpanded && <div className="rental-card-expanded-content" id={`rental-expanded-details-${rental.id}`}>
 
     <div className="rental-card-payment-toolbar">
-      {(flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" id={`take-payment-${rental.id}`} className="approve" onClick={() => openReceivePayment()}>Take Payment</button>}
+      {depositReviewRequired && releaseSecurityDeposit && <button type="button" className="approve" onClick={() => setDepositReviewOpen(true)}><DollarSign size={15}/> Refund Deposit</button>}
+      {depositReviewRequired && balanceDue > 0 && recordExternalTollPayment && <button type="button" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Collect remaining balance'}</button>}
+
+      {!depositReviewRequired && (flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" id={`take-payment-${rental.id}`} className="approve" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
       {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
       <button type="button" onClick={() => { setDetailsExpanded(true); setPaymentBrowserOpen(true); }}><Pencil size={15}/> Edit Payment Details</button>
     </div>
@@ -8489,7 +8510,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
 
       <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
         <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Refunded' : 'Deposit refund outstanding') : balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
-        <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(invoiceBalanceDue)}</dd><dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd></dl>
+        <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(rentalOnlyBalanceDue)}</dd>{depositBalanceDue > 0 && <><dt>Security deposit still needed</dt><dd>{money(depositBalanceDue)}</dd></>}<dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd></dl>
         <section className="rental-accounting-breakdown" aria-label="Full accounting breakdown"><h4>Full accounting breakdown</h4><dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
@@ -8505,11 +8526,25 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
           {customerCreditDue > 0 && <><dt className="credit-line">{cancelledBeforePickup ? 'Security deposit refund outstanding' : 'Booking credit reserved for refund'}</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
         </dl></section>
-        <div className="refund-status-item rental-deposit-summary"><ShieldCheck size={17}/><span><strong>Security deposit: {money(depositHeldAmount)} held</strong><small>{money(depositAllocations.reduce((sum, a) => sum + Number(a.amount_applied || 0), 0))} applied to charges · {money(depositAllocations.reduce((sum, a) => sum + Number(a.amount_released || 0), 0))} returned</small><small>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Returned to the original payment method.' : rental.deposit_status === 'release_pending' ? 'Stripe refund is processing.' : 'Booking cancelled. Refund this deposit to finish the financial closeout.') : `Required deposit of ${money(rental.security_deposit)} is included in the total above.`}</small></span></div>
+        <div className="refund-status-item rental-deposit-summary"><ShieldCheck size={17}/><span>
+          <strong>{rental.deposit_status === 'released' ? `Security deposit: ${money(rental.deposit_released_amount)} returned` : rental.deposit_status === 'release_pending' ? 'Security deposit: refund processing' : `Security deposit: ${money(depositHeldAmount)} held`}</strong>
+          {rental.deposit_status === 'released' && rental.deposit_released_at && <small>{formatEasternDateTime(rental.deposit_released_at)}</small>}
+          {depositAllocations.some(a => Number(a.amount_applied) > 0 || Number(a.amount_released) > 0) && <small>{money(depositAllocations.reduce((sum, a) => sum + Number(a.amount_applied || 0), 0))} applied · {money(depositAllocations.reduce((sum, a) => sum + Number(a.amount_released || 0), 0))} returned</small>}
+          {Number(rental.security_deposit) !== Number(rental.base_security_deposit ?? rental.security_deposit) && <small>Rental deposit {money(rental.security_deposit)} · vehicle standard {money(rental.base_security_deposit)}</small>}
+          {cancelledBeforePickup && !['released', 'release_pending'].includes(rental.deposit_status) && <small>Booking cancelled. Return the deposit to finish closeout.</small>}
+        </span></div>
         {Number(rental.manual_discount_amount || 0) > 0 && <small className="manual-discount-note"><Tag size={13}/> Reservation-only adjustment • {money(Number(rental.manual_discount_amount || 0) + Number(rental.manual_discount_tax_savings || 0))} total savings</small>}
-        {rentalBalanceDue > 0 && <div className="rental-balance-callout"><CreditCard size={17}/><span><strong>{money(rentalBalanceDue)} remaining rental balance</strong><small>The original payment is credited. Stripe or an external payment collects only this remainder; no second deposit is added.</small></span></div>}
+        {balanceDue > 0.005 && <div className="rental-balance-callout"><CreditCard size={17}/><span>
+          <strong>{money(balanceDue)} total outstanding</strong>
+          <small>{money(rentalOnlyBalanceDue)} rental{depositBalanceDue > 0 ? ` · ${money(depositBalanceDue)} deposit` : ''} · {money(outstandingAdditionalCharges)} additional charges</small>
+          {!cancellationDepositFlow && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <small>Settle this balance before returning the deposit.{depositSettlement ? ' You can apply charges to the deposit and refund the remainder.' : ''}</small>}
+        </span></div>}
         {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
         <RentalRefundStatus rental={rental} refunds={rentalRefunds} />
+        {depositReviewOpen && <DepositReview rental={rental} allocations={depositAllocations} charges={rentalCharges} balanceDue={balanceDue}
+          onClose={() => setDepositReviewOpen(false)} onConfirm={details => releaseSecurityDeposit(rental, details)}
+          onHold={(reason, followUp) => releaseSecurityDeposit(rental, { hold: true, reason, followUp })}
+          onExternalReturn={recordLocalDepositRelease ? () => { setDepositReviewOpen(false); setExternalDepositOpen(true); } : null} />}
         {depositSettlementOpen && depositSettlement && <DepositChargeSettlementModal preview={depositSettlement}
           onCancel={() => setDepositSettlementOpen(false)} onConfirm={async (details) => {
             const saved = await releaseSecurityDeposit(rental, details);
@@ -8525,18 +8560,18 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
             return saved;
           }} />}
         <div className="rental-financial-actions">
-          {canCloseoutFromDeposit && <button type="button" className="approve" onClick={() => setDepositCloseoutOpen(true)}><ShieldCheck size={15}/> Apply outstanding balance to deposit</button>}
-          {depositSettlement && <button type="button" className="approve" onClick={() => setDepositSettlementOpen(true)}><DollarSign size={15}/> Apply charges &amp; refund remainder</button>}
+          {!depositReviewRequired && canCloseoutFromDeposit && <button type="button" className="approve" onClick={() => setDepositCloseoutOpen(true)}><ShieldCheck size={15}/> Apply outstanding balance to deposit</button>}
+          {!depositReviewRequired && depositSettlement && <button type="button" className="approve" onClick={() => setDepositSettlementOpen(true)}><DollarSign size={15}/> Apply charges &amp; refund remainder</button>}
           {cancellationDepositFlow && <button type="button" className="approve" onClick={() => setCancelModalOpen(true)}><DollarSign size={15}/> Cancel &amp; refund deposit</button>}
           {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
-          {canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
-          {canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => setExternalDepositOpen(true)}><DollarSign size={15}/> Record external deposit return</button>}
+          {!depositReviewRequired && canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
+          {!depositReviewRequired && canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => setExternalDepositOpen(true)}><DollarSign size={15}/> Record external deposit return</button>}
         </div>
         {stripePaymentAttempts.length > 0 && <div className="stripe-attempt-block" role="status">
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>
         </div>}
 
-        {!cancellationDepositFlow && balanceDue > 0.005 && ['held', 'adjustment_refund_due'].includes(rental.deposit_status) && <div className="deposit-charge-block"><AlertTriangle size={16}/><span><strong>{money(balanceDue)} must be settled before the deposit can be refunded.{depositSettlement ? " You can apply these charges to the deposit and refund the remainder." : ""}</strong></span></div>}
+
       </aside>
     </div>
 
@@ -8894,7 +8929,7 @@ function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
 
 function RentalRefundStatus({ rental, refunds = [] }) {
   return <div className="rental-refund-status" aria-live="polite">
-    {Number(rental.security_deposit) !== Number(rental.base_security_deposit ?? rental.security_deposit) && <div className="refund-status-item override"><ShieldCheck size={17}/><span><strong>Applied rental deposit: {money(rental.security_deposit)}</strong><small>Vehicle base deposit: {money(rental.base_security_deposit)}</small></span></div>}
+
     {refunds.filter((refund) => !refund.extension_request_id).map((refund) => {
       const state = String(refund.status || 'pending').toLowerCase();
       const displayState = refundDisplayState(state);
@@ -8905,8 +8940,6 @@ function RentalRefundStatus({ rental, refunds = [] }) {
         <span><strong>{money(refund.amount)} {returned ? 'returned to card' : failed ? 'refund not completed' : 'refund processing'}</strong><small>{refund.reason || 'Rental payment refund'}</small><small>{formatEasternDateTime(refund.updated_at || refund.created_at)}</small>{refund.failure_reason && <small>{refund.failure_reason}</small>}</span>
       </div>;
     })}
-    {rental.deposit_status === 'released' && <div className="refund-status-item returned"><CheckCircle2 size={18}/><span><strong>Security deposit returned: {money(rental.deposit_released_amount)}</strong><small>{rental.deposit_released_at ? formatEasternDateTime(rental.deposit_released_at) : 'Return recorded'}</small></span></div>}
-    {rental.deposit_status === 'release_pending' && <div className="refund-status-item pending"><Clock size={18}/><span><strong>Security deposit return processing</strong><small>Waiting for refund confirmation.</small></span></div>}
   </div>;
 }
 
@@ -9992,6 +10025,12 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
     setForm({ ...form, chargeType });
   }
 
+  function cancelManualCharge() {
+    if (saving) return;
+    setForm({ name: '', chargeType: 'toll', amount: '', taxable: true, description: '' });
+    setOpen(false);
+  }
+
   async function submit(event) {
     event.preventDefault();
     if (!form.name.trim() || Number(form.amount) <= 0) return;
@@ -10057,7 +10096,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
         }
         return true;
       }} />, document.body)}
-    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Automatic late-return charges and tolls, plus manual damage, cleaning &amp; add-ons</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={14}/> Add manual charge</button></div>
+    <div className="rental-charge-heading"><div><strong>Rental charges</strong><small>Late fees, tolls and manual charges</small></div><button type="button" disabled={saving} aria-expanded={open} aria-controls={`manual-charge-${rental.id}`} onClick={() => open ? cancelManualCharge() : setOpen(true)}>{open ? <X size={14}/> : <Plus size={14}/>} {open ? 'Cancel charge' : 'Add manual charge'}</button></div>
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <div><span><strong>Additional charges: {outstandingTotal > 0 ? `${money(outstandingTotal)} outstanding` : paidTotal > 0 ? 'Paid in full' : 'No balance due'}</strong></span>
       <small>{money(paidTotal + outstandingTotal)} charged · {money(paidTotal)} paid · {money(outstandingTotal)} outstanding</small></div>
@@ -10125,15 +10164,15 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
       </section>}
       {otherCharges.length > 0 && <ChargeScrollList className="manual-charge-list" visibleRows={1} label="Manual charge history — scroll for more">{otherCharges.map(renderChargeRow)}</ChargeScrollList>}
     </>}
-    {open && <form className="portal-form rental-charge-form" onSubmit={submit}>
-      <div className="manual-charge-heading"><strong>Manual rental charge</strong><small>Start from an internal template or enter a one-off charge. Nothing is billed until you submit it for this reservation.</small></div>
+    {open && <form id={`manual-charge-${rental.id}`} className="portal-form rental-charge-form" onSubmit={submit} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelManualCharge(); } }}>
+      <div className="manual-charge-heading"><strong>Manual rental charge</strong><small>Choose an agreement fee or enter a custom charge.</small></div>
       <label className="full-field internal-fee-template-field"><span>Quick charge / Rental agreement fee</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose an agreement charge…</option><optgroup label="Rental agreement fees">{agreementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel || money(template.amount)}</option>)}</optgroup><optgroup label="Purchases">{purchaseTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Fixed agreement fees fill automatically. Variable or actual-cost items require the documented amount.</small></label>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
       <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => chooseChargeType(event.target.value)}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee — fixed $25</option><option value="late_rental_day">Late day — whole rental day</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
       <label className="charge-amount-field"><span>Amount</span><MoneyInput type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
       <label className="charge-description-field"><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
       <label className="checkbox-row"><input type="checkbox" checked={form.taxable} onChange={(event) => setForm({ ...form, taxable: event.target.checked })}/> Apply CT sales tax</label>
-      <button className="approve" disabled={saving}>{saving ? 'Adding…' : 'Apply charge to this rental'}</button>
+      <div className="manual-charge-actions"><button type="button" disabled={saving} onClick={cancelManualCharge}>Cancel</button><button type="submit" className="approve" disabled={saving}>{saving ? 'Adding…' : 'Apply charge to this rental'}</button></div>
     </form>}
     {externalCharge && <ChargeExternalPaymentModal rental={rental} charge={externalCharge} onCancel={() => setExternalCharge(null)} onConfirm={async (payment) => {
       const recorded = await recordExternalRentalCharge?.(externalCharge, payment);
@@ -11493,7 +11532,7 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
     </div>
       <label className="field-label">Deposit decision
         <select value={inspection.depositDecision} onChange={(event) => update('depositDecision', event.target.value)}>
-          <option value="release">Schedule refund 30 days after return (admin can refund sooner)</option>
+          <option value="release">Send to Deposit Review after return</option>
           <option value="hold">Hold deposit for review</option>
         </select>
       </label>
@@ -12458,6 +12497,7 @@ function getMissingReleaseRequirements(releaseChecklist) {
 }
 
 function getAdminRentalState(rental, releaseChecklist) {
+  if (needsDepositReview(rental)) return { label: 'Deposit Review', tone: 'warning', next: 'Review charges and return the remaining deposit.' };
   if (rental.status === 'completed') return { label: 'Completed', tone: 'success', next: 'This rental is closed.' };
   if (rental.status === 'cancelled') return { label: 'Cancelled', tone: 'danger', next: 'This rental is cancelled.' };
   if (rental.status === 'return_initiated') return { label: 'Return Pending', tone: 'danger', next: 'Inspect the car, then confirm return complete.' };
@@ -12498,12 +12538,14 @@ function rentalFilterOptions() {
     { key: 'extensions', label: 'Extensions Pending' },
     { key: 'maintenance', label: 'Maintenance' },
     { key: 'all', label: 'All Open' },
+    { key: 'deposit_review', label: 'Deposit Review' },
     { key: 'archive', label: 'Archive' },
   ];
 }
 
 function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests = [], vehicles = [], reports = [], emergencyExceptions = [], rentalCharges = [] } = {}) {
-  if (filter === 'archive') return ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase());
+  if (filter === 'deposit_review') return needsDepositReview(rental);
+  if (filter === 'archive') return ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase()) && !needsDepositReview(rental);
   if (filter === 'all') return !['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase());
   const rentalDocuments = documents.filter((document) => document.rental_id === rental.id);
   const reusableLicense = latestCustomerDocument(documents, rental.user_id, 'license');

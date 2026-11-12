@@ -18,3 +18,9 @@ export function depositSettlementPreview(rental, allocations = [], charges = [])
   return { charges: open, chargeIds: open.map((charge) => charge.id), deposit: depositCents / 100,
     expectedApplied: appliedCents / 100, expectedRefund: (depositCents - appliedCents) / 100 };
 }
+
+export function needsDepositReview(rental) {
+  return rental.status === 'completed' && rental.ending_mileage != null
+    && (Number(rental.deposit_held_amount || 0) > 0 || ['release_pending', 'adjustment_refund_due'].includes(rental.deposit_status))
+    && !['waived', 'transferred', 'released'].includes(rental.deposit_status);
+}

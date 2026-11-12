@@ -119,7 +119,8 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       candidate.deposit = 0;
       if (candidate.duplicate) continue;
       const intent = candidate.row.stripe_payment_intent_id;
-      const matched = intent ? ownedAllocations.filter((row) => row.stripe_payment_intent_id === intent).reduce((sum, row) => sum + positive(row.amount_held), 0) : 0;
+      const receiptId = candidate.row.flex_payment_receipt_id;
+      const matched = ownedAllocations.filter((row) => (receiptId && row.flex_payment_receipt_id === receiptId) || (intent && row.stripe_payment_intent_id === intent)).reduce((sum, row) => sum + positive(row.amount_held), 0);
       candidate.deposit = Math.min(candidate.gross, unassignedDeposit, matched);
       unassignedDeposit -= candidate.deposit;
     }
@@ -268,12 +269,12 @@ export const REVENUE_TABLES = {
 export const REVENUE_COLUMNS = {
   rentals: 'id,rental_total,service_fee_total,tax_amount,security_deposit,paid_at,payment_amount_cents,deposit_held_amount,deposit_released_amount,deposit_status,stripe_payment_intent_id,stripe_checkout_session_id,created_at,payment_received_date',
   rental_payments: 'id,rental_id,status,payment_type,total_amount,rental_amount,tax_amount,deposit_amount,paid_at,refunded_amount,deposit_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at,payment_received_date',
-  rental_charge_items: 'id,rental_id,charge_type,included_in_initial_payment,status,payment_provider,total_amount,tax_amount,payment_amount_cents,paid_at,payment_received_date,external_refunded_amount,external_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,amount,created_at',
+  rental_charge_items: 'id,flex_payment_receipt_id,rental_id,charge_type,included_in_initial_payment,status,payment_provider,total_amount,tax_amount,payment_amount_cents,paid_at,payment_received_date,external_refunded_amount,external_refunded_at,stripe_payment_intent_id,stripe_checkout_session_id,amount,created_at',
   rental_extension_requests: 'id,rental_id,replacement_rental_id,status,payment_status,request_kind,extension_rental_amount,extension_tax_amount,extension_total_amount,extension_deposit_amount,payment_amount_cents,paid_at,stripe_payment_intent_id,stripe_checkout_session_id,created_at,payment_received_date',
   rental_payment_refunds: 'id,rental_id,status,source_type,stripe_refund_id,stripe_payment_intent_id,extension_request_id,amount,created_at',
   rental_external_payment_actions: 'id,rental_id,action_type,amount,deposit_amount_returned,payment_charge_id,created_at',
   rental_deposit_charge_applications: 'id,rental_id,allocation_id,charge_id,amount,created_at',
-  rental_deposit_allocations: 'id,source_rental_id,holder_rental_id,source_kind,amount_held,amount_applied,stripe_payment_intent_id',
+  rental_deposit_allocations: 'id,flex_payment_receipt_id,source_rental_id,holder_rental_id,source_kind,amount_held,amount_applied,stripe_payment_intent_id',
 };
 export async function readRevenueRows(client, table, signal) {
   const rows = [];

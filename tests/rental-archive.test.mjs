@@ -15,8 +15,26 @@ test('terminal rentals are separated from the open rental manager', () => {
 test('the rental archive requests pages instead of downloading all archive records', () => {
   const workspace = readFileSync(new URL('../src/useRentalWorkspace.js', import.meta.url), 'utf8');
   assert.match(workspace, /p_offset: rows.length/);
-  assert.match(workspace, /p_limit: RENTAL_PAGE_SIZE/);
-  assert.match(source, /Load 25 more archived rentals/);
-  assert.match(workspace, /params.offset \+ RENTAL_PAGE_SIZE/);
+  assert.match(workspace, /p_limit: pageSize/);
+  assert.match(source, /Load 5 more archived rentals/);
+  assert.match(workspace, /params.offset \+ pageSize/);
   assert.doesNotMatch(source, /matchingRentals\.slice\(0, archiveVisibleCount\)/);
+});
+
+test('archive fetches five records initially and expands in five-record pages', async () => {
+  const { default: vm } = await import('node:vm');
+  const workspace = readFileSync(new URL('../src/useRentalWorkspace.js', import.meta.url), 'utf8');
+  const start = workspace.indexOf('readList: async (params) => {') + 'readList: '.length;
+  const end = workspace.indexOf(',\n      readDetail:', start);
+  const requests = [];
+  const readList = vm.runInNewContext(`(${workspace.slice(start, end)})`, {
+    RENTAL_PAGE_SIZE: 25, ARCHIVE_PAGE_SIZE: 5,
+    withReadRetry: fn => fn(),
+    client: { rpc: async (_, args) => { requests.push(args); return { data: { rows: Array.from({length:Math.min(args.p_limit,12-args.p_offset)},(_,i)=>({id:args.p_offset+i})), total:12 } }; } },
+  });
+  assert.equal((await readList({filter:'archive',offset:0})).rows.length,5);
+  assert.equal(requests.length,1); assert.equal(requests[0].p_limit,5);
+  requests.length=0;
+  assert.equal((await readList({filter:'archive',offset:5})).rows.length,10);
+  assert.deepEqual(requests.map(r=>[r.p_offset,r.p_limit]),[[0,5],[5,5]]);
 });

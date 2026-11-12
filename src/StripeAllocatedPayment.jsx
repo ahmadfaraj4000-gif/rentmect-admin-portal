@@ -1,27 +1,29 @@
 import { MoneyInput } from './MoneyInput.jsx';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { buildPaymentAllocation, chargeRemainingCents } from './lib/paymentAllocation.js';
 const money = n => new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(n / 100);
 const today = () => new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-export function StripeAllocatedPayment({client,rental,charges,due,state,onEmail,onRefresh,onCollect,onBusyChange,canCollectRent=true}) {
+export function StripeAllocatedPayment({client,rental,charges,due,depositDue,state,onEmail,onRefresh,onCollect,onBusyChange,canCollectRent=true}) {
  const pending = state?.receipts?.find(r=>r.status==='pending');
  const stripePending = pending?.funding_kind==='stripe' ? pending : null;
- const [form,setForm]=useState(()=>({amount:((due+charges.reduce((s,c)=>s+chargeRemainingCents(c),0))/100).toFixed(2),rentalAmount:(due/100).toFixed(2),allocations:Object.fromEntries(charges.map(c=>[c.id,(chargeRemainingCents(c)/100).toFixed(2)]))}));
+ const [form,setForm]=useState(()=>({amount:((due+(depositDue||0)+charges.reduce((s,c)=>s+chargeRemainingCents(c),0))/100).toFixed(2),rentalAmount:(due/100).toFixed(2),depositAmount:((depositDue||0)/100).toFixed(2),allocations:Object.fromEntries(charges.map(c=>[c.id,(chargeRemainingCents(c)/100).toFixed(2)]))}));
  const [attempt,setAttempt]=useState(null),[review,setReview]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[done,setDone]=useState(null);
+ useEffect(()=>{if(depositDue!==undefined&&!pending)setForm(f=>({...f,rentalAmount:(due/100).toFixed(2),depositAmount:(depositDue/100).toFixed(2),amount:((due+depositDue+charges.reduce((s,c)=>s+chargeRemainingCents(c),0))/100).toFixed(2)}));},[depositDue!==undefined]);
  const lock=useRef(false);
  const active=attempt || (stripePending && {id:stripePending.id,request:stripePending.request,url:stripePending.result?.url});
  const request=active?.request;
  const amount=request?.amountCents ?? Math.round(Number(form.amount||0)*100);
  const rent=request?.rentalAmountCents ?? Math.round(Number(form.rentalAmount||0)*100);
  const allocations=request ? Object.fromEntries(request.charges.map(c=>[c.id,(c.amountCents/100).toFixed(2)])) : form.allocations;
- const extras=Object.values(allocations).reduce((s,v)=>s+Math.round(Number(v||0)*100),0),credit=amount-rent-extras;
+ const deposit=request?.depositAmountCents ?? Math.round(Number(form.depositAmount||0)*100);
+ const extras=Object.values(allocations).reduce((s,v)=>s+Math.round(Number(v||0)*100),0),credit=amount-rent-deposit-extras;
  const blocked=pending && !stripePending;
  function change(key,value){setForm(f=>({...f,[key]:value}));setReview(null);setError('');}
  function allocate(id,value){const next={...allocations};if(value===null)delete next[id];else next[id]=value;change('allocations',next);}
  function prepare(mode){
   setError('');setNotice('');
   try{
-   const value=request || buildPaymentAllocation({charges,rentalDueCents:due,form:{...form,funding:'stripe',paymentMethod:'card',receivedDate:today(),confirmed:true}});
+   const value=request || buildPaymentAllocation({charges,rentalDueCents:due,depositDueCents:depositDue,form:{...form,funding:'stripe',paymentMethod:'card',receivedDate:today(),confirmed:true}});
    if(value.amountCents<50)throw new Error('Enter at least $0.50 for Stripe.');
    if(value.creditAmountCents>0&&!canCollectRent)throw new Error('Payment collection permission is required to retain customer credit.');
    setReview({mode,request:value});
@@ -55,11 +57,12 @@ export function StripeAllocatedPayment({client,rental,charges,due,state,onEmail,
    <label>Stripe payment amount<MoneyInput type="number" step="0.01" min="0.50" inputMode="decimal" value={request?(amount/100).toFixed(2):form.amount} onChange={e=>change('amount',e.target.value)}/></label>
    <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
     {canCollectRent&&<div className="allocation-row"><label><input type="checkbox" checked={rent>0} onChange={e=>change('rentalAmount',e.target.checked?(due/100).toFixed(2):'0')}/>Rental balance</label><span>{money(due)}</span><MoneyInput aria-label="Stripe amount toward rental" type="number" min="0" max={due/100} step="0.01" value={request?(rent/100).toFixed(2):form.rentalAmount} onChange={e=>change('rentalAmount',e.target.value)}/></div>}
+    {canCollectRent&&depositDue!==undefined&&<div className="allocation-row"><label><input type="checkbox" disabled={!depositDue} checked={deposit>0} onChange={e=>change('depositAmount',e.target.checked?(depositDue/100).toFixed(2):'0')}/>Security deposit</label><span>{money(depositDue)}</span><MoneyInput aria-label="Stripe amount toward security deposit" disabled={!depositDue} min="0" max={depositDue/100} value={request?(deposit/100).toFixed(2):form.depositAmount} onChange={e=>change('depositAmount',e.target.value)}/></div>}
     {charges.map(c=><div className="allocation-row" key={c.id}><label><input type="checkbox" checked={Object.hasOwn(allocations,c.id)} onChange={e=>allocate(c.id,e.target.checked?(chargeRemainingCents(c)/100).toFixed(2):null)}/>{c.name}</label><span>{money(chargeRemainingCents(c))}</span><MoneyInput aria-label={`Stripe amount toward ${c.name}`} type="number" min="0.01" max={chargeRemainingCents(c)/100} step="0.01" disabled={!Object.hasOwn(allocations,c.id)} value={allocations[c.id]??''} onChange={e=>allocate(c.id,e.target.value)}/></div>)}
    </div>
   </fieldset>
-  <dl className="allocation-review"><dt>Stripe amount</dt><dd>{money(amount||0)}</dd><dt>Rental allocation</dt><dd>{money(rent||0)}</dd><dt>Additional charges / tolls</dt><dd>{money(extras||0)}</dd><dt>{credit<0?'Reduce allocations by':'Customer credit'}</dt><dd>{money(Math.abs(credit)||0)}</dd></dl>
-  {review?<div className="receipt-confirmation"><strong>Confirm {review.mode==='card'?'saved-card charge':'Stripe payment link'}</strong><p>Collect {money(review.request.amountCents)}: {money(review.request.rentalAmountCents)} to rental, {money(review.request.charges.reduce((s,c)=>s+c.amountCents,0))} to selected charges, and {money(review.request.creditAmountCents)} as credit. {review.mode==='card'?'Confirming will charge the saved card now.':'Creating a link does not mark the payment as received.'}</p><div className="rp-stripe-actions"><button type="button" disabled={busy} onClick={()=>perform(review.mode)}>{busy?'Checking Stripe…':review.mode==='card'?'Confirm and charge saved card':'Confirm and create Stripe link'}</button><button type="button" disabled={busy} onClick={()=>setReview(null)}>Back to edit</button></div></div>:<div className="rp-stripe-actions">
+  <dl className="allocation-review"><dt>Stripe amount</dt><dd>{money(amount||0)}</dd><dt>Rental allocation</dt><dd>{money(rent||0)}</dd><dt>Security deposit allocation</dt><dd>{money(deposit||0)}</dd><dt>Additional charges / tolls</dt><dd>{money(extras||0)}</dd><dt>{credit<0?'Reduce allocations by':'Customer credit'}</dt><dd>{money(Math.abs(credit)||0)}</dd></dl>
+  {review?<div className="receipt-confirmation"><strong>Confirm {review.mode==='card'?'saved-card charge':'Stripe payment link'}</strong><p>Collect {money(review.request.amountCents)}: {money(review.request.rentalAmountCents)} to rental, {money(review.request.depositAmountCents||0)} to security deposit, {money(review.request.charges.reduce((s,c)=>s+c.amountCents,0))} to selected charges, and {money(review.request.creditAmountCents)} as credit. {review.mode==='card'?'Confirming will charge the saved card now.':'Creating a link does not mark the payment as received.'}</p><div className="rp-stripe-actions"><button type="button" disabled={busy} onClick={()=>perform(review.mode)}>{busy?'Checking Stripe…':review.mode==='card'?'Confirm and charge saved card':'Confirm and create Stripe link'}</button><button type="button" disabled={busy} onClick={()=>setReview(null)}>Back to edit</button></div></div>:<div className="rp-stripe-actions">
    {!active&&<><button type="button" disabled={busy||!!blocked||!state} onClick={()=>prepare('link')}>Open Stripe link</button><button type="button" disabled={busy||!!blocked||!state} onClick={()=>prepare('card')}>Charge saved card</button></>}
    {active&&<><button type="button" disabled={busy} onClick={()=>perform('status')}>{busy?'Checking Stripe…':'Check payment status'}</button><button type="button" disabled={busy} onClick={()=>perform('cancel')}>Cancel unpaid Stripe attempt</button></>}
   </div>}
