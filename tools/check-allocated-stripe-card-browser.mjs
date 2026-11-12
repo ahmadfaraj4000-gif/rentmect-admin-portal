@@ -58,8 +58,9 @@ try{
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'154.70');
   await page.getByLabel('Stripe payment amount').fill('200');
-  await page.getByRole('button',{name:'Copy Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByText('Stripe payment link copied.',{exact:true}).waitFor();
   assert.equal((await page.evaluate(()=>window.stripeCalls))[0].request.creditAmountCents,4530);
   assert.equal((await page.evaluate(()=>window.copiedLinks))[0],'https://checkout.stripe.com/c/pay/cs_test_allocated');

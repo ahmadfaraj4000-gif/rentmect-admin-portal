@@ -20,7 +20,7 @@ export function StripeReceiveActions({targets=[],onCreate,onEmail,onOpen,onSaved
    if(!link||!/^https:\/\//.test(link))throw Error('Stripe did not return a payment link. Please try again.');
    setUrl(link);
    if(kind==='copy'){try{await navigator.clipboard.writeText(link);setCopied(true);}catch{setError('Copy was blocked. Select the Stripe link below and copy it.');}}
-   if(kind==='email'||kind==='create')onEmail?.(target,link,kind==='email'?'email':'');
+   if(kind==='email')onEmail?.({...target,amount:value},link,'email');
   }catch(e){setError(e.message||'The Stripe payment link could not be created.');}
   finally{lock.current=false;setBusy(false);}
  }
@@ -30,11 +30,10 @@ export function StripeReceiveActions({targets=[],onCreate,onEmail,onOpen,onSaved
   {target&&<label className="rp-field"><span>Payment amount</span><input aria-label="Stripe payment amount" type="text" inputMode="decimal" value={amount} disabled={disabled||busy||paid||target.id!=='rental'} onChange={e=>{setAmount(e.target.value);setUrl('');setError('');setCopied(false);}}/></label>}
   {paid&&<p role="status">Stripe confirmed the saved-card payment.</p>}
   <div className="rp-stripe-actions">
-   <button type="button" disabled={disabled||busy||paid||!target||!onOpen} onClick={()=>act('open')}>Open Stripe checkout</button>
    {onSavedCard&&<button type="button" disabled={disabled||busy||paid||!target||(target.id!=='rental'&&(!target.charge||Math.round(Number(amount)*100)!==Math.round(target.amount*100)))} onClick={()=>act('saved')}>Charge saved card{target?` · ${money(Number(amount)||0)}`:''}</button>}
-   <button type="button" disabled={disabled||busy||paid||!target} onClick={()=>act('create')}>{busy?'Preparing Stripe…':'Send Stripe link'}</button>
-   <button type="button" disabled={disabled||busy||paid||!target} onClick={()=>act('copy')}>{copied?'Copied':'Copy link'}</button>
-   <button type="button" disabled={disabled||busy||paid||!target||!onEmail} onClick={()=>act('email')}>Email link</button>
+   {!url&&<button type="button" disabled={disabled||busy||paid||!target} onClick={()=>act('create')}>{busy?'Preparing Stripe…':'Open Stripe link'}</button>}
+   {url&&<button type="button" disabled={disabled||busy||paid||!target} onClick={()=>act('copy')}>{copied?'Copied':'Copy link'}</button>}
+   {url&&<button type="button" disabled={disabled||busy||paid||!target||!onEmail} onClick={()=>act('email')}>Email link</button>}
   </div>
   {url&&<label className="rp-field"><span>Stripe checkout link</span><input aria-label="Stripe checkout link" readOnly value={url} onFocus={e=>e.target.select()}/><a href={url} target="_blank" rel="noreferrer">Open Stripe checkout</a></label>}
   {error&&<p role="alert">{error}</p>}

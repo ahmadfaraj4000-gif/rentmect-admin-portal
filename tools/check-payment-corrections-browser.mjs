@@ -43,7 +43,8 @@ try{
   await close.click();await page.getByRole('button',{name:'Stripe fixture'}).click();
   const amount=page.getByLabel('Stripe payment amount',{exact:true});await amount.waitFor();assert.equal(await amount.inputValue(),'154.70');assert.equal(await amount.isEnabled(),true);
   await amount.fill('200');await page.getByLabel('Stripe amount toward rental',{exact:true}).fill('50');await page.getByLabel('Stripe amount toward Bridge toll',{exact:true}).fill('10');
-  await page.getByRole('button',{name:'Copy Stripe link',exact:true}).click();await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByText('Stripe payment link copied.',{exact:true}).waitFor();
   const calls=await page.evaluate(()=>window.calls),call=calls.at(-1);assert.equal(call.externalPayment.amountCents,20000);assert.equal(call.externalPayment.rentalAmountCents,5000);assert.equal(call.externalPayment.creditAmountCents,9000);
   assert.equal((await page.evaluate(()=>window.copied)).length,1);

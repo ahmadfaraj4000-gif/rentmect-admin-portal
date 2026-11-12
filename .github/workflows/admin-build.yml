@@ -64,6 +64,7 @@ jobs:
           npm install --prefix /tmp/rentme-browser-tools --no-save --package-lock=false playwright@1.65.0
           node /tmp/rentme-browser-tools/node_modules/playwright/cli.js install --with-deps chromium
           node tools/check-payment-corrections-browser.mjs
+          node tools/check-contact-stripe-browser.mjs
 
       - name: Build production assets
         run: npm run build
