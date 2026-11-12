@@ -10,7 +10,7 @@
 .rental-ledger-scroll .rental-card-activity { margin:0; }
 .rental-ledger-scroll .rental-card-activity-body { max-height:none; overflow:visible; }
 .rental-ledger-scroll .rental-charge-heading { position:sticky; top:-14px; background:var(--ui-surface); z-index:1; padding:12px 0; }
-.rental-card-payment-toolbar { display:flex; flex-wrap:nowrap; gap:8px; margin:12px 0; }
+.rental-card-payment-toolbar { display:flex; flex-wrap:nowrap; gap:24px; margin:20px 0; }
 .rental-card-payment-toolbar button { min-height:40px; }
 .rental-card-supplement { border:1px solid var(--ui-line); border-radius:var(--ui-radius); background:var(--ui-surface); padding:12px; }
 .rental-card-supplement > summary { cursor:pointer; font-weight:700; min-height:28px; }
@@ -85,7 +85,7 @@
 .rp-stripe-actions { display:flex; justify-content:center; flex-wrap:wrap; gap:8px; margin:12px 0; }
 .rp-stripe-actions button { flex:1 1 130px; min-height:40px; }
 .rp-stripe input { width:100%; min-width:0; box-sizing:border-box; }
-@media(max-width:600px){.rental-operations-card .rental-card-payment-toolbar { gap:6px; padding:0 10px; }.rental-operations-card .rental-card-payment-toolbar > button { flex:1 1 0; padding:8px 6px; font-size:12px; }}
+@media(max-width:600px){.rental-operations-card .rental-card-payment-toolbar { gap:12px; padding:0 12px; }.rental-operations-card .rental-card-payment-toolbar > button { flex:1 1 0; padding:8px 6px; font-size:12px; }}
 
 .rp-payment-tabs { display:flex; gap:8px; margin-bottom:18px; }.rp-payment-tabs button { flex:1; min-height:44px; }.rp-payment-tabs [aria-selected="true"] { background:var(--ui-green); color:white; }.receive-payment-modal [hidden] { display:none!important; }
 .rp-payment-tabs button,.rp-stripe-actions button { font:inherit; font-weight:650; border:1px solid var(--ui-line,#cbd8d0); border-radius:8px; padding:10px 12px; color:var(--ui-ink,#203a2c); background:var(--ui-surface,#fff); cursor:pointer; }
