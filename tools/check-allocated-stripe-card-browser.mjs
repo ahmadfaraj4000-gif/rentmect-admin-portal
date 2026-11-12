@@ -82,8 +82,8 @@ try{
   const external=page.getByRole('tabpanel',{name:'External payments'});
   const entry=external.getByLabel('Payment amount',{exact:true});
   assert.equal(await entry.inputValue(),'0.00');
-  assert.equal(await external.getByLabel('Amount toward rental',{exact:true}).inputValue(),'0.00');
-  assert.equal(await external.getByRole('checkbox',{name:'Late return fee',exact:true}).isChecked(),true);
+  assert.equal(await external.getByLabel('Amount toward rental',{exact:true}).inputValue(),'78.70');
+  for(const name of ['Rental balance','Bridge toll','Late return fee'])assert.equal(await external.getByRole('checkbox',{name,exact:true}).isChecked(),true);
   assert.equal(await external.getByLabel('Amount toward Late return fee',{exact:true}).inputValue(),'50.00');
   await entry.click();
   for(const [digit,value] of [['1','0.01'],['2','0.12'],['3','1.23'],['4','12.34']]){await entry.press(digit);assert.equal(await entry.inputValue(),value);}

@@ -11,23 +11,31 @@ const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', curre
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue, onRecord, onClose,
-  initialChargeIds = [], canCollectRent = true, canManageCharges = true, stripeTargets = [], onStripeCreate, onStripeEmail, onStripeOpen, onStripeSavedCard, protectedDeposit = 0, initialTab = 'external' }) {
+  canCollectRent = true, canManageCharges = true, stripeTargets = [], onStripeCreate, onStripeEmail, onStripeOpen, onStripeSavedCard, protectedDeposit = 0, initialTab = 'external' }) {
   const eligible = canManageCharges ? charges.filter(c => !['rental_amendment', 'rental_installment'].includes(c.charge_type) && chargeRemainingCents(c) > 0 && !c.payment_receipt_id && !c.external_toll_receipt_id && !c.checkout_creation_token) : [];
+  const due = canCollectRent ? Math.round(Number(rentalDue || 0) * 100) : 0;
+  const initialAllocationsJson = JSON.stringify(Object.fromEntries(eligible.map(c => [c.id, (chargeRemainingCents(c) / 100).toFixed(2)])));
   const [tab, setTab] = useState(initialTab);
   const [state, setState] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState(null);
   const [form, setForm, clearDraft] = useTaskDraft(`flex-payment:${rental.id}`, {
-    amount: '0.00', rentalAmount: '0.00', allocationsJson: JSON.stringify(Object.fromEntries(eligible.filter(c => initialChargeIds.includes(c.id) || c.source_type === 'late_return' || ['late_fee', 'late_rental_day'].includes(c.charge_type)).map(c => [c.id, (chargeRemainingCents(c) / 100).toFixed(2)]))),
+    amount: '0.00', rentalAmount: (due / 100).toFixed(2), allocationsJson: initialAllocationsJson,
     funding: 'external', paymentMethod: 'cash_app', receivedDate: today(), receivedTime: '', reference: '', notes: '', receiptId: '', requestJson: '', confirmed: false,
   }, ['amount', 'rentalAmount', 'allocationsJson', 'funding', 'paymentMethod', 'receivedDate', 'receivedTime', 'reference', 'notes', 'receiptId', 'requestJson']);
   const dialog = useRef(null), submitLock = useRef(false);
   const pending = form.requestJson ? JSON.parse(form.requestJson) : null;
   const allocations = pending ? Object.fromEntries(pending.charges.map(c => [c.id, (c.amountCents / 100).toFixed(2)])) : JSON.parse(form.allocationsJson);
-  const due = canCollectRent ? Math.round(Number(rentalDue || 0) * 100) : 0;
   const amount = pending?.amountCents ?? Math.round(Number(form.amount || 0) * 100);
   const rent = pending?.rentalAmountCents ?? Math.round(Number(form.rentalAmount || 0) * 100);
   const extras = Object.values(allocations).reduce((sum, v) => sum + Math.round(Number(v || 0) * 100), 0);
   const credit = amount - rent - extras;
   const funding = pending?.funding || form.funding;
+  // Every newly opened payment starts with all outstanding items selected.
+  // Keep a submitted attempt intact; its reserved allocations must be recovered.
+  useEffect(() => {
+    setForm(f => f.receiptId || f.requestJson ? f : {
+      ...f, rentalAmount: (due / 100).toFixed(2), allocationsJson: initialAllocationsJson, confirmed: false,
+    });
+  }, []);
   useEffect(() => trackTaskDialog(), []);
   useEffect(() => { const prior = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = prior; }; }, []);
   useEffect(() => { const previous = document.activeElement; dialog.current?.focus(); return () => previous?.focus?.(); }, []);
