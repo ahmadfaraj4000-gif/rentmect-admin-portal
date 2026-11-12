@@ -13,7 +13,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
  const [tab,setTab]=useState(initialTab);
  const [saving,setSaving]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[done,setDone]=useState(null),[recoveryReady,setRecoveryReady]=useState(false);
  const [form,setForm,clearDraft]=useTaskDraft(`receive-payment:${rental.id}`,{
-  amount:'0.00',applyToRental:true,paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:JSON.stringify((canManageCharges ? eligiblePaymentCharges(charges) : []).filter(c=>c.source_type==='late_return'||['late_fee','late_rental_day'].includes(c.charge_type)).map(c=>c.id)),receiptId:'',requestJson:'',confirmed:false,
+  amount:'0.00',applyToRental:true,paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:JSON.stringify((canManageCharges ? eligiblePaymentCharges(charges) : []).map(c=>c.id)),receiptId:'',requestJson:'',confirmed:false,
  },['amount','applyToRental','paymentMethod','receivedDate','receivedTime','reference','notes','selectedJson','receiptId','requestJson']);
  const pending=form.requestJson?JSON.parse(form.requestJson):null;
  const selected=JSON.parse(form.selectedJson);
@@ -38,6 +38,9 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   }
   selectAmountOnClick.current=false;
  }
+ useEffect(()=>{
+  setForm(f=>f.receiptId||f.requestJson?f:{...f,applyToRental:canCollectRent,selectedJson:JSON.stringify(eligible.map(c=>c.id)),confirmed:false});
+ },[]);
  useEffect(()=>trackTaskDialog(),[]);
  useEffect(()=>{if(form.amount==='')setForm(f=>({...f,amount:'0.00'}));},[]);
  useEffect(()=>{const previous=document.activeElement;dialog.current?.focus();return()=>previous?.focus?.();},[]);
