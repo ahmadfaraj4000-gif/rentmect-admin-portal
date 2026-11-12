@@ -20,7 +20,7 @@ async function record(rentalId,id,request,cancel){if(typeof cancel==='string'&&c
  const result={status:'posted',receiptId:id,amountCents:request.amountCents,creditAmountCents:request.creditAmountCents,availableCreditCents:request.creditAmountCents,balanceDue:89,funding:request.funding};
  if(!sessionStorage.getItem('failed')){sessionStorage.setItem('failed','1');sessionStorage.setItem('receipt',JSON.stringify({id,allocation_version:2,status:'pending',request}));throw Error('Synthetic network interruption. Resume this same payment.');}
  sessionStorage.setItem('receipt',JSON.stringify({id,allocation_version:2,status:'posted',request,result}));return result;}
-createRoot(document.getElementById('root')).render(<DraftOwnerContext.Provider value="synthetic-staff"><main className="admin-main" style={{padding:16,maxWidth:1400,margin:'auto',width:'100%',boxSizing:'border-box'}}><RentalRow rental={rental} rentalCharges={charges} detailed chargeRentalSavedCard={async charge=>{window.stripeCalls.push({kind:'saved',id:charge.id,amount:charge.total_amount});return true}} createAdminPaymentLink={async(r,mode,amount)=>{window.stripeCalls.push({kind:'rental',id:r.id,mode,amount});return 'https://checkout.stripe.com/c/pay/cs_test_synthetic_rental'}} createManualStripePaymentLink={async({charge})=>{window.stripeCalls.push({kind:'charge',id:charge.id});return 'https://checkout.stripe.com/c/pay/cs_test_synthetic_charge'}} recordTestPayment={()=>true} recordExternalRentalCharge={()=>true} recordExternalTollPayment={record} applyManualRentalDiscount={()=>true} addRentalCharge={()=>true} waiveRentalCharge={()=>true} notify={()=>{}}/></main></DraftOwnerContext.Provider>);`);
+createRoot(document.getElementById('root')).render(<DraftOwnerContext.Provider value="synthetic-staff"><main className="admin-main" style={{padding:16,maxWidth:1400,margin:'auto',width:'100%',boxSizing:'border-box'}}><RentalRow rental={rental} rentalCharges={charges} detailed adjustExternalRentalPayment={()=>true} chargeRentalSavedCard={async charge=>{window.stripeCalls.push({kind:'saved',id:charge.id,amount:charge.total_amount});return true}} createAdminPaymentLink={async(r,mode,amount)=>{window.stripeCalls.push({kind:'rental',id:r.id,mode,amount});return 'https://checkout.stripe.com/c/pay/cs_test_synthetic_rental'}} createManualStripePaymentLink={async({charge})=>{window.stripeCalls.push({kind:'charge',id:charge.id});return 'https://checkout.stripe.com/c/pay/cs_test_synthetic_charge'}} recordTestPayment={()=>true} recordExternalRentalCharge={()=>true} recordExternalTollPayment={record} applyManualRentalDiscount={()=>true} addRentalCharge={()=>true} waiveRentalCharge={()=>true} notify={()=>{}}/></main></DraftOwnerContext.Provider>);`);
 const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5195','--strictPort'],{cwd:root,env:{...process.env,VITE_SUPABASE_URL:'http://127.0.0.1:5195/fixture',VITE_SUPABASE_ANON_KEY:'synthetic-anon',VITE_FLEXIBLE_PAYMENTS:process.env.VITE_FLEXIBLE_PAYMENTS || 'true',VITE_UNIFIED_EXTERNAL_PAYMENTS:'true'},stdio:['ignore','pipe','pipe']});
 let browser;
 try{
@@ -37,7 +37,10 @@ try{
   });
   await page.goto('http://127.0.0.1:5195/'+folder.split('/').at(-1)+'/index.html');
   await page.getByText(/PHYSICAL RETURN LOCK/).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Take Payment',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Edit Payment Details',exact:true}).count(),0);
   await page.getByRole('button',{name:'Show rental details',exact:true}).click();
+  assert.equal(await page.locator('.rental-card-expanded-content .rental-card-payment-toolbar').getByRole('button',{name:'Take Payment',exact:true}).count(),1);
   await page.getByRole('tab',{name:'Payments',exact:true}).waitFor();
   await page.screenshot({path:'/tmp/rentme-card-screenshots/card-'+viewport.width+'.png',fullPage:true});
   assert.ok(await page.locator('[role=tabpanel]:visible').evaluate(n=>n.scrollHeight>n.clientHeight),'long payment history scrolls inside ledger');
@@ -52,14 +55,19 @@ try{
   await page.getByRole('button',{name:'Edit Payment Details',exact:true}).click();
   const history=page.getByRole('dialog',{name:'Payment history and details'});
   await history.getByText('$457.40',{exact:true}).waitFor();await history.getByText('$117.26',{exact:true}).waitFor();
+  const legacy=history.getByRole('button',{name:'Correct legacy rental payment method / refund'});
+  assert.ok(await legacy.evaluate(n=>Math.abs(n.getBoundingClientRect().right-n.parentElement.getBoundingClientRect().right)<2),'legacy action aligns right');
+  await legacy.scrollIntoViewIfNeeded();
+  await history.screenshot({path:'/tmp/payment-history-aligned-'+viewport.width+'.png'});
   await page.getByRole('button',{name:'Close payment details',exact:true}).click();
-  await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
+  await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tabpanel',{name:'External payments'}).waitFor();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'154.70');
   await page.getByLabel('Stripe payment amount').fill('200');
-  await page.getByRole('button',{name:'Copy Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByText('Stripe payment link copied.',{exact:true}).waitFor();
   assert.equal((await page.evaluate(()=>window.stripeCalls))[0].request.creditAmountCents,4530);
   assert.equal((await page.evaluate(()=>window.copiedLinks))[0],'https://checkout.stripe.com/c/pay/cs_test_allocated');

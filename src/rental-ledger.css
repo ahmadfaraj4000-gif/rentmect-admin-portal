@@ -128,3 +128,6 @@
  .rental-ledger-dialog-backdrop .allocation-row > span::before { content:'Outstanding: '; }
  .rental-ledger-dialog-backdrop .allocation-row > input { width:100%; }
 }
+
+.rental-receipt-dialog .payment-history-actions { display:flex; justify-content:flex-end; width:100%; margin-top:12px; }
+.rental-receipt-dialog .payment-history-actions > button { max-width:100%; white-space:normal; }

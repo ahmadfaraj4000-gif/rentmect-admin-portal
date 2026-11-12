@@ -9992,3 +9992,31 @@ input[type="radio"] {
 .payment-revenue-explanation .revenue-review ul { list-style: none; margin: 8px 0 0; padding: 0; }
 .payment-revenue-explanation .revenue-review li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--ui-line); }
 .payment-revenue-explanation .revenue-review button { flex-shrink: 0; }
+
+/* Keep long checkout URLs within the message dialog's grid tracks. */
+.customer-contact-modal.admin-modal[role="dialog"] {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+  max-height: calc(100dvh - 24px) !important;
+  overflow: hidden !important;
+}
+.customer-contact-modal .customer-contact-body {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+.customer-contact-modal :is(.customer-contact-body > *, .contact-field-grid > *, .contact-destination > div, .contact-preview > *, .stripe-link-copy-heading span) {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+}
+.customer-contact-modal :is(.contact-preview p, .contact-subject strong, .contact-destination strong) { overflow-wrap: anywhere !important; }
+.customer-contact-modal :is(input, select) { box-sizing: border-box !important; max-width: 100% !important; }
+.customer-contact-modal .customer-contact-actions { flex-shrink: 0; min-width: 0; }
+.customer-contact-modal .stripe-link-copy-row input { width: 0 !important; }
+@media (max-width: 620px) {
+  .customer-contact-modal .stripe-link-copy-row input { width: 100% !important; }
+}
