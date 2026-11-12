@@ -66,6 +66,7 @@ jobs:
           node tools/check-payment-corrections-browser.mjs
           node tools/check-contact-stripe-browser.mjs
           node tools/check-allocated-stripe-card-browser.mjs
+          node tools/check-ticket-flags-browser.mjs
 
       - name: Build production assets
         run: npm run build
