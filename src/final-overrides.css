@@ -10020,3 +10020,13 @@ input[type="radio"] {
 @media (max-width: 620px) {
   .customer-contact-modal .stripe-link-copy-row input { width: 100% !important; }
 }
+
+/* Preview only the opening lines; keep the full message for delivery. */
+.customer-contact-modal .contact-preview p {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  max-height: 6.4em !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}

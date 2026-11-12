@@ -31,7 +31,7 @@ try{
   assert.equal(await edit.evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(35, 104, 71)');
   const close=page.getByRole('button',{name:'Close payment details'}),dialog=page.getByRole('dialog');
   assert.ok(await close.evaluate(n=>{const d=n.closest('[role=dialog]').getBoundingClientRect(),r=n.getBoundingClientRect();return d.right-r.right<30&&r.top-d.top<30}),'X in top right');
-  await edit.click();await page.getByLabel('Amount paid',{exact:true}).fill('900');await page.getByLabel('Reason for correction',{exact:true}).fill('Correct the transcribed cash amount');
+  await edit.click();await page.getByLabel('Amount paid',{exact:true}).fill('900.00');await page.getByLabel('Reason for correction',{exact:true}).fill('Correct the transcribed cash amount');
   await page.getByRole('button',{name:'Review changes',exact:true}).click();
   await page.getByRole('button',{name:'Confirm payment changes',exact:true}).waitFor();
   assert.equal((await page.evaluate(()=>window.calls)).length,1,'review only, no commit');
@@ -42,7 +42,7 @@ try{
   assert.equal((await page.evaluate(()=>window.calls))[1].form.amountCents,90000);
   await close.click();await page.getByRole('button',{name:'Stripe fixture'}).click();
   const amount=page.getByLabel('Stripe payment amount',{exact:true});await amount.waitFor();assert.equal(await amount.inputValue(),'154.70');assert.equal(await amount.isEnabled(),true);
-  await amount.fill('200');await page.getByLabel('Stripe amount toward rental',{exact:true}).fill('50');await page.getByLabel('Stripe amount toward Bridge toll',{exact:true}).fill('10');
+  await amount.fill('200.00');await page.getByLabel('Stripe amount toward rental',{exact:true}).fill('50.00');await page.getByLabel('Stripe amount toward Bridge toll',{exact:true}).fill('10.00');
   await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByText('Stripe payment link copied.',{exact:true}).waitFor();

@@ -57,7 +57,7 @@ try{
   await page.getByRole('tabpanel',{name:'External payments'}).waitFor();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'78.70');
-  await page.getByLabel('Stripe payment amount').fill('50');
+  await page.getByLabel('Stripe payment amount').fill('50.00');
   await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByRole('button',{name:'Copied',exact:true}).waitFor();
@@ -88,7 +88,7 @@ try{
   await page.getByRole('button',{name:'Close payment dialog'}).click();
   await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
-  await page.getByLabel('Stripe payment amount').fill('25');
+  await page.getByLabel('Stripe payment amount').fill('25.00');
   await page.getByRole('button',{name:'Charge saved card · $25.00',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Stripe confirmed the saved-card payment.'}).waitFor();
   assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[3],{kind:'rental',id:'synthetic-rental',mode:'saved',amount:25});

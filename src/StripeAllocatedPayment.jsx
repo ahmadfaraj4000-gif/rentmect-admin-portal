@@ -1,3 +1,4 @@
+import { MoneyInput } from './MoneyInput.jsx';
 import React, { useRef, useState } from 'react';
 import { buildPaymentAllocation, chargeRemainingCents } from './lib/paymentAllocation.js';
 const money = n => new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(n / 100);
@@ -51,10 +52,10 @@ export function StripeAllocatedPayment({client,rental,charges,due,state,onEmail,
   {blocked&&<p role="alert">An external payment is unfinished. Resume or cancel it in External payments first.</p>}
   {active&&<p role="status">A Stripe payment is pending. Its amount and allocations are reserved until payment or cancellation. Use the same link to avoid duplicate payments.</p>}
   <fieldset className="flexible-payment-fields" disabled={busy||!!active||!!blocked||!state}>
-   <label>Stripe payment amount<input type="number" step="0.01" min="0.50" inputMode="decimal" value={request?(amount/100).toFixed(2):form.amount} onChange={e=>change('amount',e.target.value)}/></label>
+   <label>Stripe payment amount<MoneyInput type="number" step="0.01" min="0.50" inputMode="decimal" value={request?(amount/100).toFixed(2):form.amount} onChange={e=>change('amount',e.target.value)}/></label>
    <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
-    {canCollectRent&&<div className="allocation-row"><label><input type="checkbox" checked={rent>0} onChange={e=>change('rentalAmount',e.target.checked?(due/100).toFixed(2):'0')}/>Rental balance</label><span>{money(due)}</span><input aria-label="Stripe amount toward rental" type="number" min="0" max={due/100} step="0.01" value={request?(rent/100).toFixed(2):form.rentalAmount} onChange={e=>change('rentalAmount',e.target.value)}/></div>}
-    {charges.map(c=><div className="allocation-row" key={c.id}><label><input type="checkbox" checked={Object.hasOwn(allocations,c.id)} onChange={e=>allocate(c.id,e.target.checked?(chargeRemainingCents(c)/100).toFixed(2):null)}/>{c.name}</label><span>{money(chargeRemainingCents(c))}</span><input aria-label={`Stripe amount toward ${c.name}`} type="number" min="0.01" max={chargeRemainingCents(c)/100} step="0.01" disabled={!Object.hasOwn(allocations,c.id)} value={allocations[c.id]??''} onChange={e=>allocate(c.id,e.target.value)}/></div>)}
+    {canCollectRent&&<div className="allocation-row"><label><input type="checkbox" checked={rent>0} onChange={e=>change('rentalAmount',e.target.checked?(due/100).toFixed(2):'0')}/>Rental balance</label><span>{money(due)}</span><MoneyInput aria-label="Stripe amount toward rental" type="number" min="0" max={due/100} step="0.01" value={request?(rent/100).toFixed(2):form.rentalAmount} onChange={e=>change('rentalAmount',e.target.value)}/></div>}
+    {charges.map(c=><div className="allocation-row" key={c.id}><label><input type="checkbox" checked={Object.hasOwn(allocations,c.id)} onChange={e=>allocate(c.id,e.target.checked?(chargeRemainingCents(c)/100).toFixed(2):null)}/>{c.name}</label><span>{money(chargeRemainingCents(c))}</span><MoneyInput aria-label={`Stripe amount toward ${c.name}`} type="number" min="0.01" max={chargeRemainingCents(c)/100} step="0.01" disabled={!Object.hasOwn(allocations,c.id)} value={allocations[c.id]??''} onChange={e=>allocate(c.id,e.target.value)}/></div>)}
    </div>
   </fieldset>
   <dl className="allocation-review"><dt>Stripe amount</dt><dd>{money(amount||0)}</dd><dt>Rental allocation</dt><dd>{money(rent||0)}</dd><dt>Additional charges / tolls</dt><dd>{money(extras||0)}</dd><dt>{credit<0?'Reduce allocations by':'Customer credit'}</dt><dd>{money(Math.abs(credit)||0)}</dd></dl>

@@ -1,3 +1,4 @@
+import { MoneyInput } from './MoneyInput.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTaskDraft } from './useTaskDraft.js';
@@ -11,17 +12,17 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_Yo
 
 export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue, onRecord, onClose,
   initialChargeIds = [], canCollectRent = true, canManageCharges = true, stripeTargets = [], onStripeCreate, onStripeEmail, onStripeOpen, onStripeSavedCard, protectedDeposit = 0, initialTab = 'external' }) {
+  const eligible = canManageCharges ? charges.filter(c => !['rental_amendment', 'rental_installment'].includes(c.charge_type) && chargeRemainingCents(c) > 0 && !c.payment_receipt_id && !c.external_toll_receipt_id && !c.checkout_creation_token) : [];
   const [tab, setTab] = useState(initialTab);
   const [state, setState] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState(null);
   const [form, setForm, clearDraft] = useTaskDraft(`flex-payment:${rental.id}`, {
-    amount: '', rentalAmount: '', allocationsJson: JSON.stringify(Object.fromEntries(charges.filter(c => initialChargeIds.includes(c.id)).map(c => [c.id, (chargeRemainingCents(c) / 100).toFixed(2)]))),
+    amount: '0.00', rentalAmount: '0.00', allocationsJson: JSON.stringify(Object.fromEntries(eligible.filter(c => initialChargeIds.includes(c.id) || c.source_type === 'late_return' || ['late_fee', 'late_rental_day'].includes(c.charge_type)).map(c => [c.id, (chargeRemainingCents(c) / 100).toFixed(2)]))),
     funding: 'external', paymentMethod: 'cash_app', receivedDate: today(), receivedTime: '', reference: '', notes: '', receiptId: '', requestJson: '', confirmed: false,
   }, ['amount', 'rentalAmount', 'allocationsJson', 'funding', 'paymentMethod', 'receivedDate', 'receivedTime', 'reference', 'notes', 'receiptId', 'requestJson']);
   const dialog = useRef(null), submitLock = useRef(false);
   const pending = form.requestJson ? JSON.parse(form.requestJson) : null;
   const allocations = pending ? Object.fromEntries(pending.charges.map(c => [c.id, (c.amountCents / 100).toFixed(2)])) : JSON.parse(form.allocationsJson);
   const due = canCollectRent ? Math.round(Number(rentalDue || 0) * 100) : 0;
-  const eligible = canManageCharges ? charges.filter(c => !['rental_amendment', 'rental_installment'].includes(c.charge_type) && chargeRemainingCents(c) > 0 && !c.payment_receipt_id && !c.external_toll_receipt_id && !c.checkout_creation_token) : [];
   const amount = pending?.amountCents ?? Math.round(Number(form.amount || 0) * 100);
   const rent = pending?.rentalAmountCents ?? Math.round(Number(form.rentalAmount || 0) * 100);
   const extras = Object.values(allocations).reduce((sum, v) => sum + Math.round(Number(v || 0) * 100), 0);
@@ -97,14 +98,14 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
       {pending && <p role="status">This payment is awaiting confirmation. Resume the same payment to check its result.</p>}
       <fieldset disabled={tab !== 'external' || busy || !!pending || !state || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')} className="flexible-payment-fields">
         <label>Collection method<select value={funding} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
-        <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<input type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
+        <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<MoneyInput type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
         <p className="allocation-explanation">Enter the full payment, even if it exceeds the balance due. Choose charges below and edit how much goes to each. Unallocated money stays as customer credit for this rental.</p>
         <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
-          {canCollectRent && <div className="allocation-row"><label><input type="checkbox" checked={rent > 0} onChange={e => change('rentalAmount', e.target.checked ? (due / 100).toFixed(2) : '')}/>Rental balance</label><span>{money(due)}</span><input aria-label="Amount toward rental" type="number" inputMode="decimal" min="0" max={due / 100} step="0.01" value={pending ? (rent / 100).toFixed(2) : form.rentalAmount} onChange={e => change('rentalAmount', e.target.value)}/></div>}
+          {canCollectRent && <div className="allocation-row"><label><input type="checkbox" checked={rent > 0} onChange={e => change('rentalAmount', e.target.checked ? (due / 100).toFixed(2) : '')}/>Rental balance</label><span>{money(due)}</span><MoneyInput aria-label="Amount toward rental" type="number" inputMode="decimal" min="0" max={due / 100} step="0.01" value={pending ? (rent / 100).toFixed(2) : form.rentalAmount} onChange={e => change('rentalAmount', e.target.value)}/></div>}
           {eligible.some(c => c.charge_type === 'toll') && <label className="allocation-select-tolls"><input type="checkbox" checked={eligible.filter(c => c.charge_type === 'toll').every(c => Object.hasOwn(allocations, c.id))} onChange={e => {
             const next = { ...allocations }; for (const c of eligible.filter(c => c.charge_type === 'toll')) { if (e.target.checked) next[c.id] = (chargeRemainingCents(c) / 100).toFixed(2); else delete next[c.id]; } change('allocationsJson', JSON.stringify(next));
           }}/>Select all tolls</label>}
-          {eligible.map(c => <div className="allocation-row" key={c.id}><label><input type="checkbox" checked={Object.hasOwn(allocations, c.id)} onChange={e => allocate(c.id, e.target.checked ? (chargeRemainingCents(c) / 100).toFixed(2) : null)}/>{c.name}</label><span>{money(chargeRemainingCents(c))}</span><input aria-label={`Amount toward ${c.name}`} disabled={!Object.hasOwn(allocations, c.id)} type="number" inputMode="decimal" min="0.01" max={chargeRemainingCents(c) / 100} step="0.01" value={allocations[c.id] ?? ''} onChange={e => allocate(c.id, e.target.value)}/></div>)}
+          {eligible.map(c => <div className="allocation-row" key={c.id}><label><input type="checkbox" checked={Object.hasOwn(allocations, c.id)} onChange={e => allocate(c.id, e.target.checked ? (chargeRemainingCents(c) / 100).toFixed(2) : null)}/>{c.name}</label><span>{money(chargeRemainingCents(c))}</span><MoneyInput aria-label={`Amount toward ${c.name}`} disabled={!Object.hasOwn(allocations, c.id)} type="number" inputMode="decimal" min="0.01" max={chargeRemainingCents(c) / 100} step="0.01" value={allocations[c.id] ?? ''} onChange={e => allocate(c.id, e.target.value)}/></div>)}
         </div>
         {funding === 'external' && <><label>Payment method<select value={pending?.paymentMethod || form.paymentMethod} onChange={e => change('paymentMethod', e.target.value)}>{[['cash_app','Cash App'],['cash','Cash'],['terminal','Card terminal'],['card','Card collected externally'],['bank_transfer','Bank transfer'],['other','Other']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Date received<input required type="date" max={today()} value={pending?.receivedDate || form.receivedDate} onChange={e => change('receivedDate', e.target.value)}/></label><label>Time received (Eastern, optional)<input type="time" value={pending?.receivedTime ?? form.receivedTime} onChange={e => change('receivedTime', e.target.value)}/></label></>}
         <label>Reference<input maxLength={120} value={pending?.reference ?? form.reference} onChange={e => change('reference', e.target.value)}/></label><label className="allocation-explanation">Staff notes<textarea maxLength={2000} value={pending?.notes ?? form.notes} onChange={e => change('notes', e.target.value)}/></label>

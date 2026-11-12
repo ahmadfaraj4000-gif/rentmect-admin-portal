@@ -48,7 +48,7 @@ const getComponent=async(name,next)=>{
 };
 const helpers={React,returnMileageContext,MILEAGE_MAX:9999999,formatMiles:String,swapTimeMessage:()=>'',swapAvailabilityLabel:()=>'Checking availability…',useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
  useState:(initial)=>[typeof initial==='function'?initial():initial,()=>{}],crypto:{randomUUID:()=> 'fixture'},supabase:{},
- money:(v)=>String(v),Car:()=>null,CalendarClock:()=>null,X:()=>null,MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
+ money:(v)=>String(v),Car:()=>null,CalendarClock:()=>null,X:()=>null,MoneyInput:"input",MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
  formatRentalDate:(d,t)=>`${d} ${t}`,formatEasternDateTime:(v)=>v,formatEasternDateTimeInput:()=> '2026-10-24T16:21',easternDateTimeInputToIso:()=> '2026-10-24T20:21:00Z',
  parseBookingDateTime:()=>new Date('2026-10-03T13:00:00Z'),RentalAvailabilityNotice:()=>null};
 const rental={id:'r',vehicle_id:'current',return_date:'2026-10-04',return_time:'9:00 AM',vehicles:{name:'Current car',daily_rate:64}};
