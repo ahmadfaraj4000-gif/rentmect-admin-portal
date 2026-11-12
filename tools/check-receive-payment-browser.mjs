@@ -31,24 +31,26 @@ try{
   const amount=page.getByLabel('Amount received',{exact:true});
   // Real click + typing catches cursor placement that fill() bypasses.
   if(mobile)await amount.tap({position:{x:120,y:20}});else await amount.click({position:{x:120,y:20}});
-  assert.equal(await amount.inputValue(),'');
+  assert.equal(await amount.inputValue(),'0.00');
   assert.equal(await amount.getAttribute('placeholder'),'0.00');
-  await amount.pressSequentially('200');
-  assert.equal(await amount.inputValue(),'200');
-  await page.getByLabel('Payment method').focus();
+  await amount.pressSequentially('20000');
+  assert.equal(await amount.inputValue(),'200.00');
+  await page.getByRole('combobox',{name:'Payment method',exact:true}).focus();
   assert.equal(await amount.inputValue(),'200.00');
   if(mobile)await amount.tap({position:{x:120,y:20}});else await amount.click({position:{x:120,y:20}});
   await amount.pressSequentially('125.50');
-  await page.getByLabel('Payment method').focus();
+  await page.getByRole('combobox',{name:'Payment method',exact:true}).focus();
   assert.equal(await amount.inputValue(),'125.50','Refocusing replaces the previous amount, including after pointer-up');
-  await amount.focus();await amount.pressSequentially('75');
-  await page.getByLabel('Payment method').focus();
+  await amount.focus();await amount.pressSequentially('7500');
+  await page.getByRole('combobox',{name:'Payment method',exact:true}).focus();
   assert.equal(await amount.inputValue(),'75.00','Keyboard focus also replaces the amount');
   await amount.focus();await amount.press('Backspace');
-  await page.getByLabel('Payment method').focus();
+  await page.getByRole('combobox',{name:'Payment method',exact:true}).focus();
   assert.equal(await amount.inputValue(),'0.00','Clearing an amount returns to zero');
   assert.equal(await page.getByLabel('Apply to rental',{exact:true}).isChecked(),true);
-  await page.getByLabel('Amount received',{exact:true}).fill('100');
+  assert.equal(await page.getByRole('checkbox',{name:/Manual charge/}).isChecked(),true,'late fee starts selected');
+  await page.getByRole('checkbox',{name:/Manual charge/}).uncheck();
+  await page.getByLabel('Amount received',{exact:true}).fill('100.00');
   assert.match(await page.locator('.rp-summary').innerText(),/Applied to rental\s*\$100.00/);
   await page.getByLabel('Apply to rental',{exact:true}).uncheck();
   await page.getByLabel(/I confirm/).check();
@@ -61,9 +63,9 @@ try{
   const footer=await page.locator('.rp-footer').boundingBox();
   assert.ok(footer.y>=0&&footer.y+footer.height<=page.viewportSize().height,'Footer stays within viewport');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'No horizontal overflow');
-  await page.getByLabel('Select all tolls').check();await page.getByLabel('Amount received').fill('25');await page.getByLabel(/I confirm/).check();
+  await page.getByLabel('Select all tolls').check();await page.getByLabel('Amount received').fill('25.00');await page.getByLabel(/I confirm/).check();
   await page.getByRole('button',{name:'Record $25.00 payment',exact:true}).click();await page.getByRole('alert').filter({hasText:'cover the selected charges'}).waitFor();assert.equal(await page.evaluate(()=>window.calls.length),0);
-  await page.getByLabel('Amount received').fill('200');await page.getByLabel('Date received',{exact:true}).fill('2026-01-31');await page.getByLabel('Payment notes').fill('Paid last night');
+  await page.getByLabel('Amount received').fill('200.00');await page.getByLabel('Date received',{exact:true}).fill('2026-01-31');await page.getByLabel('Payment notes').fill('Paid last night');
   assert.match(await page.getByRole('dialog').innerText(),/Applied to rental\s*\$174.00/);assert.match(await page.getByRole('dialog').innerText(),/Rental balance after payment\s*\$15.00/);
   await page.locator('.rp-confirmation').scrollIntoViewIfNeeded();
 

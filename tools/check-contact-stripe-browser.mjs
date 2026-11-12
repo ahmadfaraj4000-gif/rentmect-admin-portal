@@ -34,6 +34,7 @@ try {
   const page=await browser.newPage({viewport:{width,height:900}});
   await page.goto('http://127.0.0.1:5197/'+folder.split('/').at(-1)+'/index.html');
   await page.getByRole('button',{name:'Copy link',exact:true}).waitFor();
+  assert.ok(await page.locator('.contact-preview p').evaluate(n=>getComputedStyle(n).overflow==='hidden' && n.clientHeight<=Math.ceil(parseFloat(getComputedStyle(n).lineHeight)*4) && n.scrollHeight>n.clientHeight),'long preview is clipped to four lines');
   const sizes=await page.locator('.customer-contact-modal, .customer-contact-body, .contact-preview').evaluateAll(nodes=>nodes.map(n=>({width:n.clientWidth,scroll:n.scrollWidth})));
   for(const size of sizes)assert.ok(size.scroll<=size.width+1,JSON.stringify({width,sizes}));
   for(const name of ['Copy link','Send email'])await page.getByRole('button',{name,exact:true}).scrollIntoViewIfNeeded();

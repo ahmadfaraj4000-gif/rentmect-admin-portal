@@ -1,3 +1,4 @@
+import { MoneyInput } from './MoneyInput.jsx';
 import React,{useRef,useState} from 'react';
 import {paymentCents} from './lib/externalPayment.js';
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
@@ -27,7 +28,7 @@ export function ReceiptActions({payment,onAction,canRefund}) {
  return <div className="receipt-correction">
   {editable?<><p>Correct the amount actually received. Review the effect on balances before confirming. This updates the accounting record; it does not charge or refund the customer.</p>
    <fieldset disabled={busy||!!review}>
-    <label>Amount paid<input type="number" min="0.01" step="0.01" inputMode="decimal" value={form.amount} onChange={e=>change('amount',e.target.value)}/></label>
+    <label>Amount paid<MoneyInput type="number" min="0.01" step="0.01" inputMode="decimal" value={form.amount} onChange={e=>change('amount',e.target.value)}/></label>
     <label>Payment method<select value={form.paymentMethod} onChange={e=>change('paymentMethod',e.target.value)}>{[['cash','Cash'],['cash_app','Cash App'],['terminal','Card terminal'],['card','External card'],['bank_transfer','Bank transfer'],['other','Other']].map(([v,label])=><option key={v} value={v}>{label}</option>)}</select></label>
     <label>Date received<input type="date" value={form.receivedDate} onChange={e=>change('receivedDate',e.target.value)}/></label>
     <label>Time received (Eastern, optional)<input type="time" value={form.receivedTime} onChange={e=>change('receivedTime',e.target.value)}/></label>

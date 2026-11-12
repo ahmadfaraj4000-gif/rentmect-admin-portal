@@ -1,3 +1,4 @@
+import { MoneyInput } from './MoneyInput.jsx';
 import React, {useRef,useState} from 'react';
 const amountText=n=>Number(n||0).toFixed(2);
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
@@ -27,7 +28,7 @@ export function StripeReceiveActions({targets=[],onCreate,onEmail,onOpen,onSaved
  return <section className="rp-stripe" aria-label="Stripe payments">
   <h3>Stripe</h3><p>Create a secure checkout link, copy it, or review an email to the customer. Payment is recorded after Stripe confirms it.</p>
   {targets.length>0?<label className="rp-field"><span>Stripe payment for</span><select aria-label="Stripe payment for" value={selected} disabled={disabled||busy} onChange={e=>{setSelected(e.target.value);setAmount(amountText(targets.find(t=>t.id===e.target.value)?.amount));setPaid(false);setUrl('');setError('');setCopied(false);}}>{targets.map(t=><option key={t.id} value={t.id}>{t.label} · {money(t.amount)}</option>)}</select></label>:<p>No unpaid rental balance or additional charges are available for Stripe checkout.</p>}
-  {target&&<label className="rp-field"><span>Payment amount</span><input aria-label="Stripe payment amount" type="text" inputMode="decimal" value={amount} disabled={disabled||busy||paid||target.id!=='rental'} onChange={e=>{setAmount(e.target.value);setUrl('');setError('');setCopied(false);}}/></label>}
+  {target&&<label className="rp-field"><span>Payment amount</span><MoneyInput aria-label="Stripe payment amount" type="text" inputMode="decimal" value={amount} disabled={disabled||busy||paid||target.id!=='rental'} onChange={e=>{setAmount(e.target.value);setUrl('');setError('');setCopied(false);}}/></label>}
   {paid&&<p role="status">Stripe confirmed the saved-card payment.</p>}
   <div className="rp-stripe-actions">
    {onSavedCard&&<button type="button" disabled={disabled||busy||paid||!target||(target.id!=='rental'&&(!target.charge||Math.round(Number(amount)*100)!==Math.round(target.amount*100)))} onClick={()=>act('saved')}>Charge saved card{target?` · ${money(Number(amount)||0)}`:''}</button>}

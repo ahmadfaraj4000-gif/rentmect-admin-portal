@@ -16,7 +16,7 @@ const rental = { id:'rental', vehicle_id:'audi', pickup_date:'2026-09-17', retur
 const quote = { revision:'reviewed', starts_at:'2026-10-04T13:00:00Z', ends_at:'2026-10-08T13:00:00Z', daily_rate:49,
   extension_days:4, previous_balance:156.33, extension_total:208.45, total_due:364.78, deposit_held:300 };
 const helpers = { rentalDayShortcut, React, supabase: {}, parseBookingDateTime: () => new Date('2026-10-04T13:00:00Z'),
-  useVehicleAvailability: () => ({ ready: true, rows: [{ vehicle_id: 'audi', available: true, conflicts: [] }] }), RentalAvailabilityNotice: () => null, CalendarClock:()=>null, X:()=>null, MONEY_MAX:100000,
+  useVehicleAvailability: () => ({ ready: true, rows: [{ vehicle_id: 'audi', available: true, conflicts: [] }] }), RentalAvailabilityNotice: () => null, CalendarClock:()=>null, X:()=>null, MoneyInput:"input",MONEY_MAX:100000,
   money:n=>`$${Number(n).toFixed(2)}`, formatRentalDate:(d,t)=>`${d} ${t}`, formatEasternDateTime:s=>s,
   calendarTimeOptions:()=>['9:00 AM','10:00 AM'] };
 function harness(savedContext = { daily_rate: 49, fleet_daily_rate: 69, revisable_extension: { starts_at: '2026-10-04T13:00:00Z', daily_rate: 49 } }) {

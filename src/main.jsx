@@ -1,3 +1,4 @@
+import { MoneyInput } from './MoneyInput.jsx';
 import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
 import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
 import { RentalPricingHistory } from './RentalPricingHistory.jsx';
@@ -6458,8 +6459,8 @@ function VehicleOperationsFields({ form, onChange, statusOptions, vehicle = null
   const scheduleStatus = vehicle ? vehicleScheduleStatus(vehicle.status) : '';
 
   return <div className="vehicle-form-grid">
-    <label className="field-label">Daily rate<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Daily rate in USD" value={form.daily_rate} onChange={(event)=>onChange('daily_rate', event.target.value)} required /></label>
-    <label className="field-label">Refundable deposit<input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$300.00" title="Base refundable deposit for this vehicle" value={form.security_deposit} onChange={(event)=>onChange('security_deposit', event.target.value)} required /></label>
+    <label className="field-label">Daily rate<MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Daily rate in USD" value={form.daily_rate} onChange={(event)=>onChange('daily_rate', event.target.value)} required /></label>
+    <label className="field-label">Refundable deposit<MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" placeholder="$300.00" title="Base refundable deposit for this vehicle" value={form.security_deposit} onChange={(event)=>onChange('security_deposit', event.target.value)} required /></label>
     <label className="field-label">Original odometer mileage<input type="number" min="0" max={MILEAGE_MAX} step="1" inputMode="numeric" value={form.original_mileage} onChange={(event)=>onChange('original_mileage', event.target.value)} required /></label>
     <label className="field-label">Current odometer mileage<input type="number" min={form.original_mileage || 0} max={MILEAGE_MAX} step="1" inputMode="numeric" value={form.current_mileage} onChange={(event)=>onChange('current_mileage', event.target.value)} required /></label>
     <label className="field-label">Maintenance interval<select value={form.maintenance_interval_miles} onChange={(event)=>onChange('maintenance_interval_miles', event.target.value)}>
@@ -7852,7 +7853,7 @@ function SettingsTab({
             <option value="percentage">Percentage off</option>
             <option value="fixed">Dollar amount off</option>
           </select>
-          <input type="number" step="0.01" min="0.01" max={discountForm.discount_type === 'percentage' ? 100 : MONEY_MAX} inputMode="decimal" placeholder={discountForm.discount_type === 'percentage' ? '0-100%' : '$0.00'} title={discountForm.discount_type === 'percentage' ? 'Percentage discount from 0.01 to 100.' : 'Dollar discount in USD.'} value={discountForm.amount} onChange={(event) => updateDiscount('amount', event.target.value)} />
+          <MoneyInput decimalMode={discountForm.discount_type === 'percentage'} type="number" step="0.01" min="0.01" max={discountForm.discount_type === 'percentage' ? 100 : MONEY_MAX} inputMode="decimal" placeholder={discountForm.discount_type === 'percentage' ? '0-100%' : '$0.00'} title={discountForm.discount_type === 'percentage' ? 'Percentage discount from 0.01 to 100.' : 'Dollar discount in USD.'} value={discountForm.amount} onChange={(event) => updateDiscount('amount', event.target.value)} />
         </div>
         <div className="form-row">
           <input type="number" min="1" max="10000" step="1" inputMode="numeric" placeholder="Max uses optional" title="Whole-number redemption limit, max 10,000." value={discountForm.max_redemptions} onChange={(event) => updateDiscount('max_redemptions', event.target.value)} />
@@ -7927,7 +7928,7 @@ function SettingsTab({
         <input placeholder="Template name e.g. speeding, reactivation, cleaning" maxLength="60" value={serviceFeeForm.name} onChange={(event) => updateFee('name', event.target.value)} />
         <div className="form-row">
           <input placeholder="Fee type e.g. gas, late_return, pickup, delivery" maxLength="32" title="Internal fee type, 32 characters max." value={serviceFeeForm.service_type} onChange={(event) => updateFee('service_type', event.target.value)} />
-          <input type="number" step="0.01" min="0.01" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Fee amount in USD." value={serviceFeeForm.amount} onFocus={(event) => event.target.select()} onBlur={() => updateFee('amount', formatDecimalInput(serviceFeeForm.amount))} onChange={(event) => updateFee('amount', event.target.value)} />
+          <MoneyInput type="number" step="0.01" min="0.01" max={MONEY_MAX} inputMode="decimal" placeholder="$0.00" title="Fee amount in USD." value={serviceFeeForm.amount} onFocus={(event) => event.target.select()} onBlur={() => updateFee('amount', formatDecimalInput(serviceFeeForm.amount))} onChange={(event) => updateFee('amount', event.target.value)} />
         </div>
         <textarea placeholder="Optional internal description copied onto the rental charge when applied" maxLength="240" value={serviceFeeForm.description} onChange={(event) => updateFee('description', event.target.value)} />
         <div className="form-row compact">
@@ -9008,7 +9009,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
         <fieldset disabled={busy} className="rental-amendment-grid vehicle-swap-fields">
           <label><span>New return date</span><input type="date" required min={revising && extensionStart ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(extensionStart)) : rental.return_date} value={form.returnDate} onChange={(e) => change('returnDate', e.target.value)}/></label>
           <label><span>New return time (Eastern)</span><select value={form.returnTime} onChange={(e) => change('returnTime', e.target.value)}>{calendarTimeOptions(form.returnTime).map((time) => <option key={time}>{time}</option>)}</select></label>
-          <label><span>Agreed daily rate</span><input type="number" required min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label>
+          <label><span>Agreed daily rate</span><MoneyInput type="number" required min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label>
           <label className="wide"><span>Reason and customer agreement</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <div className="row-actions">{[1, 3, 4, 5, 7].map(days => <button key={days} type="button" disabled={busy} onClick={() => {
@@ -9096,7 +9097,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
           <label><span>Swap reason</span><select value={form.swapKind} onChange={(e) => change('swapKind', e.target.value)}><option value="emergency">Emergency replacement</option><option value="maintenance">Maintenance replacement</option><option value="customer_request">Customer requested change</option></select></label>
           <label><span>When are the vehicles being exchanged?</span><select value={form.timeMode} onChange={e => change('timeMode', e.target.value)}><option value="now">Swap now</option><option value="custom">Enter actual swap time</option></select></label>
           {form.timeMode === 'custom' && <label><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
-          {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><input type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
+          {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><MoneyInput type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
           <label><span>Outgoing vehicle return odometer</span><input type="number" min={returnMileageContext(rental).minimum} max={MILEAGE_MAX} step="1" required value={form.outgoingMileage} onChange={e => change('outgoingMileage', e.target.value)}/></label>
           <label><span>Replacement vehicle pickup odometer</span><input type="number" min={vehicles.find(v => v.id === form.vehicleId)?.current_mileage || 0} max={MILEAGE_MAX} step="1" required value={form.incomingMileage} onChange={e => change('incomingMileage', e.target.value)}/></label>
           <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
@@ -9301,8 +9302,8 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
         <section className="rental-amendment-section">
           <div className="rental-amendment-section-heading"><span>2</span><div><strong>Pricing and deposit</strong><small>Age pricing, the saved discount, and Connecticut tax are recalculated server-side.</small></div></div>
           <div className="rental-amendment-grid">
-            <label><span>Daily rental rate</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(event) => update('dailyRate', event.target.value)} required /></div></label>
-            <label><span>Security deposit</span><div className="currency-input"><span>$</span><input type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} placeholder="Use vehicle deposit" disabled={checkingDeposit || saving || reviewing} /></div><small>{form.securityDeposit === '' ? `Using the new vehicle’s calculated deposit${calculatedDeposit === null ? '' : `: ${money(calculatedDeposit)}`}.` : 'Deposit amount applies only to this rental.'}{paymentCaptured ? ' Money already held remains recorded; a price decrease does not itself issue a refund.' : ''}</small></label>
+            <label><span>Daily rental rate</span><div className="currency-input"><span>$</span><MoneyInput type="number" min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(event) => update('dailyRate', event.target.value)} required /></div></label>
+            <label><span>Security deposit</span><div className="currency-input"><span>$</span><MoneyInput type="number" min="0" max={MONEY_MAX} step="0.01" value={form.securityDeposit} onChange={(event) => update('securityDeposit', event.target.value)} placeholder="Use vehicle deposit" disabled={checkingDeposit || saving || reviewing} /></div><small>{form.securityDeposit === '' ? `Using the new vehicle’s calculated deposit${calculatedDeposit === null ? '' : `: ${money(calculatedDeposit)}`}.` : 'Deposit amount applies only to this rental.'}{paymentCaptured ? ' Money already held remains recorded; a price decrease does not itself issue a refund.' : ''}</small></label>
           </div>
         </section>
 
@@ -9633,7 +9634,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
         {complete ? <div className="step-complete-summary"><CheckCircle2 size={19}/><span><strong>Payment is complete.</strong> The payment and deposit remain linked to this booking.</span></div> : <div className="admin-payment-choice">
           <label className="modal-field stripe-installment-amount">
             <span>Payment amount</span>
-            <div className="money-input-shell"><span>$</span><input type="number" min="0.50" max={Number(amountDue || 0).toFixed(2)} step="0.01" inputMode="decimal" value={stripeAmount} onFocus={(event) => event.target.select()} onChange={(event) => { setStripeAmount(event.target.value); setError(''); }} /></div>
+            <div className="money-input-shell"><span>$</span><MoneyInput type="number" min="0.50" max={Number(amountDue || 0).toFixed(2)} step="0.01" inputMode="decimal" value={stripeAmount} onFocus={(event) => event.target.select()} onChange={(event) => { setStripeAmount(event.target.value); setError(''); }} /></div>
           </label>
           {stripeAmountValue > 0 && <div className="stripe-installment-summary" role="status">
             <span>{stripeIsPartial ? 'Remaining after Stripe confirms' : 'Balance after Stripe confirms'}</span>
@@ -10126,7 +10127,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
       <label className="full-field internal-fee-template-field"><span>Quick charge / Rental agreement fee</span><select defaultValue="" onChange={(event) => chooseInternalTemplate(event.target.value)}><option value="">Choose an agreement charge…</option><optgroup label="Rental agreement fees">{agreementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel || money(template.amount)}</option>)}</optgroup><optgroup label="Purchases">{purchaseTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} — {template.pricingLabel}</option>)}</optgroup>{serviceFees.length > 0 && <optgroup label="Saved internal fees">{serviceFees.map((fee) => <option key={fee.id} value={`service:${fee.id}`}>{fee.name} — {money(fee.amount)}</option>)}</optgroup>}</select><small>Fixed agreement fees fill automatically. Variable or actual-cost items require the documented amount.</small></label>
       <label className="charge-name-field"><span>Charge</span><input value={form.name} onChange={(event) => setForm({ ...form, name: limitText(event.target.value, 120) })} placeholder="Toll, cleaning, child seat…" required /></label>
       <label className="charge-type-field"><span>Type</span><select value={form.chargeType} onChange={(event) => chooseChargeType(event.target.value)}>{!standardChargeTypes.has(form.chargeType) && <option value={form.chargeType}>{prettyStatus(form.chargeType)}</option>}<option value="toll">Toll</option><option value="add_on">Add-on</option><option value="cleaning">Cleaning</option><option value="late_fee">Late fee — fixed $25</option><option value="late_rental_day">Late day — whole rental day</option><option value="damage">Damage</option><option value="other">Other</option></select></label>
-      <label className="charge-amount-field"><span>Amount</span><input type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
+      <label className="charge-amount-field"><span>Amount</span><MoneyInput type="number" min="0.50" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
       <label className="charge-description-field"><span>Description</span><input value={form.description} onChange={(event) => setForm({ ...form, description: limitText(event.target.value, 300) })} /></label>
       <label className="checkbox-row"><input type="checkbox" checked={form.taxable} onChange={(event) => setForm({ ...form, taxable: event.target.checked })}/> Apply CT sales tax</label>
       <button className="approve" disabled={saving}>{saving ? 'Adding…' : 'Apply charge to this rental'}</button>
@@ -10228,7 +10229,7 @@ function TollExternalPaymentModal({ rental, charges, onClose, onRecord }) {
         {!displayItems.length && <p>No unpaid tolls are available for external payment.</p>}
         <div className="external-payment-total"><span>{pending ? pending.charges.length : selected.length} selected · Total</span><strong>{money((pending?.amountCents ?? total) / 100)}</strong></div>
         <fieldset disabled={saving || Boolean(pending)} className="toll-payment-fields">
-          <label className="modal-field"><span>Amount received</span><input type="number" min="0.01" step="0.01" required value={pending ? (pending.amountCents / 100).toFixed(2) : form.amount} onChange={e => setForm(current => ({ ...current, amount: e.target.value, confirmed: false }))}/></label>
+          <label className="modal-field"><span>Amount received</span><MoneyInput type="number" min="0.01" step="0.01" required value={pending ? (pending.amountCents / 100).toFixed(2) : form.amount} onChange={e => setForm(current => ({ ...current, amount: e.target.value, confirmed: false }))}/></label>
           <label className="modal-field"><span>Payment method</span><select value={pending?.paymentMethod || form.paymentMethod} onChange={e => setForm(current => ({ ...current, paymentMethod: e.target.value }))}><option value="cash">Cash</option><option value="terminal">Card terminal</option><option value="card">Card collected externally</option><option value="cash_app">Cash App</option><option value="bank_transfer">Bank transfer</option><option value="other">Other external payment</option></select></label>
           <label className="modal-field"><span>Date received</span><input type="date" required max={today} value={pending?.receivedDate || form.receivedDate} onChange={e => setForm(current => ({ ...current, receivedDate: e.target.value }))}/></label>
           <label className="modal-field"><span>Receipt or reference (optional)</span><input maxLength={120} value={pending?.reference ?? form.reference} onChange={e => setForm(current => ({ ...current, reference: e.target.value }))}/></label>
@@ -10358,7 +10359,7 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
         <small>The held security deposit is protected and returned separately with the Refund Deposit action after inspection.</small>
       </div>
       <label className="field-label">Exact refund amount
-        <input type="number" min="0.50" max={maximumAmount.toFixed(2)} step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" autoFocus required />
+        <MoneyInput type="number" min="0.50" max={maximumAmount.toFixed(2)} step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" autoFocus required />
       </label>
       <button type="button" className="secondary-btn" onClick={() => setAmount(maximumAmount.toFixed(2))}>Use maximum {money(maximumAmount)}</button>
       <label className="field-label">Refund reason
@@ -10472,7 +10473,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
 
       {form.mode !== 'remove' && <label className="modal-field">
         <span>{form.mode === 'percentage' ? 'Percentage to take off the rental price' : 'Exact dollar amount to take off the rental price'}</span>
-        <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><input type="number" min="0.01" max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
+        <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><MoneyInput decimalMode={form.mode === 'percentage'} type="number" min="0.01" max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
       </label>}
 
       {previewing && <div className="manual-discount-preview loading">Calculating rental and CT tax…</div>}
@@ -10853,9 +10854,9 @@ function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
       <div className="damage-case-form">
         <textarea value={form.description} maxLength="1000" onChange={(event) => update('description', limitText(event.target.value, 1000))} placeholder="Damage description" />
         <textarea value={form.admin_notes} maxLength="1500" onChange={(event) => update('admin_notes', limitText(event.target.value, 1500))} placeholder="Admin notes, estimate details, customer communication..." />
-        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Estimated repair cost in USD." value={form.estimated_cost} onChange={(event) => update('estimated_cost', event.target.value)} placeholder="$0.00 estimated cost" />
-        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Final customer charge in USD." value={form.final_charge_amount} onChange={(event) => update('final_charge_amount', event.target.value)} placeholder="$0.00 final charge" />
-        <input type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Deposit amount held in USD." value={form.deposit_held_amount} onChange={(event) => update('deposit_held_amount', event.target.value)} placeholder="$0.00 deposit held" />
+        <MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Estimated repair cost in USD." value={form.estimated_cost} onChange={(event) => update('estimated_cost', event.target.value)} placeholder="$0.00 estimated cost" />
+        <MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Final customer charge in USD." value={form.final_charge_amount} onChange={(event) => update('final_charge_amount', event.target.value)} placeholder="$0.00 final charge" />
+        <MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Deposit amount held in USD." value={form.deposit_held_amount} onChange={(event) => update('deposit_held_amount', event.target.value)} placeholder="$0.00 deposit held" />
       </div>
     </div>
     <div className="row-actions">
@@ -11348,7 +11349,7 @@ function ExternalPaymentModal({ rental, amountDue: requestedAmountDue, initialAm
       </div>
       <label className="modal-field">
         <span>Actual amount received</span>
-        <div className="money-input-shell"><span>$</span><input type="number" min="0.01" max={amountDue.toFixed(2)} step="0.01" inputMode="decimal" value={form.amount} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} required /></div>
+        <div className="money-input-shell"><span>$</span><MoneyInput type="number" min="0.01" max={amountDue.toFixed(2)} step="0.01" inputMode="decimal" value={form.amount} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} required /></div>
       </label>
       {enteredAmount > 0 && remainingAfterPayment > 0.005 && <div className="external-payment-installment-preview" role="status">
         <span>Balance after this installment</span>

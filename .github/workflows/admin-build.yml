@@ -65,6 +65,7 @@ jobs:
           node /tmp/rentme-browser-tools/node_modules/playwright/cli.js install --with-deps chromium
           node tools/check-payment-corrections-browser.mjs
           node tools/check-contact-stripe-browser.mjs
+          node tools/check-allocated-stripe-card-browser.mjs
 
       - name: Build production assets
         run: npm run build

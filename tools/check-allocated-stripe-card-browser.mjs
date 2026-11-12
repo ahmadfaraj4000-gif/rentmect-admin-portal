@@ -14,7 +14,7 @@ await writeFile(folder+'/refund.jsx',`import React from 'react';import{createRoo
 window.refundCalls=0;createRoot(document.getElementById('root')).render(<ReceiptActions canRefund payment={{flexibleReceipt:true,status:'posted',provider:'external',refundBlockReason:'This rental deposit has already been used. Reconcile the deposit before returning money.'}} onAction={()=>{window.refundCalls++}}/>);`);
 await writeFile(folder+'/test.jsx',`import React from 'react';import{createRoot}from'react-dom/client';import{RentalRow}from'../src/.flex-card-browser.jsx';import{DraftOwnerContext}from'../src/useTaskDraft.js';
 const rental={id:'synthetic-rental',user_id:'customer',vehicle_id:'car',status:'overdue',payment_status:'partially_paid',rental_total:236.10000000000005,security_deposit:300,deposit_held_amount:300,deposit_status:'held',paid_at:'2026-11-01T14:00:00Z',payment_amount_cents:45740,payment_provider:'local',external_payment_method:'cash',pickup_date:'2026-11-01',pickup_time:'10:00 AM',return_date:'2026-11-02',return_time:'10:00 AM',agreement_signed:true,vehicles:{name:'Synthetic Cadillac ATS #780',daily_rate:74},profiles:{full_name:'Synthetic Customer',email:'synthetic@example.com',phone_verified:true,identity_verification_status:'verified'}};
-const charges=[{id:'toll',name:'Bridge toll',charge_type:'toll',status:'pending',total_amount:26,amount:26},{id:'fee',name:'New insurance',charge_type:'add_on',status:'pending',total_amount:50,amount:50}, {id:'historical-insurance',name:'Historical insurance',charge_type:'add_on',status:'paid',total_amount:117.26,amount:117.26,paid_at:'2026-11-02T14:00:00Z',payment_provider:'local',external_payment_method:'cash_app'}, ...Array.from({length:30},(_,i)=>({id:'old-'+i,name:'Historical toll '+i,charge_type:'toll',status:'paid',total_amount:1,amount:1,paid_at:'2026-11-01T12:00:00Z',payment_provider:'local'}))].map(c=>({...c,rental_id:rental.id,user_id:rental.user_id}));
+const charges=[{id:'toll',name:'Bridge toll',charge_type:'toll',status:'pending',total_amount:26,amount:26},{id:'fee',name:'Late return fee',source_type:'late_return',charge_type:'late_fee',status:'pending',total_amount:50,amount:50}, {id:'historical-insurance',name:'Historical insurance',charge_type:'add_on',status:'paid',total_amount:117.26,amount:117.26,paid_at:'2026-11-02T14:00:00Z',payment_provider:'local',external_payment_method:'cash_app'}, ...Array.from({length:30},(_,i)=>({id:'old-'+i,name:'Historical toll '+i,charge_type:'toll',status:'paid',total_amount:1,amount:1,paid_at:'2026-11-01T12:00:00Z',payment_provider:'local'}))].map(c=>({...c,rental_id:rental.id,user_id:rental.user_id}));
 window.calls=[];window.stripeCalls=[];window.copiedLinks=[];Object.defineProperty(navigator,'clipboard',{value:{writeText:async url=>window.copiedLinks.push(url)},configurable:true});
 async function record(rentalId,id,request,cancel){if(typeof cancel==='string'&&cancel.includes('allocated_stripe')){window.stripeCalls.push({id,request,action:cancel});const result={status:'pending',url:'https://checkout.stripe.com/c/pay/cs_test_allocated'};sessionStorage.setItem('receipt',JSON.stringify({id,allocation_version:2,funding_kind:'stripe',status:'pending',request,result}));return result;}window.calls.push({id,request,cancel});if(cancel){sessionStorage.removeItem('receipt');return{status:'cancelled'}}
  const result={status:'posted',receiptId:id,amountCents:request.amountCents,creditAmountCents:request.creditAmountCents,availableCreditCents:request.creditAmountCents,balanceDue:89,funding:request.funding};
@@ -24,8 +24,16 @@ createRoot(document.getElementById('root')).render(<DraftOwnerContext.Provider v
 const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5195','--strictPort'],{cwd:root,env:{...process.env,VITE_SUPABASE_URL:'http://127.0.0.1:5195/fixture',VITE_SUPABASE_ANON_KEY:'synthetic-anon',VITE_FLEXIBLE_PAYMENTS:process.env.VITE_FLEXIBLE_PAYMENTS || 'true',VITE_UNIFIED_EXTERNAL_PAYMENTS:'true'},stdio:['ignore','pipe','pipe']});
 let browser;
 try{
- await new Promise((ok,no)=>{server.stdout.on('data',d=>{if(d.toString().includes('Local:'))ok()});server.on('error',no);server.on('exit',()=>no(Error('Vite exited')))});
- browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'});
+ let serverOutput='';server.stdout.on('data',d=>{serverOutput+=d});server.stderr.on('data',d=>{serverOutput+=d});
+ const deadline=Date.now()+30000;
+ for(;;){
+  if(server.exitCode!==null)throw Error(`Vite exited: ${serverOutput}`);
+  try{const response=await fetch('http://127.0.0.1:5195/',{signal:AbortSignal.timeout(1000)});if(response.status<500)break;}catch{}
+  if(Date.now()>deadline)throw Error(`Vite did not become ready: ${serverOutput}`);
+  await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ console.log('Rental card fixture server ready; starting browser checks.');
+ browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL==='chromium'?undefined:process.env.PLAYWRIGHT_CHANNEL||'chrome'});
  await mkdir('/tmp/rentme-card-screenshots',{recursive:true});
  for(const viewport of [{width:1440,height:1000},{width:800,height:900},{width:390,height:844}]){
   const page=await browser.newPage({viewport}),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -66,9 +74,25 @@ try{
   await page.getByRole('button',{name:'Close payment details',exact:true}).click();
   await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tabpanel',{name:'External payments'}).waitFor();
+  const external=page.getByRole('tabpanel',{name:'External payments'});
+  const entry=external.getByLabel('Payment amount',{exact:true});
+  assert.equal(await entry.inputValue(),'0.00');
+  assert.equal(await external.getByLabel('Amount toward rental',{exact:true}).inputValue(),'0.00');
+  assert.equal(await external.getByRole('checkbox',{name:'Late return fee',exact:true}).isChecked(),true);
+  assert.equal(await external.getByLabel('Amount toward Late return fee',{exact:true}).inputValue(),'50.00');
+  await entry.click();
+  for(const [digit,value] of [['1','0.01'],['2','0.12'],['3','1.23'],['4','12.34']]){await entry.press(digit);assert.equal(await entry.inputValue(),value);}
+  await entry.press('Backspace');assert.equal(await entry.inputValue(),'1.23');
+  await entry.press('ControlOrMeta+A');await entry.press('Delete');assert.equal(await entry.inputValue(),'0.00');
+  await external.getByRole('checkbox',{name:'Late return fee',exact:true}).uncheck();
+  await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
+  assert.equal(await page.getByRole('tabpanel',{name:'Stripe payments'}).getByRole('checkbox',{name:'Late return fee',exact:true}).isChecked(),true);
+  await page.getByRole('tab',{name:'External payments',exact:true}).click();
+  assert.equal(await external.getByRole('checkbox',{name:'Late return fee',exact:true}).isChecked(),false,'tab switch preserves explicit deselection');
+
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'154.70');
-  await page.getByLabel('Stripe payment amount').fill('200');
+  await page.getByLabel('Stripe payment amount').fill('200.00');
   await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Copy link',exact:true}).click();

@@ -1,3 +1,4 @@
+import { MoneyInput } from './MoneyInput.jsx';
 import { ChargeScrollList } from './ChargeScrollList.jsx';
 import { StripeReceiveActions } from './StripeReceiveActions.jsx';
 import './payment-receipts.css';
@@ -12,7 +13,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
  const [tab,setTab]=useState(initialTab);
  const [saving,setSaving]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[done,setDone]=useState(null),[recoveryReady,setRecoveryReady]=useState(false);
  const [form,setForm,clearDraft]=useTaskDraft(`receive-payment:${rental.id}`,{
-  amount:'0.00',applyToRental:true,paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:'[]',receiptId:'',requestJson:'',confirmed:false,
+  amount:'0.00',applyToRental:true,paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:JSON.stringify((canManageCharges ? eligiblePaymentCharges(charges) : []).filter(c=>c.source_type==='late_return'||['late_fee','late_rental_day'].includes(c.charge_type)).map(c=>c.id)),receiptId:'',requestJson:'',confirmed:false,
  },['amount','applyToRental','paymentMethod','receivedDate','receivedTime','reference','notes','selectedJson','receiptId','requestJson']);
  const pending=form.requestJson?JSON.parse(form.requestJson):null;
  const selected=JSON.parse(form.selectedJson);
@@ -26,8 +27,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
  const formatAmount=()=>{try{change('amount',(paymentCents(form.amount||'0')/100).toFixed(2));}catch{/* Keep invalid input visible for validation. */}};
  const dialog=useRef(null), selectAmountOnClick=useRef(false);
  function focusAmount(event){
-  if(Number(form.amount||0)===0)change('amount','');
-  else event.currentTarget.select();
+  event.currentTarget.select();
  }
  function finishAmountClick(event){
   // Mouse-up can undo focus selection in Safari. Select after the completed click.
@@ -83,7 +83,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   {pending&&<p className="rp-notice" role="status">This payment is awaiting confirmation. Resume the same receipt, or cancel its recording. Cancelling does not return funds.</p>}
   <fieldset disabled={saving||!!pending||!recoveryReady} className="rp-fields">
    <div className="rp-grid">
-    <label className="rp-field"><span>Amount received</span><div className="rp-money"><span aria-hidden="true">$</span><input required type="text" inputMode="decimal" autoComplete="off" aria-label="Amount received" value={pending?(pending.amountCents/100).toFixed(2):form.amount} placeholder="0.00" onPointerDown={e=>{selectAmountOnClick.current=document.activeElement!==e.currentTarget;}} onClick={finishAmountClick} onFocus={focusAmount} onBlur={formatAmount} onChange={e=>change('amount',e.target.value)}/></div></label>
+    <label className="rp-field"><span>Amount received</span><div className="rp-money"><span aria-hidden="true">$</span><MoneyInput required type="text" inputMode="decimal" autoComplete="off" aria-label="Amount received" value={pending?(pending.amountCents/100).toFixed(2):form.amount} placeholder="0.00" onPointerDown={e=>{selectAmountOnClick.current=document.activeElement!==e.currentTarget;}} onClick={finishAmountClick} onFocus={focusAmount} onBlur={formatAmount} onChange={e=>change('amount',e.target.value)}/></div></label>
     <label className="rp-field"><span>Payment method</span><select value={pending?.paymentMethod||form.paymentMethod} onChange={e=>change('paymentMethod',e.target.value)}>{[['cash_app','Cash App'],['cash','Cash'],['terminal','Card terminal'],['card','Card collected externally'],['bank_transfer','Bank transfer'],['other','Other']].map(([v,label])=><option key={v} value={v}>{label}</option>)}</select></label>
     <label className="rp-field"><span>Date received</span><input type="date" required max={today()} value={pending?.receivedDate||form.receivedDate} onChange={e=>change('receivedDate',e.target.value)}/></label>
     <label className="rp-field"><span>Time received <small>(Eastern, optional)</small></span><input type="time" value={pending?.receivedTime??form.receivedTime} onChange={e=>change('receivedTime',e.target.value)}/></label>
