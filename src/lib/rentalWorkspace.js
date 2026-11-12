@@ -12,6 +12,7 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
   const pages = new Map();
   const details = new Map();
   const loads = new Map();
+  const retained = new Map();
   let current = null;
   let selectedId = '';
   let disposed = false;
@@ -91,6 +92,7 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
       deferredList = true;
       return;
     }
+    if (!sameView) retained.clear();
     current = { ...params };
     const cached = pages.get(key);
     if (switching) emit({ ...(!inline || !sameView ? { rows: [], total: cached?.data.total || 0 } : {}), offset: params.offset || 0, error: '' });
@@ -105,7 +107,7 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
       let measured = false;
       try {
         const pageCached = !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation;
-        const data = pageCached
+        let data = pageCached
           ? cached.data : await readList(params);
         if (disposed || rentalPageKey(current) !== key || readGeneration !== generation) return;
         if (token) {
@@ -115,6 +117,18 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
             if (detail && now() - detail.at < RENTAL_CACHE_MS && detail.generation === generation) cachedDetails++;
           }
           observation('cache', token, pageCached && cachedDetails === data.rows.length ? 'cache' : pageCached || cachedDetails > 0 ? 'mixed' : 'network');
+        }
+        // Keep just-reviewed cards in their original positions for this visit.
+        // Server totals/counts stay authoritative; retained cards do not consume
+        // a pagination slot and are hydrated again from the saved ledger.
+        const serverData = data;
+        const serverRowCount = data.rows.length;
+        if (retained.size) {
+          const rows = [...data.rows];
+          for (const [id, saved] of retained) {
+            if (!rows.some(row => row.id === id)) rows.splice(Math.min(saved.index, rows.length), 0, saved.row);
+          }
+          data = { ...data, rows };
         }
         // Failed explicit refreshes may leave an older cache entry behind. Only
         // a fresh complete ledger may recover that card's actions.
@@ -128,12 +142,12 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
         if (inline && state.detailError && records.some(record => record?.rental?.id === selectedId)) {
           emit({ detailLoading: false, detailReady: true, detailError: '' });
         }
-        pages.set(key, { data, at: now(), generation: readGeneration });
+        pages.set(key, { data: serverData, at: now(), generation: readGeneration });
         // Bound memory when searching many different strings.
         if (pages.size > 30) pages.delete(pages.keys().next().value);
         if (rentalPageKey(current) === key) {
           measured = true;
-          emit({ ...data, loading: false, error: '', ...(token ? { listPerformance: { token, outcome: 'success' } } : {}) });
+          emit({ ...data, serverRowCount, retainedReviews: Object.fromEntries([...retained].map(([id, saved]) => [id, saved.applied])), loading: false, error: '', ...(token ? { listPerformance: { token, outcome: 'success' } } : {}) });
         }
       } catch (error) {
         if (rentalPageKey(current) === key) {
@@ -176,6 +190,12 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
 
   return {
     list, open,
+    retainDepositReview(id, applied) {
+      if (current?.filter !== 'deposit_review') return;
+      const index = state.rows.findIndex(row => row.id === id);
+      if (index >= 0) retained.set(id, { row: state.rows[index], index, applied });
+    },
+    clearRetained() { retained.clear(); pages.clear(); },
     getState: () => state,
     invalidate() { generation++; },
     setEditing(value) {

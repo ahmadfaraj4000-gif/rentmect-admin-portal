@@ -70,7 +70,7 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
     return () => { unsubscribeDialogs(); controller.dispose(); controllerRef.current = null; };
   }, [client, userId]);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) { controllerRef.current?.clearRetained(); return; }
     void controllerRef.current?.list({ filter, search: query, focusId, offset });
   }, [enabled, userId, filter, query, focusId, offset]);
   useEffect(() => {
@@ -96,6 +96,7 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   }, [enabled, userId]);
   return {
     ...state, setOffset,
+    retainDepositReview: (id, applied) => controllerRef.current?.retainDepositReview(id, applied),
     open: (id) => controllerRef.current?.open(id),
     invalidate: () => controllerRef.current?.invalidate(),
     refresh: (options) => enabledRef.current ? controllerRef.current?.refresh(options) : Promise.resolve(),
