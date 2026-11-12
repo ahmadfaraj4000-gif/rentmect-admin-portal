@@ -81,7 +81,7 @@ test('rare rental actions use a clearly labelled More Actions menu', () => {
 test('the card renders exactly one clickable horizontal workflow rail', () => {
   assert.equal((source.match(/<RentalProgressTracker/g) || []).length, 1);
   assert.doesNotMatch(source, /<AdminBookingProcedure/);
-  assert.match(source, /onStepClick=\{\(step\) => setAdminStepScope\(step\.key\)\}/);
+  assert.match(source, /onStepClick=\{\(step\) => step\.key === 'payment' \? openPaymentStep\(\) : setAdminStepScope\(step\.key\)\}/);
   assert.match(styles, /grid-template-columns: repeat\(9, minmax\(74px, 1fr\)\)/);
   assert.match(styles, /\.rental-card-workflow \.rental-progress-tracker[\s\S]*overflow-x: auto !important/);
 });
@@ -102,7 +102,7 @@ test('documents and financial actions remain reachable without permanent button 
   assert.match(source, /deleteDocument\(document\)/);
   assert.match(source, /> Take Payment<\/button>/);
   assert.match(source, /> Refund<\/button>/);
-  assert.match(source, /<RentalChargeManager compact/);
+  assert.match(source, /<RentalChargeManager ledger/);
 });
 
 test('the compact card stacks cleanly only at narrow widths', () => {

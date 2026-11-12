@@ -13,7 +13,7 @@ test('internal fee templates are excluded from admin-created booking totals', ()
 
 test('active templates flow only into each rental charge manager', () => {
   assert.match(source, /activeTab === 'rentals'[\s\S]*?<Rentals[\s\S]*?serviceFees=\{serviceFees\.filter\(\(fee\) => fee\.active\)\}/);
-  assert.match(source, /<RentalChargeManager compact[^>]*serviceFees=\{serviceFees\}/);
+  assert.match(source, /<RentalChargeManager ledger[^>]*serviceFees=\{serviceFees\}/);
   assert.match(source, /Internal fee template/);
   assert.match(source, /chooseInternalTemplate\(event\.target\.value\)/);
 });
