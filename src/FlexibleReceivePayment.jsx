@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTaskDraft } from './useTaskDraft.js';
 import { trackTaskDialog } from './lib/taskDraft.js';
-import { buildPaymentAllocation, chargeRemainingCents } from './lib/paymentAllocation.js';
+import { buildPaymentAllocation, chargeRemainingCents, depositFirstAllocation } from './lib/paymentAllocation.js';
 import './rental-ledger.css';
 import './payment-receipts.css';
 import { StripeAllocatedPayment } from './StripeAllocatedPayment.jsx';
@@ -64,7 +64,16 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
     })();
     return () => { active = false; };
   }, [rental.id]);
-  function change(key, value) { setError(''); setForm(f => ({ ...f, [key]: value, ...(key === 'funding' && value === 'credit' ? { depositAmount: '0.00' } : {}), confirmed: false })); }
+  function change(key, value) {
+    setError(''); setForm(f => {
+      const next = { ...f, [key]: value, confirmed: false };
+      if ((key === 'amount' || key === 'funding') && !f.receiptId && !f.requestJson) {
+        const split = depositFirstAllocation({ amount: next.amount, depositDueCents: depositDue, rentalDueCents: due, charges: eligible, funding: next.funding });
+        if (split) { next.depositAmount = split.depositAmount; next.rentalAmount = split.rentalAmount; next.allocationsJson = JSON.stringify(split.allocations); }
+      }
+      return next;
+    });
+  }
   function allocate(id, value) { const next = { ...allocations }; if (value === null) delete next[id]; else next[id] = value; change('allocationsJson', JSON.stringify(next)); }
   async function submit(event) {
     event.preventDefault(); if (tab !== 'external' || submitLock.current || !state || !form.confirmed) return;
@@ -113,10 +122,10 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
       <fieldset disabled={tab !== 'external' || busy || !!pending || !state || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')} className="flexible-payment-fields">
         <label>Collection method<select value={funding} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
         <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<MoneyInput type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
-        <p className="allocation-explanation">Enter the full payment, even if it exceeds the balance due. Choose charges below and edit how much goes to each. Unallocated money stays as customer credit for this rental.</p>
+        <p className="allocation-explanation">Enter the amount received. Money goes to the security deposit first, then rental, then additional charges. Changing the amount updates these selections. Any excess stays as customer credit. Existing customer credit can pay rental and charges, but cannot fund a deposit.</p>
         <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
-          {canCollectRent && <div className="allocation-row"><label><input type="checkbox" checked={rent > 0} onChange={e => change('rentalAmount', e.target.checked ? (due / 100).toFixed(2) : '')}/>Rental balance</label><span>{money(due)}</span><MoneyInput aria-label="Amount toward rental" type="number" inputMode="decimal" min="0" max={due / 100} step="0.01" value={pending ? (rent / 100).toFixed(2) : form.rentalAmount} onChange={e => change('rentalAmount', e.target.value)}/></div>}
           {canCollectRent && depositDue !== undefined && <div className="allocation-row"><label><input type="checkbox" disabled={!depositDue || funding === 'credit'} checked={deposit > 0} onChange={e => change('depositAmount', e.target.checked ? (depositDue / 100).toFixed(2) : '0')}/>Security deposit</label><span>{money(depositDue)}</span><MoneyInput aria-label="Amount toward security deposit" disabled={!depositDue || funding === 'credit'} min="0" max={depositDue / 100} value={pending ? (deposit / 100).toFixed(2) : form.depositAmount} onChange={e => change('depositAmount', e.target.value)}/></div>}
+          {canCollectRent && <div className="allocation-row"><label><input type="checkbox" checked={rent > 0} onChange={e => change('rentalAmount', e.target.checked ? (due / 100).toFixed(2) : '')}/>Rental balance</label><span>{money(due)}</span><MoneyInput aria-label="Amount toward rental" type="number" inputMode="decimal" min="0" max={due / 100} step="0.01" value={pending ? (rent / 100).toFixed(2) : form.rentalAmount} onChange={e => change('rentalAmount', e.target.value)}/></div>}
           {eligible.some(c => c.charge_type === 'toll') && <label className="allocation-select-tolls"><input type="checkbox" checked={eligible.filter(c => c.charge_type === 'toll').every(c => Object.hasOwn(allocations, c.id))} onChange={e => {
             const next = { ...allocations }; for (const c of eligible.filter(c => c.charge_type === 'toll')) { if (e.target.checked) next[c.id] = (chargeRemainingCents(c) / 100).toFixed(2); else delete next[c.id]; } change('allocationsJson', JSON.stringify(next));
           }}/>Select all tolls</label>}
@@ -125,7 +134,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
         {funding === 'external' && <><label>Payment method<select value={pending?.paymentMethod || form.paymentMethod} onChange={e => change('paymentMethod', e.target.value)}>{[['cash_app','Cash App'],['cash','Cash'],['terminal','Card terminal'],['card','Card collected externally'],['bank_transfer','Bank transfer'],['other','Other']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Date received<input required type="date" max={today()} value={pending?.receivedDate || form.receivedDate} onChange={e => change('receivedDate', e.target.value)}/></label><label>Time received (Eastern, optional)<input type="time" value={pending?.receivedTime ?? form.receivedTime} onChange={e => change('receivedTime', e.target.value)}/></label></>}
         <label>Reference<input maxLength={120} value={pending?.reference ?? form.reference} onChange={e => change('reference', e.target.value)}/></label><label className="allocation-explanation">Staff notes<textarea maxLength={2000} value={pending?.notes ?? form.notes} onChange={e => change('notes', e.target.value)}/></label>
       </fieldset>
-      <dl className="allocation-review" aria-live="polite"><dt>{funding === 'credit' ? 'Credit amount entered' : 'Payment amount entered'}</dt><dd>{money(amount || 0)}</dd><dt>Selected for rental</dt><dd>{money(rent || 0)}</dd><dt>Selected for security deposit</dt><dd>{money(deposit || 0)}</dd><dt>Selected for additional charges</dt><dd>{money(extras || 0)}</dd><dt>Total selected to pay</dt><dd>{money((rent || 0) + (deposit || 0) + (extras || 0))}</dd>{credit >= 0 && <><dt>Left as customer credit</dt><dd>{money(credit || 0)}</dd><dt>Rental balance after this payment</dt><dd>{money(Math.max(0, due - rent))}</dd></>}<dt>Current available credit</dt><dd>{money(state?.availableCreditCents || 0)}</dd></dl>
+      <dl className="allocation-review" aria-live="polite"><dt>{funding === 'credit' ? 'Credit amount entered' : 'Payment amount entered'}</dt><dd>{money(amount || 0)}</dd><dt>Selected for security deposit</dt><dd>{money(deposit || 0)}</dd><dt>Selected for rental</dt><dd>{money(rent || 0)}</dd><dt>Selected for additional charges</dt><dd>{money(extras || 0)}</dd><dt>Total selected to pay</dt><dd>{money((rent || 0) + (deposit || 0) + (extras || 0))}</dd>{credit >= 0 && <><dt>Left as customer credit</dt><dd>{money(credit || 0)}</dd><dt>Rental balance after this payment</dt><dd>{money(Math.max(0, due - rent))}</dd></>}<dt>Current available credit</dt><dd>{money(state?.availableCreditCents || 0)}</dd></dl>
       {credit < 0 && <p role="status">{amount > 0 ? <>You entered {money(amount)}, but selected {money(rent + deposit + extras)} to pay. Reduce the selected amounts by {money(-credit)}, or correct the {funding === 'credit' ? 'credit' : 'payment'} amount.</> : <>You selected {money(rent + deposit + extras)} to pay. Enter the {funding === 'credit' ? 'credit amount to use' : 'amount actually received'}, then choose how much of it goes toward each item.</>} Nothing has been applied yet.</p>}
       {state?.paymentUrl && <p><a href={state.paymentUrl} target="_blank" rel="noopener noreferrer">Open secure Stripe payment link</a></p>}
       <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} disabled={busy || !state} onChange={e => setForm(f => ({ ...f, confirmed: e.target.checked }))}/>{funding === 'external' ? 'I confirm this money was received and cleared, and these allocations are correct.' : funding === 'credit' ? 'I confirm the credit allocations. No new money is being received.' : 'I confirm the amount and allocations for this Stripe payment.'}</label>

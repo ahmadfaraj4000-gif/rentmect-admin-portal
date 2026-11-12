@@ -54,3 +54,16 @@ test('partially paid extras count their allocated revenue once, excluding unused
  assert.equal(reversed.month,0);
 });
 
+
+import { depositFirstAllocation } from '../src/lib/paymentAllocation.js';
+test('new payments fill deposit, then rental, then charges and leave excess as credit',()=>{
+ const split=amount=>depositFirstAllocation({amount,depositDueCents:40000,rentalDueCents:16803,charges});
+ assert.deepEqual(split('270'),{depositAmount:'270.00',rentalAmount:'0.00',allocations:{}});
+ assert.deepEqual(split('450'),{depositAmount:'400.00',rentalAmount:'50.00',allocations:{}});
+ assert.deepEqual(split('580'),{depositAmount:'400.00',rentalAmount:'168.03',allocations:{toll:'11.97'}});
+ const r=buildPaymentAllocation({charges,depositDueCents:40000,rentalDueCents:16803,form:{...form,amount:'700',...split('700')}});
+ assert.equal(r.creditAmountCents,5597);assert.equal(r.allocationPriority,'deposit_first');
+ assert.equal(depositFirstAllocation({amount:'10',depositDueCents:0,rentalDueCents:1000}).rentalAmount,'10.00');
+ assert.equal(depositFirstAllocation({amount:'10',depositDueCents:40000,rentalDueCents:1000,funding:'credit'}).depositAmount,'0.00');
+ assert.throws(()=>build({amount:'100',rentalAmount:'100',depositAmount:'0',allocations:{}},{depositDueCents:40000}),/Fund the security deposit/);
+});

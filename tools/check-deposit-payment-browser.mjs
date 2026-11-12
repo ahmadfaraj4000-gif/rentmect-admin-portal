@@ -30,8 +30,7 @@ try{
  await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
  assert.equal(await page.getByLabel('Stripe payment amount',{exact:true}).inputValue(),'378.70');
  const stripe=page.getByRole('tabpanel',{name:'Stripe payments',exact:true});
- await stripe.getByRole('checkbox',{name:'Rental balance',exact:true}).uncheck();
- await page.getByLabel('Stripe amount toward security deposit',{exact:true}).fill('150.00');
+ assert.match(await stripe.locator('.allocation-row').first().innerText(),/Security deposit/);
  await page.getByLabel('Stripe payment amount',{exact:true}).fill('150.00');
  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
  await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
@@ -51,8 +50,7 @@ try{
  await page.getByRole('button',{name:'Take Payment',exact:true}).click();
  await page.getByLabel('Amount toward security deposit',{exact:true}).waitFor();
  const external=page.getByRole('tabpanel',{name:'External payments',exact:true});
- await external.getByRole('checkbox',{name:'Rental balance',exact:true}).uncheck();
- await page.getByLabel('Amount toward security deposit',{exact:true}).fill('100.00');
+ assert.match(await external.locator('.allocation-row').first().innerText(),/Security deposit/);
  await external.getByLabel('Payment amount',{exact:true}).fill('100.00');
  await page.getByRole('checkbox',{name:/I confirm this money was received/}).check();
  await page.getByRole('button',{name:'Record payment',exact:true}).click();
