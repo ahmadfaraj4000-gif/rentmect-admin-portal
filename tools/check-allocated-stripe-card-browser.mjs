@@ -42,6 +42,10 @@ try{
   await page.getByRole('button',{name:'Show rental details',exact:true}).click();
   assert.equal(await page.locator('.rental-card-expanded-content .rental-card-payment-toolbar').getByRole('button',{name:'Take Payment',exact:true}).count(),1);
   await page.getByRole('tab',{name:'Payments',exact:true}).waitFor();
+  const buttonRects=await page.locator('.rental-card-payment-toolbar > button').evaluateAll(nodes=>nodes.map(n=>({top:n.getBoundingClientRect().top,left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right})));
+  assert.equal(buttonRects.length,3);
+  assert.ok(buttonRects.every(r=>Math.abs(r.top-buttonRects[0].top)<2),'all three buttons stay on one row');
+  assert.ok(buttonRects.slice(1).every((r,i)=>r.left>=buttonRects[i].right),'buttons do not overlap');
   await page.screenshot({path:'/tmp/rentme-card-screenshots/card-'+viewport.width+'.png',fullPage:true});
   assert.ok(await page.locator('[role=tabpanel]:visible').evaluate(n=>n.scrollHeight>n.clientHeight),'long payment history scrolls inside ledger');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'card has no horizontal page overflow');
