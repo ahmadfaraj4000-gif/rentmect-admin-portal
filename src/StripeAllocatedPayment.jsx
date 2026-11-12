@@ -38,7 +38,7 @@ export function StripeAllocatedPayment({client,rental,charges,due,state,onEmail,
    if(error||data?.error){let message=data?.error||error?.message;try{message=(await error?.context?.clone?.().json())?.error||message;}catch{}throw new Error(message||'Unable to confirm payment. Check this same attempt again.');}
    if(data.status==='posted'){setDone(data);setReview(null);await onRefresh?.();return;}
    if(data.status==='cancelled'){setAttempt(null);setReview(null);setNotice('The unpaid Stripe attempt was cancelled. You can change the amount and allocations.');await onRefresh?.();return;}
-   setAttempt({...saved,url:data.url||active?.url});setReview(null);
+   setAttempt({...saved,url:data.url||active?.url});setReview(null);await onRefresh?.();
    if(data.url){
     if(mode==='copy'){await navigator.clipboard.writeText(data.url);setNotice('Stripe payment link copied.');}
     else if(mode==='email'||mode==='link')onEmail?.({id:rental.id,kind:'rental',rental,paymentReceiptId:id,amount:req.amountCents/100,label:'Allocated rental payment'},data.url,mode==='email'?'email':'');
