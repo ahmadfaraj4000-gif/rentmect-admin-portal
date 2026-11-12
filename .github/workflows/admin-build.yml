@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ahmadfaraj4000-gif/rentmect
-          ref: 5118b7d
+          ref: 5118b7d1cd8fe1c070c63d3c21c11df0fd51f0f8
           path: .ci-backend
           persist-credentials: false
 
