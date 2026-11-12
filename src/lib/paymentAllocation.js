@@ -16,7 +16,7 @@ export function buildPaymentAllocation({ charges = [], rentalDueCents, available
   const amountCents = paymentCents(form.amount);
   const rentalAmountCents = paymentCents(form.rentalAmount || '0');
   const funding = form.funding || 'external';
-  if (!['external', 'credit', 'stripe_link', 'saved_card'].includes(funding)) throw new Error('Choose a collection method.');
+  if (!['external', 'credit', 'stripe', 'stripe_link', 'saved_card'].includes(funding)) throw new Error('Choose a collection method.');
   if (!amountCents) throw new Error('Enter an amount greater than zero.');
   if (!Number.isSafeInteger(rentalDueCents) || rentalAmountCents > rentalDueCents) throw new Error('Rental allocation exceeds the remaining rental balance.');
   const selected = form.allocations || {};

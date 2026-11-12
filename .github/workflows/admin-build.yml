@@ -55,6 +55,15 @@ jobs:
       - name: Run every admin regression test
         run: node --test tests/*.test.mjs
 
+      - name: Verify payment dialogs in Chromium
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/node_modules/playwright/index.mjs
+          PLAYWRIGHT_CHANNEL: chromium
+        run: |
+          npm install --no-save --package-lock=false playwright@1.65.0
+          npx playwright install --with-deps chromium
+          node tools/check-payment-corrections-browser.mjs
+
       - name: Build production assets
         run: npm run build
 

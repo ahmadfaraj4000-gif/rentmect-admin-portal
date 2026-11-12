@@ -2470,6 +2470,19 @@ function App() {
   }
 
   async function recordExternalTollPayment(rentalId, receiptId, tollPayment, cancel) {
+    if (['admin_create_allocated_stripe','admin_charge_allocated_stripe','admin_cancel_allocated_stripe'].includes(cancel)) {
+      const {data,error}=await supabase.functions.invoke('stripe-web-hook',{body:{action:cancel,rentalId,idempotencyKey:receiptId,externalPayment:tollPayment}});
+      if(error||data?.error){let detail=data?.error||error?.message;try{detail=(await error?.context?.clone?.().json())?.error||detail;}catch{}throw new Error(detail||'Stripe payment could not be confirmed.');}
+      refreshAfterSavedTask(['core','payments','snapshot']);return data;
+    }
+    if (cancel === 'amountcorrect') {
+      const { correctionKey, reviewToken, legacySource, ...request } = tollPayment;
+      const {data,error}=await supabase.rpc('admin_correct_payment_amount',{p_source_type:legacySource?.type||'receipt',p_source_id:legacySource?.id||receiptId,p_request:request,p_key:correctionKey,p_review_token:reviewToken});
+      if(error)throw error;
+      if(data.status==='corrected')refreshAfterSavedTask(['core','payments','snapshot']);
+      return data;
+    }
+
     if (cancel === 'flexcorrect') {
       const { data, error } = await supabase.rpc('admin_correct_flexible_payment', { p_receipt_id: receiptId, p_method: tollPayment.paymentMethod,
         p_received_date: tollPayment.receivedDate, p_received_time: tollPayment.receivedTime || null, p_reference: tollPayment.reference, p_notes: tollPayment.notes, p_reason: tollPayment.reason });
@@ -5634,7 +5647,7 @@ function renderMessagePreview(value, profile, rental, charge, extension) {
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => variables[key] || '');
 }
 
-function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', preferredChannel = '', charge = null, extension = null, createPaymentLink = null, onClose }) {
+function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', preferredChannel = '', charge = null, extension = null, createPaymentLink = null, paymentReceiptId = null, paymentAmount = null, onClose }) {
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const smsReady = Boolean(profile.phone && profile.phone_verified && profile.sms_transactional_opt_in);
   const emailTemplateRequested = Boolean(initialTemplateKey && emailTemplates.some((template) => template.template_key === initialTemplateKey));
@@ -5712,13 +5725,13 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-emails/customer`, {
           method: 'POST',
           headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${sessionData.session?.access_token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null, extensionRequestId: extension?.id || null }),
+          body: JSON.stringify({ customerId: profile.id, emailTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null, extensionRequestId: extension?.id || null, paymentReceiptId }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload.error) throw new Error(payload.error || `Email request failed (${response.status}).`);
       } else {
         const { data, error: invokeError } = await supabase.functions.invoke('send-rental-due-reminders', {
-          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null, extensionRequestId: extension?.id || null },
+          body: { customerId: profile.id, smsTemplateId: selectedTemplate.id, rentalId: rentalId || null, chargeId: charge?.id || null, extensionRequestId: extension?.id || null, paymentReceiptId },
         });
         if (invokeError || data?.error) throw new Error(data?.error || invokeError?.message || 'Text message failed.');
       }
@@ -5731,7 +5744,7 @@ function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTempla
     }
   }
 
-  const preview = channel === 'email'
+  const preview = paymentReceiptId ? `Rent Me CT: A payment of ${money(paymentAmount)} has been requested for your rental. Pay securely through Stripe: ${paymentLink.url || 'Loading payment link…'}. Your payment will be applied to the rental, charges, and customer credit as arranged with our team.` : channel === 'email'
     ? renderMessagePreview(selectedTemplate?.text_body || selectedTemplate?.subject, profile, selectedRental, charge, extension)
     : renderMessagePreview(selectedTemplate?.body, profile, selectedRental, charge, extension);
 
@@ -8392,7 +8405,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         ...(invoiceBalanceDue >= 0.5 && createAdminPaymentLink ? [{id:'rental',label:'Rental balance',amount:invoiceBalanceDue,charge:openRentalBalance,rentalBalance:true}] : []),
         ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && chargeRemaining(c)>=0.5).map(c=>({id:c.id,label:c.name,amount:chargeRemaining(c),charge:c})) : []),
       ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
-      onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
+      onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,paymentReceiptId:target.paymentReceiptId,paymentAmount:target.amount,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
  client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} initialChargeIds={receiveChargeIds} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={async (...args) => { const result = await recordExternalTollPayment(...args); await refreshFlexibleState(); return result; }} onClose={() => setReceivePaymentOpen(false)}/>
        : <ReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
       onStripeOpen={async target => {if(target.id==='rental')return createAdminPaymentLink(rental,'open',target.amount);const win=window.open('about:blank','_blank');if(!win)throw Error('Allow pop-ups to open Stripe checkout.');win.opener=null;try{const url=await createManualStripePaymentLink({rental,charge:target.charge});win.location.replace(url);}catch(e){win.close();throw e;}}}
@@ -8401,7 +8414,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         ...(invoiceBalanceDue >= 0.5 && createAdminPaymentLink ? [{id:'rental',label:'Rental balance',amount:invoiceBalanceDue,charge:openRentalBalance,rentalBalance:true}] : []),
         ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && chargeRemaining(c)>=0.5).map(c=>({id:c.id,label:c.name,amount:chargeRemaining(c),charge:c})) : []),
       ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
-      onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
+      onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,paymentReceiptId:target.paymentReceiptId,paymentAmount:target.amount,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
       client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>)}
     {paymentBrowserOpen && <RentalReceiptDialog title="Payment history and details" onClose={() => setPaymentBrowserOpen(false)}>
       <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)}/>
@@ -8669,7 +8682,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         onApply={applyManualRentalDiscount}
         onCancel={() => setDiscountModalOpen(false)}
       />, document.body)}
-      {contactModal && <CustomerContactModal preferredChannel={contactModal.preferredChannel || ''} profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.extension ? 'manual_extension_payment_due' : contactModal.charge ? 'manual_additional_charge_due' : contactModal.initialTemplateKey || ''} charge={contactModal.charge || null} extension={contactModal.extension || null} createPaymentLink={contactModal.stripeUrl ? () => Promise.resolve(contactModal.stripeUrl) : (contactModal.charge || contactModal.extension) && createManualStripePaymentLink ? () => createManualStripePaymentLink({ rental, charge: contactModal.charge || null, extension: contactModal.extension || null, rentalBalance: Boolean(contactModal.rentalBalance) }) : null} onClose={() => setContactModal(null)} />}
+      {contactModal && <CustomerContactModal paymentReceiptId={contactModal.paymentReceiptId} paymentAmount={contactModal.paymentAmount} preferredChannel={contactModal.preferredChannel || ''} profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.extension ? 'manual_extension_payment_due' : contactModal.charge ? 'manual_additional_charge_due' : contactModal.initialTemplateKey || ''} charge={contactModal.charge || null} extension={contactModal.extension || null} createPaymentLink={contactModal.stripeUrl ? () => Promise.resolve(contactModal.stripeUrl) : (contactModal.charge || contactModal.extension) && createManualStripePaymentLink ? () => createManualStripePaymentLink({ rental, charge: contactModal.charge || null, extension: contactModal.extension || null, rentalBalance: Boolean(contactModal.rentalBalance) }) : null} onClose={() => setContactModal(null)} />}
       {deadlineModalOpen && <RentalPaymentDeadlineModal
         rental={rental}
         onCancel={() => setDeadlineModalOpen(false)}

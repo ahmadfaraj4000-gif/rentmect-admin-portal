@@ -5,7 +5,7 @@ import { trackTaskDialog } from './lib/taskDraft.js';
 import { buildPaymentAllocation, chargeRemainingCents } from './lib/paymentAllocation.js';
 import './rental-ledger.css';
 import './payment-receipts.css';
-import { StripeReceiveActions } from './StripeReceiveActions.jsx';
+import { StripeAllocatedPayment } from './StripeAllocatedPayment.jsx';
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
@@ -41,6 +41,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
         const receipt = data.receipts?.find(r => r.id === form.receiptId) || data.receipts?.find(r => r.status === 'pending');
         if (receipt?.allocation_version === 1 && receipt.status === 'pending') throw new Error('Resume the existing external payment before starting a new allocation.');
         if (receipt && ['posted', 'refunded'].includes(receipt.status)) { setDone(receipt.result); clearDraft(); }
+        else if (receipt?.status === 'pending' && receipt.funding_kind === 'stripe') setTab('stripe');
         else if (receipt?.status === 'pending') setForm(f => ({ ...f, receiptId: receipt.id, requestJson: JSON.stringify(receipt.request), confirmed: false }));
         else if (receipt?.status === 'cancelled') { clearDraft(); setForm(f => ({ ...f, receiptId: '', requestJson: '', confirmed: false })); }
         setState(data);
@@ -84,16 +85,17 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   }
   return createPortal(<div className="admin-modal-backdrop rental-ledger-dialog-backdrop"><form className="admin-modal flexible-payment-dialog" ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="flex-payment-title" onSubmit={submit} onKeyDown={keyboard}>
     <header className="admin-modal-header"><div><strong id="flex-payment-title">Receive Payment</strong><span>{rental.vehicles?.name} · {rental.profiles?.full_name}</span></div><button type="button" disabled={busy} onClick={onClose} aria-label="Close payment dialog">×</button></header>
-    <div className="rp-payment-tabs" role="tablist" aria-label="Payment method">{['external','stripe'].map(t => <button key={t} type="button" role="tab" aria-selected={tab === t} disabled={busy} onClick={() => setTab(t)}>{t === 'external' ? 'External payments' : 'Stripe payments'}</button>)}</div>
+    <div className="payment-dialog-scroll"><div className="rp-payment-tabs" role="tablist" aria-label="Payment method">{['external','stripe'].map(t => <button key={t} type="button" role="tab" aria-selected={tab === t} disabled={busy} onClick={() => setTab(t)}>{t === 'external' ? 'External payments' : 'Stripe payments'}</button>)}</div>
     <div role="tabpanel" aria-label="Stripe payments" hidden={tab !== 'stripe'}>
-      <StripeReceiveActions targets={stripeTargets} onCreate={onStripeCreate} onEmail={onStripeEmail} onOpen={onStripeOpen} onSavedCard={onStripeSavedCard} protectedDeposit={protectedDeposit} disabled={busy || !state || !!pending || !!done}/>
-      {pending && <p>Resume or cancel the unfinished external payment before starting a Stripe payment.</p>}
+      <StripeAllocatedPayment client={client} rental={rental} charges={eligible} due={due} state={state} onBusyChange={setBusy} canCollectRent={canCollectRent} onCollect={onRecord ? (id,request,action)=>onRecord(rental.id,id,request,action) : undefined} onEmail={onStripeEmail} onRefresh={async()=>{const {data,error}=await client.rpc('admin_flexible_payment_state',{p_rental_id:rental.id});if(error)throw error;setState(data);}}/>
+
     </div>
     <div role="tabpanel" aria-label="External payments" hidden={tab !== 'external'}>
     {done ? <><p role="status">{done.status === 'refunded' ? 'This receipt has already been reversed.' : `${money(done.amountCents)} ${done.funding === 'credit' ? 'credit applied' : 'recorded'}. ${money(done.availableCreditCents || 0)} customer credit available.`}</p><button type="button" onClick={onClose}>Done</button></> : <>
       {!state && !error && <p role="status">Checking balances and unfinished payments…</p>}
+      {state?.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe') && <p role="status">A Stripe payment is pending. Check or cancel it in the Stripe payments tab before recording external money.</p>}
       {pending && <p role="status">This payment is awaiting confirmation. Resume the same payment to check its result.</p>}
-      <fieldset disabled={tab !== 'external' || busy || !!pending || !state} className="flexible-payment-fields">
+      <fieldset disabled={tab !== 'external' || busy || !!pending || !state || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')} className="flexible-payment-fields">
         <label>Collection method<select value={funding} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
         <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<input type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
         <p className="allocation-explanation">Enter the full payment, even if it exceeds the balance due. Choose charges below and edit how much goes to each. Unallocated money stays as customer credit for this rental.</p>
@@ -110,7 +112,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
       <dl className="allocation-review" aria-live="polite"><dt>Payment / credit amount</dt><dd>{money(amount || 0)}</dd><dt>Applied to rental</dt><dd>{money(rent || 0)}</dd><dt>Applied to selected charges</dt><dd>{money(extras || 0)}</dd><dt>{credit < 0 ? 'Overallocated by' : 'Unallocated customer credit'}</dt><dd className={credit < 0 ? 'form-error' : ''}>{money(Math.abs(credit) || 0)}</dd><dt>Rental balance after allocation</dt><dd>{money(Math.max(0, due - rent))}</dd><dt>Current available credit</dt><dd>{money(state?.availableCreditCents || 0)}</dd></dl>
       {state?.paymentUrl && <p><a href={state.paymentUrl} target="_blank" rel="noopener noreferrer">Open secure Stripe payment link</a></p>}
       <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} disabled={busy || !state} onChange={e => setForm(f => ({ ...f, confirmed: e.target.checked }))}/>{funding === 'external' ? 'I confirm this money was received and cleared, and these allocations are correct.' : funding === 'credit' ? 'I confirm the credit allocations. No new money is being received.' : 'I confirm the amount and allocations for this Stripe payment.'}</label>
-      <div className="modal-actions"><button type="button" disabled={busy} onClick={pending ? cancelPending : onClose}>{pending ? 'Cancel pending payment' : 'Cancel'}</button><button className="approve" disabled={busy || !state || !form.confirmed || credit < 0}>{busy ? 'Checking payment…' : pending ? 'Resume payment' : funding === 'credit' ? 'Apply credit' : funding === 'external' ? 'Record payment' : funding === 'stripe_link' ? 'Create payment link' : 'Charge saved card'}</button></div>
+      <div className="modal-actions"><button type="button" disabled={busy} onClick={pending ? cancelPending : onClose}>{pending ? 'Cancel pending payment' : 'Cancel'}</button><button className="approve" disabled={busy || !state || !form.confirmed || credit < 0 || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')}>{busy ? 'Checking payment…' : pending ? 'Resume payment' : funding === 'credit' ? 'Apply credit' : funding === 'external' ? 'Record payment' : funding === 'stripe_link' ? 'Create payment link' : 'Charge saved card'}</button></div>
     </>}</div>{error && <p className="form-error" role="alert">{error}</p>}
-  </form></div>, document.body);
+  </div></form></div>, document.body);
 }
