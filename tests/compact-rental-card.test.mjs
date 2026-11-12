@@ -100,7 +100,7 @@ test('documents and financial actions remain reachable without permanent button 
   assert.match(source, /markDocument\(document\.id, 'approved'\)/);
   assert.match(source, /markDocument\(document\.id, 'rejected'\)/);
   assert.match(source, /deleteDocument\(document\)/);
-  assert.match(source, /> Take Payment<\/button>/);
+  assert.match(source, />Take Payment<\/button>/);
   assert.match(source, /> Refund<\/button>/);
   assert.match(source, /<RentalChargeManager ledger/);
 });

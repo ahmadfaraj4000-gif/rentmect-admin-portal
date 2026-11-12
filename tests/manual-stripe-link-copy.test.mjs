@@ -7,7 +7,7 @@ const stripeSource = await readFile(new URL('../supabase/functions/stripe-web-ho
 const cssSource = await readFile(new URL('../src/final-overrides.css', import.meta.url), 'utf8');
 
 test('Send Stripe link keeps the existing email and text delivery workspace', () => {
-  assert.match(mainSource, /setContactModal\(\{ charge: openRentalBalance, rentalBalance: true \}\)/);
+  assert.match(mainSource, /id=\{`take-payment-\$\{rental.id\}`\}/);
   assert.match(mainSource, /contact-channel-toggle/);
   assert.match(mainSource, /send-emails\/customer/);
   assert.match(mainSource, /send-rental-due-reminders/);

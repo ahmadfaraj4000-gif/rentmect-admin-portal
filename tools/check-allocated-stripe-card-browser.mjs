@@ -50,6 +50,8 @@ try{
   await page.getByRole('button',{name:'Show rental details',exact:true}).click();
   assert.equal(await page.locator('.rental-card-expanded-content .rental-card-payment-toolbar').getByRole('button',{name:'Take Payment',exact:true}).count(),1);
   await page.getByRole('tab',{name:'Payments',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:/^Take payment$/i}).count(),1,'only the centered toolbar collects payments');
+  assert.equal(await page.locator('.rental-card-financial').getByRole('button',{name:/take payment|open stripe link|charge saved card/i}).count(),0);
   const buttonRects=await page.locator('.rental-card-payment-toolbar > button').evaluateAll(nodes=>nodes.map(n=>({top:n.getBoundingClientRect().top,left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right})));
   assert.equal(buttonRects.length,3);
   assert.ok(buttonRects.every(r=>Math.abs(r.top-buttonRects[0].top)<2),'all three buttons stay on one row');
@@ -58,6 +60,8 @@ try{
   assert.ok(await page.locator('[role=tabpanel]:visible').evaluate(n=>n.scrollHeight>n.clientHeight),'long payment history scrolls inside ledger');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'card has no horizontal page overflow');
   await page.getByRole('tab',{name:'Charges',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:/^Take payment$/i}).count(),1,'charge rows cannot add payment entry points');
+  assert.equal(await page.getByRole('tabpanel',{name:'Charges'}).getByRole('button',{name:/record toll payment|charge customer|cash \/ external|send payment link/i}).count(),0);
   assert.equal(await page.getByText('Historical insurance • Paid',{exact:true}).count(),0);
   await page.getByLabel('Show charges').selectOption('paid');
   await page.getByText('Historical insurance • Paid',{exact:true}).waitFor();
