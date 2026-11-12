@@ -70,6 +70,7 @@ try{
   const legacy=history.getByRole('button',{name:'Correct legacy rental payment method / refund'});
   assert.ok(await legacy.evaluate(n=>Math.abs(n.getBoundingClientRect().right-n.parentElement.getBoundingClientRect().right)<2),'legacy action aligns right');
   await legacy.scrollIntoViewIfNeeded();
+  assert.deepEqual(await legacy.evaluate(n=>({background:getComputedStyle(n).backgroundColor,color:getComputedStyle(n).color,minHeight:getComputedStyle(n).minHeight})),{background:'rgb(0, 0, 0)',color:'rgb(255, 255, 255)',minHeight:'44px'});
   await history.screenshot({path:'/tmp/payment-history-aligned-'+viewport.width+'.png'});
   await page.getByRole('button',{name:'Close payment details',exact:true}).click();
   await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
