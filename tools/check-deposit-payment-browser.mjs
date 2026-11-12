@@ -24,6 +24,9 @@ try{
  await page.getByLabel('Amount toward security deposit',{exact:true}).waitFor();
  assert.equal(await page.getByLabel('Amount toward rental',{exact:true}).inputValue(),'78.70');
  assert.equal(await page.getByLabel('Amount toward security deposit',{exact:true}).inputValue(),'300.00');
+ assert.match(await page.getByRole('dialog').innerText(),/You selected \$378.70 to pay/);
+ assert.doesNotMatch(await page.getByRole('dialog').innerText(),/Overallocated|Applied to rental|Rental balance after this payment/);
+
  await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
  assert.equal(await page.getByLabel('Stripe payment amount',{exact:true}).inputValue(),'378.70');
  const stripe=page.getByRole('tabpanel',{name:'Stripe payments',exact:true});
