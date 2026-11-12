@@ -9,7 +9,7 @@ const source=await readFile(root+'/src/main.jsx','utf8');
 const entry=source.slice(source.indexOf('  const pendingPayment ='),source.indexOf('  function openReceivePayment('));
 await writeFile(folder+'/index.html','<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="./test.jsx"></script>');
 await writeFile(folder+'/test.jsx',`import React,{useState}from'react';import{createRoot}from'react-dom/client';import{FlexibleReceivePayment}from'../src/FlexibleReceivePayment.jsx';import{DraftOwnerContext}from'../src/useTaskDraft.js';import '../src/styles.css';import '../src/final-overrides.css';
-window.calls=[];let state={version:2,depositAllocationsEnabled:true,dueParts:{rentalDueCents:7870,depositDueCents:30000,bookingDueCents:37870},availableCreditCents:0,receipts:[],allocations:[]};window.zeroDeposit=()=>{state={...state,dueParts:{rentalDueCents:7870,depositDueCents:0,bookingDueCents:7870}}};const rental={id:'deposit-test',vehicles:{name:'Test car'},profiles:{full_name:'Test customer'}};const client={rpc:async()=>({data:state})};
+window.calls=[];let state={version:2,depositAllocationsEnabled:true,dueParts:{rentalDueCents:7870,depositDueCents:30000,bookingDueCents:37870},availableCreditCents:0,receipts:[],allocations:[]};window.zeroDeposit=()=>{state={...state,dueParts:{rentalDueCents:7870,depositDueCents:0,bookingDueCents:7870}}};const rental={id:'deposit-test',vehicles:{name:'Test car'},profiles:{full_name:'Test customer'}};const client={rpc:async()=>{if(window.pauseRefresh)await new Promise(resolve=>{window.releaseRefresh=()=>{window.pauseRefresh=false;resolve();};});return{data:state};}};
 function App(){const[open,setOpen]=useState(false),[flexibleState,setFlexibleState]=useState(state);${entry}
 async function record(rentalId,id,request,action){window.calls.push({id,request,action});const status=action==='admin_create_allocated_stripe'?'pending':action==='admin_cancel_allocated_stripe'?'cancelled':'posted';const result={status,amountCents:request.amountCents,creditAmountCents:request.creditAmountCents,url:status==='pending'?'https://checkout.stripe.com/synthetic':null};state={...state,receipts:status==='pending'?[{id,status,funding_kind:'stripe',allocation_version:2,request,result}]:[]};setFlexibleState(state);return result;}
 return <DraftOwnerContext.Provider value="deposit-synthetic"><button onClick={()=>setOpen(true)}>{hasPendingPayment?'Resume Payment':'Take Payment'}</button>{open&&<FlexibleReceivePayment client={client} rental={rental} rentalDue={378.7} onRecord={record} onClose={()=>setOpen(false)}/>}</DraftOwnerContext.Provider>;}createRoot(document.getElementById('root')).render(<App/>);`);
@@ -34,8 +34,14 @@ try{
  await page.getByLabel('Stripe amount toward security deposit',{exact:true}).fill('150.00');
  await page.getByLabel('Stripe payment amount',{exact:true}).fill('150.00');
  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
+ await page.evaluate(()=>{window.pauseRefresh=true;});
  await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
  await page.getByRole('button',{name:'Cancel unpaid Stripe attempt',exact:true}).waitFor();
+ await page.getByRole('link',{name:'Open Stripe payment link',exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Check payment status',exact:true}).isEnabled(),true);
+ assert.equal(await page.getByRole('button',{name:'Close payment dialog',exact:true}).isEnabled(),true);
+ await page.waitForFunction(()=>typeof window.releaseRefresh==='function');
+ await page.evaluate(()=>window.releaseRefresh());
  let calls=await page.evaluate(()=>window.calls);assert.equal(calls[0].request.depositAmountCents,15000);assert.equal(calls[0].request.rentalAmountCents,0);assert.equal(calls[0].request.creditAmountCents,0);
  await page.getByRole('button',{name:'Close payment dialog',exact:true}).click();
  await page.getByRole('button',{name:'Resume Payment',exact:true}).click();
