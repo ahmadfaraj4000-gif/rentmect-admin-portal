@@ -212,3 +212,12 @@ test('every production revenue source uses a bounded column projection', () => {
     assert.doesNotMatch(REVENUE_COLUMNS[table], /\*|agreement_snapshot|admin_notes|customer_email/);
   }
 });
+
+
+test('an external deposit paid before rent stays out of revenue on its receipt date', () => {
+  const result = report({ rentals: [{ ...rental, paid_at: null }], charges: [
+    charge({ id: 'deposit-first', charge_type: 'rental_amendment', total_amount: 300, payment_amount_cents: 30000, paid_at: september, payment_provider: 'local', flex_payment_receipt_id: 'deposit-receipt' }),
+    charge({ id: 'rent-later', charge_type: 'rental_amendment', total_amount: 106.35, payment_amount_cents: 10635, paid_at: october, payment_provider: 'local', flex_payment_receipt_id: 'rent-receipt' }),
+  ], allocations: [{ id: 'deposit', source_rental_id: 'r', holder_rental_id: 'r', source_kind: 'local_payment', amount_held: 300, flex_payment_receipt_id: 'deposit-receipt' }] });
+  assert.equal(result.month, 100); assert.equal(result.year, 100); assert.deepEqual(result.issues, []);
+});

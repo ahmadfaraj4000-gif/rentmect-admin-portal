@@ -114,6 +114,6 @@ test('the compact card stacks cleanly only at narrow widths', () => {
 
  test('performance reads preserve inline cards and archive expansion without a second rental screen', () => {
   assert.doesNotMatch(source, /RentalSummaryList|Selected rental|initialExpanded|detailSectionRef/);
-  assert.match(source, /Load 25 more archived rentals/);
+  assert.match(source, /Load 5 more archived rentals/);
   assert.match(source, /manager.rows.map/);
 });

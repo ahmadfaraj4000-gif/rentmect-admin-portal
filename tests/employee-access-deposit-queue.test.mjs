@@ -8,7 +8,7 @@ const styles = readFileSync(new URL('../src/final-overrides.css', import.meta.ur
 test('completed returns expose a durable deposit queue on dashboard and queue', () => {
   assert.match(source, /deposit_action_tasks/);
   assert.match(source, /Deposit Action Required/);
-  assert.match(source, /Quick Refund Deposit/);
+  assert.match(source, /Review Deposit/);
   assert.match(source, /admin_record_external_deposit_release/);
   assert.match(source, /admin_escalate_deposit_task/);
   assert.match(source, /table: 'deposit_action_tasks'/);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createRentalWorkspace, RENTAL_PAGE_SIZE } from './lib/rentalWorkspace.js';
+import { createRentalWorkspace, RENTAL_PAGE_SIZE, ARCHIVE_PAGE_SIZE } from './lib/rentalWorkspace.js';
 import { withReadRetry } from './requestDeadline.js';
 import { subscribeTaskDialogs } from './lib/taskDraft.js';
 import { performanceTelemetry } from './lib/performance.js';
@@ -26,19 +26,20 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
       readList: async (params) => {
         let result;
         const rows = [];
-        // Preserve the existing archive "Load 25 more" interaction. Other
+        const pageSize = params.filter === 'archive' ? ARCHIVE_PAGE_SIZE : RENTAL_PAGE_SIZE;
+        // Preserve the existing archive "Load 5 more" interaction. Other
         // filters show all matching cards, without loading other filters.
         do {
           const { data, error } = await withReadRetry(() => client.rpc('admin_rental_list', {
             p_filter: params.filter, p_search: params.search, p_offset: rows.length,
-            p_limit: RENTAL_PAGE_SIZE, p_rental_id: params.focusId || null,
+            p_limit: pageSize, p_rental_id: params.focusId || null,
           }), 'Rental list');
           if (error) throw error;
           if (!data || !Array.isArray(data.rows)) throw new Error('Rental list response was incomplete. Please retry.');
           result = data;
           rows.push(...data.rows);
           if (!data.rows.length) break;
-        } while (rows.length < result.total && (params.filter !== 'archive' || rows.length < params.offset + RENTAL_PAGE_SIZE));
+        } while (rows.length < result.total && (params.filter !== 'archive' || rows.length < params.offset + pageSize));
         return { ...result, rows, offset: params.offset };
       },
       readDetail: async (id) => {

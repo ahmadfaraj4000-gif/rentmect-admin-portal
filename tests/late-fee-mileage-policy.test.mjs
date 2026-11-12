@@ -15,6 +15,6 @@ test('admin uses the versioned late-return and 250-mile agreement', () => {
 
 test('admin displays staged assessments as late-return charges', () => {
   assert.match(adminSource, /250 miles\/day included; excess mileage \$0\.35\/mile/);
-  assert.match(adminSource, /Automatic late-return charges and tolls/);
+  assert.match(adminSource, /Late fees, tolls and manual charges/);
   assert.match(adminSource, /Late return • calculated/);
 });

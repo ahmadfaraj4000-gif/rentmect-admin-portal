@@ -36,7 +36,7 @@ test('paid rental edits reopen only the remaining rental balance', () => {
   assert.match(mainSource, /record_admin_rental_balance_payment|admin_record_external_balance/);
   assert.match(stripePaymentSource, /Charge saved card/);
   assert.match(mainSource, /Use Take Payment/);
-  assert.match(mainSource, /no second deposit is added/i);
+  assert.match(mainSource, /money\(balanceDue\).*total outstanding/);
   assert.match(mainSource, /const paymentPaid = \(rental\.payment_status \|\| 'pending'\) === 'paid';/);
   assert.doesNotMatch(mainSource, /paymentPaid =[^;]+completionScopeSet\.has\('payment'\)/);
 });
