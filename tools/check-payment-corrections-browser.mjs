@@ -14,7 +14,15 @@ const client={rpc:async()=>({data:state}),functions:{invoke:async(_,body)=>{wind
 function App(){const[view,setView]=useState('history');return <DraftOwnerContext.Provider value="synthetic"><button onClick={()=>setView('history')}>History fixture</button><button onClick={()=>setView('stripe')}>Stripe fixture</button>{view==='history'&&<RentalReceiptDialog title="Payment history and details" onClose={()=>setView('')}><div className="rental-payment-history"><ol><li><strong>$986.19 · Cash</strong><ReceiptActions payment={{amount:986.19,provider:'external',method:'Cash',date:'2026-11-10T12:00:00Z',legacySource:{type:'rental_charge',id:'receipt'}}} onAction={async(id,form,action)=>{window.calls.push({id,form,action});return form.reviewToken?{status:'corrected'}:{status:'review',reviewToken:'synthetic-review',beforeCents:98619,afterCents:form.amountCents,creditCents:0,rentalBalanceAfterCents:8619,allocations:[{id:'rent',name:'Rental',beforeCents:98619,afterCents:form.amountCents}]};}}/></li>{Array.from({length:8},(_,i)=><li key={i}>Other recorded payment {i}<p>Payment history remains visible and scrollable.</p></li>)}</ol></div></RentalReceiptDialog>}{view==='stripe'&&<FlexibleReceivePayment initialTab="stripe" client={client} rental={{id:'rental',vehicles:{name:'Synthetic car'},profiles:{full_name:'Synthetic customer'}}} charges={[{id:'toll',name:'Bridge toll',charge_type:'toll',status:'pending',total_amount:26},{id:'fee',name:'Transport',charge_type:'manual',status:'pending',total_amount:50}]} rentalDue={78.7} onClose={()=>setView('')} onStripeEmail={(target,url,channel)=>window.emails.push({target,url,channel})}/>}</DraftOwnerContext.Provider>};createRoot(document.getElementById('root')).render(<App/>);`);
 const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5196','--strictPort'],{cwd:root,stdio:['ignore','pipe','pipe']});let browser;
 try{
- await new Promise((ok,no)=>{server.stdout.on('data',d=>{if(d.toString().includes('Local:'))ok()});server.on('error',no);server.on('exit',()=>no(Error('Vite exited')))});
+ let serverOutput='';server.stdout.on('data',d=>{serverOutput+=d});server.stderr.on('data',d=>{serverOutput+=d});
+ const deadline=Date.now()+30000;
+ for(;;){
+  if(server.exitCode!==null)throw Error(`Vite exited: ${serverOutput}`);
+  try{const response=await fetch('http://127.0.0.1:5196/',{signal:AbortSignal.timeout(1000)});if(response.status<500)break;}catch{}
+  if(Date.now()>deadline)throw Error(`Vite did not become ready: ${serverOutput}`);
+  await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ console.log('Payment fixture server ready; starting browser checks.');
  browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL==='chromium'?undefined:process.env.PLAYWRIGHT_CHANNEL||'chrome'});await mkdir('/tmp/rentme-card-screenshots',{recursive:true});
  for(const viewport of [{width:1440,height:900},{width:800,height:700},{width:390,height:700}]){
   const page=await browser.newPage({viewport}),errors=[];page.on('pageerror',e=>errors.push(e.message));
