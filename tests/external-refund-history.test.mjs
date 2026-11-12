@@ -1,3 +1,4 @@
+import {flexibleCashEvents,chargeRemaining,receiptHistory} from '../src/lib/paymentAllocation.js';
 import { groupPaymentHistory } from '../src/lib/externalPayment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const code = source.slice(source.indexOf('function externalPaymentMethodLabel('), source.indexOf('\nfunction RentalPaymentHistory('));
-const context = vm.createContext({ groupPaymentHistory, normalizeLedgerStatus: (s) => s, prettyStatus: (s) => s, money: (n) => `$${Number(n).toFixed(2)}` });
+const context = vm.createContext({flexibleCashEvents,chargeRemaining,receiptHistory, groupPaymentHistory, normalizeLedgerStatus: (s) => s, prettyStatus: (s) => s, money: (n) => `$${Number(n).toFixed(2)}` });
 vm.runInContext(code, context);
 const booking = { id: 'booking', deposit_status: 'held', deposit_released_amount: 282.04, security_deposit: 300, updated_at: '2026-09-17T19:58:33Z' };
 const action = { id: 'record', action_type: 'refund', amount: 700, deposit_amount_returned: 282.04,
@@ -121,7 +122,7 @@ test('left ledger keeps the unreturned remainder visible above its transactions,
  const {transformWithOxc} = await import('vite');
  const part=source.slice(source.indexOf('function RentalPaymentHistory('),source.indexOf('function ExternalPaymentDetailsModal('));
  const code=(await transformWithOxc(part+'\nRentalPaymentHistory;', 'history.jsx',{jsx:{runtime:'classic'}})).code;
- const Ledger=vm.runInNewContext(code,{React,money:n=>`$${Number(n).toFixed(2)}`,formatEasternDateTime:s=>s});
+ const Ledger=vm.runInNewContext(code,{React,useState:React.useState,money:n=>`$${Number(n).toFixed(2)}`,formatEasternDateTime:s=>s});
  const props={rental:{status:'completed'},allocations:[{amount_held:300,amount_applied:182.33,amount_released:0}],payments:[]};
  let html=renderToStaticMarkup(React.createElement(Ledger,props));
  assert.match(html,/\$182.33.*applied to charges and rental balance/); assert.match(html,/\$117.67.*remaining to refund/);

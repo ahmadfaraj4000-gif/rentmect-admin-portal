@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { chargePaid, chargeRemaining, receiptHistory } from '../src/lib/paymentAllocation.js';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const cancellationCalculation = source.slice(source.indexOf('  const cancellationCredit ='), source.indexOf('  const customerName = rental.profiles?.full_name'));
 const calculation = source.slice(source.indexOf('  const additionalChargeTotal = trueAdditionalCharges'), source.indexOf('  const depositHeldAmount = depositAllocations.length'));
 function summary(charges = [], overrides = {}, recordedRentalRefunds = 0, rentalAccount = null, rentalExtensions = []) {
   const context = vm.createContext({
+    chargePaid, chargeRemaining, receiptHistory, flexibleState: null,
     rental: { rental_total: 1079.14, tax_amount: 68.53, security_deposit: 300,
       paid_at: '2026-09-15', payment_amount_cents: 138492, ...overrides },
     trueAdditionalCharges: charges,
@@ -57,7 +59,7 @@ test('the actual summary markup presents one equation with a separate held-depos
   const React = await import('react');
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { transformWithOxc } = await import('vite');
-  const start = source.indexOf('        <dl className="rental-payment-lines">');
+  const start = source.indexOf('<details className="rental-accounting-breakdown">');
   const end = source.indexOf('        {Number(rental.manual_discount_amount || 0) > 0 && <small', start);
   const markup = source.slice(start, end);
   const transformed = await transformWithOxc(`const Summary = () => <>${markup}</>; Summary;`, 'summary.jsx', { jsx: { runtime: 'classic' } });

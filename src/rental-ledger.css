@@ -1,0 +1,78 @@
+/* Scoped layout: all colors, type, borders and focus treatments inherit the portal. */
+.rental-ledger-workspace { min-width:0; border:1px solid var(--ui-line); border-radius:var(--ui-radius); background:var(--ui-surface); overflow:hidden; }
+.rental-ledger-tabs { display:flex; gap:4px; padding:8px; border-bottom:1px solid var(--ui-line); background:var(--ui-surface-subtle); }
+.rental-ledger-tabs button { flex:1; min-height:40px; }
+.rental-ledger-tabs [aria-selected="true"] { background:var(--ui-green-soft); color:var(--ui-green); border-color:var(--ui-green); }
+.rental-ledger-scroll { height:clamp(280px,48vh,480px); overflow:auto; overscroll-behavior:contain; padding:14px; scrollbar-gutter:stable; }
+.rental-ledger-scroll[hidden] { display:none; }
+.rental-ledger-totals { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; padding:12px 14px; border-top:1px solid var(--ui-line); background:var(--ui-surface-subtle); font-weight:700; }
+.rental-ledger-scroll .rental-payment-history ol { max-height:none!important; overflow:visible!important; }
+.rental-ledger-scroll .rental-card-activity { margin:0; }
+.rental-ledger-scroll .rental-card-activity-body { max-height:none; overflow:visible; }
+.rental-ledger-scroll .rental-charge-heading { position:sticky; top:-14px; background:var(--ui-surface); z-index:1; padding:12px 0; }
+.rental-card-payment-toolbar { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.rental-card-payment-toolbar button { min-height:40px; }
+.rental-card-supplement { border:1px solid var(--ui-line); border-radius:var(--ui-radius); background:var(--ui-surface); padding:12px; }
+.rental-card-supplement > summary { cursor:pointer; font-weight:700; min-height:28px; }
+.rental-card-supplement > .rental-card-section { border:0!important; padding:12px 0 0!important; box-shadow:none!important; }
+.rental-card-compact-summary { display:grid; grid-template-columns:1fr auto; gap:10px; margin:0 0 16px; font-variant-numeric:tabular-nums; }
+.rental-card-compact-summary dd { margin:0; font-weight:750; text-align:right; }
+.rental-card-compact-summary .summary-balance { font-size:20px; color:var(--ui-ink); }
+.rental-accounting-breakdown > summary { cursor:pointer; font-weight:650; padding:10px 0; }
+.rental-ledger-charge-filter { display:flex; align-items:center; gap:10px; margin:10px 0; }
+.rental-ledger-charge-filter select { width:auto; }
+.rental-ledger-workspace .manual-charge-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; padding:12px 0; border-bottom:1px solid var(--ui-line); }
+.rental-ledger-workspace .manual-charge-row > div:first-child { display:grid; gap:4px; min-width:0; overflow-wrap:anywhere; }
+.rental-ledger-workspace .manual-charge-row .row-actions { justify-content:flex-end; align-content:center; flex-wrap:wrap; }
+.rental-ledger-workspace .payment-ledger-detail { display:none!important; }
+.rental-ledger-workspace .payment-row-details { grid-column:1/-1; justify-self:start; }
+.rental-receipt-dialog { width:min(780px,calc(100vw - 24px))!important; max-height:calc(100dvh - 32px); overflow:auto; color:var(--ui-ink); }
+.rental-receipt-dialog .rental-payment-history ol { max-height:none!important; }
+.flexible-payment-dialog { width:min(840px,calc(100vw - 24px))!important; max-height:calc(100dvh - 32px); overflow:auto; color:var(--ui-ink)!important; }
+.flexible-payment-dialog .admin-modal-header span { display:block; color:var(--ui-muted); }
+.flexible-payment-fields { border:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:14px; min-width:0; }
+.flexible-payment-fields > label { display:grid; gap:6px; color:var(--ui-ink); }
+.flexible-payment-dialog input:not([type="checkbox"]), .flexible-payment-dialog select, .flexible-payment-dialog textarea { width:100%; min-width:0; min-height:40px; border:1px solid var(--ui-line-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-ink); padding:8px; box-sizing:border-box; }
+.flexible-payment-dialog input[type="checkbox"] { width:18px; height:18px; margin:0; flex-shrink:0; accent-color:var(--ui-green); }
+.allocation-explanation, .allocation-table { grid-column:1/-1; }
+.allocation-explanation { color:var(--ui-muted); margin:0; }
+.allocation-table { border:1px solid var(--ui-line); border-radius:var(--ui-radius-sm); overflow:hidden; }
+.allocation-table-heading, .allocation-row { display:grid; grid-template-columns:minmax(0,1fr) 100px 130px; align-items:center; gap:12px; padding:10px; }
+.allocation-table-heading { background:var(--ui-surface-subtle); font-size:12px; font-weight:750; }
+.allocation-row { border-top:1px solid var(--ui-line); }
+.allocation-row label, .allocation-select-tolls { display:flex; align-items:center; gap:8px; overflow-wrap:anywhere; }
+.allocation-select-tolls { padding:12px 10px; border-top:1px solid var(--ui-line); }
+.allocation-review { display:grid; grid-template-columns:1fr auto; gap:8px; padding:14px; border:1px solid var(--ui-line); border-radius:var(--ui-radius); background:var(--ui-surface-subtle); }
+.allocation-review dd { margin:0; text-align:right; font-weight:700; }
+.flexible-payment-dialog .modal-actions { position:static!important; display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+@media(max-width:760px) {
+ .rental-operations-card .rental-card-workspace { display:flex!important; flex-direction:column; }
+ .rental-operations-card .rental-card-financial { order:-1; width:100%; }
+ .rental-ledger-scroll { height:360px; max-height:60dvh; }
+ .rental-ledger-workspace .manual-charge-row { grid-template-columns:1fr; }
+ .rental-ledger-workspace .manual-charge-row .row-actions { justify-content:flex-start; }
+ .flexible-payment-fields { grid-template-columns:1fr; }
+ .allocation-table-heading, .allocation-row { grid-template-columns:minmax(0,1fr) 76px 92px; gap:6px; padding:8px; font-size:12px; }
+ .flexible-payment-dialog { padding:14px!important; }
+ .rental-card-payment-toolbar button { flex:1 1 auto; }
+}
+/* Override legacy generic data-row and four-row ledger rules only inside this workspace. */
+.rental-operations-card .rental-ledger-tabs { display:flex!important; flex-direction:row!important; }
+.rental-operations-card .rental-card-left-column { align-content:start!important; gap:10px!important; padding:14px!important; }
+.rental-ledger-workspace .rental-payment-history ol.is-scrollable { max-height:none!important; overflow:visible!important; padding-right:0!important; }
+.rental-ledger-workspace .rental-payment-history ol.is-scrollable > li { height:auto!important; min-height:64px!important; overflow:visible!important; }
+.rental-receipt-dialog .rental-payment-history ol.is-scrollable { max-height:none!important; overflow:visible!important; }
+.rental-receipt-dialog .rental-payment-history ol.is-scrollable > li { height:auto!important; overflow:visible!important; }
+.rental-operations-card .rental-card-payment-toolbar { padding:0 18px; }
+.rental-ledger-tabs button, .rental-card-payment-toolbar button:not(.approve), .rental-ledger-workspace .payment-row-details {
+ border:1px solid var(--ui-line-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-ink); padding:8px 12px; font:inherit; font-weight:650; cursor:pointer;
+}
+.rental-ledger-tabs button[aria-selected="true"] { background:var(--ui-green-soft); border-color:var(--ui-green); color:var(--ui-green); }
+.rental-ledger-workspace .payment-row-details { font-size:12px; border:0; padding:2px 0; background:transparent; color:var(--ui-green); text-align:left; }
+.rental-ledger-tabs button:focus-visible, .rental-card-payment-toolbar button:focus-visible, .rental-ledger-workspace .payment-row-details:focus-visible { outline:2px solid var(--ui-green); outline-offset:2px; }
+
+.rental-ledger-dialog-backdrop.admin-modal-backdrop { position:fixed!important; inset:0!important; z-index:1100!important; display:grid!important; place-items:center!important; padding:12px!important; background:rgba(3,5,10,.76)!important; overflow:hidden!important; }
+.rental-ledger-dialog-backdrop .admin-modal { margin:0!important; overscroll-behavior:contain; }
+.rental-ledger-workspace .rental-payment-history > .rental-payment-history-heading { position:sticky; top:-14px; background:var(--ui-surface); z-index:2; padding:10px 0; }
+.flexible-payment-dialog .modal-actions > button { min-height:40px; border:1px solid var(--ui-line-strong); border-radius:var(--ui-radius-sm); padding:8px 14px; font:inherit; cursor:pointer; }
+.flexible-payment-dialog .modal-actions > button:not(.approve) { color:var(--ui-ink); background:var(--ui-surface); }

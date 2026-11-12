@@ -1,5 +1,6 @@
+import { chargeRemainingCents } from './paymentAllocation.js';
 export function depositDeductionOptions(rental, allocations, charges) {
-  const totalCents = charges.reduce((sum, charge) => sum + Math.round(Number(charge.total_amount || 0) * 100), 0);
+  const totalCents = charges.reduce((sum, charge) => sum + chargeRemainingCents(charge), 0);
   const eligible = ['active', 'rented', 'overdue', 'return_initiated', 'completed'].includes(rental.status)
     && !rental.deposit_transferred_to_rental_id && charges.length > 0 && totalCents > 0
     && charges.every(c => !c.included_in_initial_payment && ['pending', 'failed', 'checkout_open'].includes(c.status)

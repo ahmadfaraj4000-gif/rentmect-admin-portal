@@ -12,7 +12,7 @@ const agreementSource = readFileSync(new URL('../src/rentalAgreement.js', import
 test('each actionable domino opens an audited admin completion flow', () => {
   assert.match(source, /function AdminStepCompletionModal/);
   assert.match(source, /admin_complete_rental_step/);
-  assert.match(source, /<RentalProgressTracker steps=\{progressSteps\} onStepClick=\{\(step\) => setAdminStepScope\(step\.key\)\} \/>/);
+  assert.match(source, /<RentalProgressTracker steps=\{progressSteps\} onStepClick=\{\(step\) => step\.key === 'payment' \? openPaymentStep\(\) : setAdminStepScope\(step\.key\)\} \/>/);
   assert.match(source, /Mark \$\{label\} Complete/);
   assert.match(source, /added to activity history/);
 });

@@ -1,3 +1,4 @@
+import { chargeRemainingCents } from './paymentAllocation.js';
 export function depositSettlementPreview(rental, allocations = [], charges = []) {
   if (rental.status !== 'completed' || !rental.inspection_completed_at || rental.deposit_status !== 'held'
     || rental.deposit_source_rental_id || rental.deposit_transferred_to_rental_id || allocations.length !== 1) return null;
@@ -12,7 +13,7 @@ export function depositSettlementPreview(rental, allocations = [], charges = [])
     || ['rental_amendment', 'rental_installment'].includes(charge.charge_type)
     || charge.stripe_checkout_session_id || charge.stripe_payment_intent_id || charge.admin_charge_attempted_at)) return null;
   const depositCents = Math.round(Number(allocation.amount_held) * 100);
-  const appliedCents = open.reduce((sum, charge) => sum + Math.round(Number(charge.total_amount) * 100), 0);
+  const appliedCents = open.reduce((sum, charge) => sum + chargeRemainingCents(charge), 0);
   if (!Number.isFinite(appliedCents) || appliedCents <= 0 || appliedCents >= depositCents) return null;
   return { charges: open, chargeIds: open.map((charge) => charge.id), deposit: depositCents / 100,
     expectedApplied: appliedCents / 100, expectedRefund: (depositCents - appliedCents) / 100 };
