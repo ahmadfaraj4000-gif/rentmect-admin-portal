@@ -26,10 +26,12 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
       readList: async (params) => {
         let result;
         const rows = [];
-        const pageSize = params.filter === 'archive' ? ARCHIVE_PAGE_SIZE : RENTAL_PAGE_SIZE;
-        // Preserve the existing archive "Load 5 more" interaction. Other
-        // filters show all matching cards, without loading other filters.
+        const paginated = ['archive', 'deposit_review'].includes(params.filter);
+        const initialPageSize = paginated ? ARCHIVE_PAGE_SIZE : RENTAL_PAGE_SIZE;
+        const visibleLimit = paginated ? params.offset + initialPageSize : Infinity;
+        // Deposit Review starts with five, then expands by ten on request.
         do {
+          const pageSize = params.filter === 'deposit_review' && rows.length > 0 ? Math.min(10, visibleLimit - rows.length) : initialPageSize;
           const { data, error } = await withReadRetry(() => client.rpc('admin_rental_list', {
             p_filter: params.filter, p_search: params.search, p_offset: rows.length,
             p_limit: pageSize, p_rental_id: params.focusId || null,
@@ -39,7 +41,7 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
           result = data;
           rows.push(...data.rows);
           if (!data.rows.length) break;
-        } while (rows.length < result.total && (params.filter !== 'archive' || rows.length < params.offset + pageSize));
+        } while (rows.length < result.total && rows.length < visibleLimit);
         return { ...result, rows, offset: params.offset };
       },
       readDetail: async (id) => {
