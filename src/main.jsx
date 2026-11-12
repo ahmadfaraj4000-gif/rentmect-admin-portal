@@ -1,4 +1,3 @@
-import { RentalRateChange } from './RentalRateChange.jsx';
 import { MoneyInput } from './MoneyInput.jsx';
 import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
 import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
@@ -8110,7 +8109,6 @@ function RentalRow({ onOpenReviewedRentalArchive, onInteract, refreshing = false
   const [editRentalOpen, setEditRentalOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
   const [extensionOpen, setExtensionOpen] = useState(false);
-  const [rateChangeOpen, setRateChangeOpen] = useState(false);
   const [rentalAccount, setRentalAccount] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
   const [paymentDetailsOpen, setPaymentDetailsOpen] = useState(false);
@@ -8411,7 +8409,6 @@ function RentalRow({ onOpenReviewedRentalArchive, onInteract, refreshing = false
           {detailed && rental.status !== 'cancelled' && !tripStartIsLocked(rental) && <button type="button" onClick={() => setEditRentalOpen(true)}><Pencil size={14}/> Edit</button>}
           {detailed && previewRentalAmendment && applyRentalAmendment && (tripStartIsLocked(rental) || rental.status === 'completed') && <button type="button" onClick={() => setSwapOpen(true)}><Car size={14}/> Swap vehicle</button>}
           {detailed && previewRentalAmendment && applyRentalAmendment && ['active', 'rented', 'overdue'].includes(rental.status) && !rental.inspection_completed_at && <button type="button" onClick={() => setExtensionOpen(true)}><CalendarClock size={14}/> Extend rental</button>}
-          {detailed && previewRentalAmendment && applyRentalAmendment && ['active', 'rented', 'overdue'].includes(rental.status) && !rental.inspection_completed_at && <button type="button" onClick={() => setRateChangeOpen(true)}><CalendarClock size={14}/> Change price starting on…</button>}
           <button type="button" onClick={() => setAdminStepScope('agreement')}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' })}><MessageCircle size={14}/> Contact</button>
           <details className="rental-overflow-menu">
@@ -8713,7 +8710,6 @@ function RentalRow({ onOpenReviewedRentalArchive, onInteract, refreshing = false
       />}
       {swapOpen && createPortal(<VehicleSwapModal rental={rental} vehicles={vehicles} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => setSwapOpen(false)} onExtend={() => { setSwapOpen(false); setExtensionOpen(true); }} />, document.body)}
       {extensionOpen && createPortal(<AdminRentalExtensionModal rental={rental} onPreview={previewRentalAmendment} onApply={applyRentalAmendment} onCancel={() => { setExtensionOpen(false); setDetailsExpanded(true); }} />, document.body)}
-      {rateChangeOpen && createPortal(<RentalRateChange rental={rental} client={supabase} initialEffectiveAt={formatEasternDateTimeInput(new Date())} toIso={easternDateTimeInputToIso} formatDate={formatEasternDateTime} onClose={() => setRateChangeOpen(false)} onApply={applyRentalAmendment} />, document.body)}
       {editRentalOpen && createPortal(<RentalAmendmentModal
         rental={rental}
         vehicles={vehicles}
@@ -9365,7 +9361,7 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
             <label><span>Return date</span><input type="date" value={form.returnDate} onChange={(event) => update('returnDate', event.target.value)} required /></label>
             <label><span>Return time</span><select value={form.returnTime} onChange={(event) => update('returnTime', event.target.value)}>{calendarTimeOptions(form.returnTime).map((time) => <option value={time} key={time}>{time}</option>)}</select></label>
           </div>
-          {tripStartLocked && <p>The trip has already started. A replacement vehicle keeps the original pickup and agreed daily rate. To change the price from a specific date, close this window and choose “Change price starting on…” on the rental card.</p>}
+          {tripStartLocked && <p>The trip has already started. A replacement vehicle keeps the original pickup and agreed daily rate.</p>}
         </section>
 
         <section className="rental-amendment-section">
