@@ -23,6 +23,7 @@ jobs:
     env:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_FLEXIBLE_PAYMENTS: ${{ vars.VITE_FLEXIBLE_PAYMENTS || 'false' }}
       VITE_UNIFIED_EXTERNAL_PAYMENTS: ${{ vars.VITE_UNIFIED_EXTERNAL_PAYMENTS || 'false' }}
       VITE_ADMIN_EMAIL: ${{ secrets.VITE_ADMIN_EMAIL }}
       VITE_RENTMECT_ADDRESS: ${{ secrets.VITE_RENTMECT_ADDRESS }}
@@ -44,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ahmadfaraj4000-gif/rentmect
-          ref: 08804e64cbca1d25fd410a1b7f86c4c72be9dca9
+          ref: 5118b7d
           path: .ci-backend
           persist-credentials: false
 

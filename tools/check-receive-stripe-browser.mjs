@@ -88,7 +88,7 @@ try{
   await page.getByLabel('Stripe payment amount').fill('25');
   await page.getByRole('button',{name:'Charge saved card · $25.00',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Stripe confirmed the saved-card payment.'}).waitFor();
-  assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[3],{kind:'rental',mode:'saved',amount:25});
+  assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[3],{kind:'rental',id:'synthetic-rental',mode:'saved',amount:25});
   await page.screenshot({path:'/tmp/rentme-card-screenshots/stripe-tabs-'+viewport.width+'.png',fullPage:false});
   assert.ok(await page.getByRole('dialog').evaluate(n=>n.scrollWidth<=n.clientWidth+1));
   assert.deepEqual(errors,[]);await page.close();
