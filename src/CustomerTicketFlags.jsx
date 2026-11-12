@@ -1,50 +1,58 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './lib/supabase';
 import './ticket-resolution.css';
+import { createCustomerTicketFlagStore } from './lib/customerTicketFlags.js';
 const Context = createContext(null);
 export function CustomerTicketFlagProvider({ children, onOpenRental, onOpenTicket }) {
-  const users = useRef(new Map());
-  const [revision, setRevision] = useState(0);
-  const [state, setState] = useState({ rows: [], error: '' });
+  const [entries, setEntries] = useState(new Map());
+  const store = useRef(null);
+  // React Strict Mode can replay effects; create a fresh store on each setup.
+  const registrations = useRef(new Map());
   const register = useMemo(() => id => {
     if (!id) return () => {};
-    users.current.set(id, (users.current.get(id) || 0) + 1); setRevision(x => x + 1);
-    return () => { const n = users.current.get(id) - 1; if (n) users.current.set(id, n); else users.current.delete(id); setRevision(x => x + 1); };
+    const token = {};
+    registrations.current.set(token, { id, cleanup: store.current?.register(id) });
+    return () => { registrations.current.get(token)?.cleanup?.(); registrations.current.delete(token); };
   }, []);
   useEffect(() => {
-    const refresh = () => setRevision(x => x + 1);
-    window.addEventListener('focus', refresh); window.addEventListener('ticket-flags-changed', refresh);
-    return () => { window.removeEventListener('focus', refresh); window.removeEventListener('ticket-flags-changed', refresh); };
+    const loader = createCustomerTicketFlagStore({
+      fetchFlags: (ids, signal) => supabase.rpc('admin_ticket_customer_flags', { p_user_ids: ids }).abortSignal(signal),
+      onChange: setEntries,
+      onError: diagnostic => console.warn('Ticket flag lookup failed', diagnostic),
+    });
+    store.current = loader;
+    for (const entry of registrations.current.values()) entry.cleanup = loader.register(entry.id);
+    const refresh = () => loader.refresh();
+    const visible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('ticket-flags-changed', refresh);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      loader.dispose(); store.current = null;
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('ticket-flags-changed', refresh);
+      document.removeEventListener('visibilitychange', visible);
+    };
   }, []);
-  useEffect(() => {
-    let live = true;
-    const timer = setTimeout(async () => {
-      const ids = [...users.current.keys()];
-      if (!ids.length) return;
-      try {
-        const rows = [];
-        for (let i = 0; i < ids.length; i += 500) {
-          const result = await supabase.rpc('admin_ticket_customer_flags', { p_user_ids: ids.slice(i, i + 500) });
-          if (result.error) throw result.error;
-          rows.push(...result.data);
-        }
-        if (live) setState({ rows, error: '' });
-      } catch (error) { if (live) setState({ rows: [], error: error.message }); }
-    }, 100);
-    return () => { live = false; clearTimeout(timer); };
-  }, [revision]);
-  return <Context.Provider value={{ ...state, register, onOpenRental, onOpenTicket, retry: () => setRevision(x => x + 1) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ entries, register, onOpenRental, onOpenTicket, retry: () => store.current?.refresh() }}>{children}</Context.Provider>;
 }
 export function CustomerTicketFlags({ userId }) {
   const context = useContext(Context);
   const register = context?.register;
   useEffect(() => register?.(userId), [register, userId]);
   if (!context || !userId) return null;
-  if (context.error) return <p className="ticket-warning">Ticket flags could not load. <button type="button" onClick={context.retry}>Retry</button></p>;
-  const rows = context.rows.filter(row => row.user_id === userId);
-  if (!rows.length) return null;
-  return <aside className="ticket-red-flag" aria-label="Customer ticket red flag"><strong>Red flag — ticket review required</strong>
+  const entry = context.entries.get(userId);
+  const rows = entry?.rows || [];
+  const notice = entry?.error && <p className="ticket-warning" role="status">
+    {entry.checked ? 'Showing the last checked ticket flags. ' : 'Ticket flag status is not yet verified. '}
+    {entry.retrying ? 'Reconnecting automatically…' : 'Ticket flag lookup needs attention.'}
+    <button type="button" onClick={context.retry}>Retry now</button>
+  </p>;
+  if (!rows.length) return notice || null;
+  return <>{notice}<aside className="ticket-red-flag" aria-label="Customer ticket red flag"><strong>Red flag — ticket review required</strong>
     {rows.map(row => <div key={row.id}><p>{row.ticket_number.startsWith('MANUAL-') ? 'Ticket' : row.ticket_number} · {row.violation_date}{row.amount != null && ` · Agency amount $${Number(row.amount).toFixed(2)}`}</p><p>{row.note}</p><div className="ticket-actions">{context.onOpenTicket && <button type="button" onClick={() => context.onOpenTicket(row.id)}>Review ticket</button>}{context.onOpenRental && <button type="button" onClick={() => context.onOpenRental(row.rental_id)}>Original rental / charges</button>}</div></div>)}
     <small>Check existing charges and payments before collecting. This flag is not an unpaid balance and does not automatically charge or block a booking.</small>
-  </aside>;
+  </aside></>;
 }
