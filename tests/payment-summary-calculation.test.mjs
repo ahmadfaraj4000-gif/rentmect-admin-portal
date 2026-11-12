@@ -59,7 +59,7 @@ test('the actual summary markup presents one equation with a separate held-depos
   const React = await import('react');
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { transformWithOxc } = await import('vite');
-  const start = source.indexOf('<details className="rental-accounting-breakdown">');
+  const start = source.indexOf('<section className="rental-accounting-breakdown"');
   const end = source.indexOf('        {Number(rental.manual_discount_amount || 0) > 0 && <small', start);
   const markup = source.slice(start, end);
   const transformed = await transformWithOxc(`const Summary = () => <>${markup}</>; Summary;`, 'summary.jsx', { jsx: { runtime: 'classic' } });

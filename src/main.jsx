@@ -5629,11 +5629,11 @@ function renderMessagePreview(value, profile, rental, charge, extension) {
   return String(value || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => variables[key] || '');
 }
 
-function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', charge = null, extension = null, createPaymentLink = null, onClose }) {
+function CustomerContactModal({ profile, rentals, emailTemplates = [], smsTemplates = [], notify, initialTemplateKey = '', preferredChannel = '', charge = null, extension = null, createPaymentLink = null, onClose }) {
   const dialogRef = useDialogFocus(onClose, { closeOnEscape: false });
   const smsReady = Boolean(profile.phone && profile.phone_verified && profile.sms_transactional_opt_in);
   const emailTemplateRequested = Boolean(initialTemplateKey && emailTemplates.some((template) => template.template_key === initialTemplateKey));
-  const initialChannel = emailTemplateRequested ? 'email' : smsReady ? 'sms' : profile.email ? 'email' : 'sms';
+  const initialChannel = preferredChannel || (emailTemplateRequested ? 'email' : smsReady ? 'sms' : profile.email ? 'email' : 'sms');
   const [channel, setChannel] = useState(initialChannel);
   const initialTemplates = initialChannel === 'email' ? emailTemplates : smsTemplates;
   const [templateId, setTemplateId] = useState(initialTemplates.find((template) => template.template_key === initialTemplateKey)?.id || initialTemplates[0]?.id || '');
@@ -8009,13 +8009,14 @@ function RentalActivityTimeline({ events = [], actorById = new Map() }) {
 
 function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSummary = false, rentalPayments = [], updateRentalStatus, updateRentalPaymentDeadline, restoreCancelledRental, completeRentalReturn, releaseSecurityDeposit, refundRentalPayment, adjustExternalRentalPayment, externalPaymentActions = [], rentalRefunds = [], recordLocalDepositRelease, depositAllocations = [], recordTestPayment, recordExtensionPayment, cancelApprovedExtension, extensionRequests = [], emergencyExceptions = [], emergencyAuthorized, activateRentalWithEmergencyException, addEmergencyExceptionScope, resolveEmergencyExceptionScope, vehicles = [], reports = [], decideExtension, sendManualReminder, detailed, rentalDocuments = [], allDocuments = [], openDocument, markDocument, deleteDocument, rentalCharges = [], serviceFees = [], addRentalCharge, waiveRentalCharge, chargeRentalSavedCard, recordExternalRentalCharge, recordExternalTollPayment, previewRentalAmendment, applyRentalAmendment, previewManualRentalDiscount, applyManualRentalDiscount, emailTemplates = [], smsTemplates = [], notify, sendBookingCompletionLink, uploadAdminBookingDocument, createAdminPaymentLink, createManualStripePaymentLink, stepCompletions = [], completeAdminRentalStep, signAdminRentalAgreement }) {
   const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
+  const [receivePaymentTab,setReceivePaymentTab]=useState('external');
   const flexiblePaymentsEnabled = import.meta.env.VITE_FLEXIBLE_PAYMENTS === 'true';
   const [receiveChargeIds, setReceiveChargeIds] = useState([]);
   const [paymentBrowserOpen, setPaymentBrowserOpen] = useState(false);
   const [flexibleState, setFlexibleState] = useState(null);
   const [flexibleReadError, setFlexibleReadError] = useState('');
-  function openReceivePayment(ids = []) { setReceiveChargeIds(ids); setReceivePaymentOpen(true); }
-  function openPaymentStep() { if (flexiblePaymentsEnabled) openReceivePayment(); else setAdminStepScope('payment'); }
+  function openReceivePayment(ids = [], tab = 'external') { setReceivePaymentTab(tab); setReceiveChargeIds(ids); setReceivePaymentOpen(true); }
+  function openPaymentStep() { openReceivePayment([], 'stripe'); }
   async function refreshFlexibleState() {
     const { data, error } = await supabase.rpc('admin_flexible_payment_state', { p_rental_id: rental.id });
     if (!error) { setFlexibleState(data); setFlexibleReadError(''); }
@@ -8380,7 +8381,15 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     {receivePaymentOpen && flexiblePaymentsEnabled && rental.pending_external_payment_id && !flexibleState && <RentalReceiptDialog title="Checking unfinished payment" onClose={() => setReceivePaymentOpen(false)}>{flexibleReadError ? <><p role="alert">{flexibleReadError}</p><button type="button" onClick={refreshFlexibleState}>Retry</button></> : <p role="status">Loading the saved payment…</p>}</RentalReceiptDialog>}
     {receivePaymentOpen && (!flexiblePaymentsEnabled || !rental.pending_external_payment_id || flexibleState) && (flexiblePaymentsEnabled && (!rental.pending_external_payment_id || flexibleState?.receipts?.some(r => r.id === rental.pending_external_payment_id && r.allocation_version === 2))
       ? <FlexibleReceivePayment client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} initialChargeIds={receiveChargeIds} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={async (...args) => { const result = await recordExternalTollPayment(...args); await refreshFlexibleState(); return result; }} onClose={() => setReceivePaymentOpen(false)}/>
-      : <ReceivePayment client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>)}
+       : <ReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
+      onStripeOpen={async target => {if(target.id==='rental')return createAdminPaymentLink(rental,'open',target.amount);const win=window.open('about:blank','_blank');if(!win)throw Error('Allow pop-ups to open Stripe checkout.');win.opener=null;try{const url=await createManualStripePaymentLink({rental,charge:target.charge});win.location.replace(url);}catch(e){win.close();throw e;}}}
+      onStripeSavedCard={chargeRentalSavedCard ? target=>chargeRentalSavedCard(target.charge) : null}
+      stripeTargets={[
+        ...(invoiceBalanceDue >= 0.5 && createAdminPaymentLink ? [{id:'rental',label:'Rental balance',amount:invoiceBalanceDue,charge:openRentalBalance,rentalBalance:true}] : []),
+        ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && Number(c.total_amount)>=0.5).map(c=>({id:c.id,label:c.name,amount:Number(c.total_amount),charge:c})) : []),
+      ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
+      onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
+      client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>)}
     {paymentBrowserOpen && <RentalReceiptDialog title="Payment history and details" onClose={() => setPaymentBrowserOpen(false)}>
       <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)}/>
       {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <button type="button" onClick={() => { setPaymentBrowserOpen(false); setPaymentDetailsOpen(true); }}>Correct legacy rental payment method / refund</button>}
@@ -8450,7 +8459,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
       <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
         <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Refunded' : 'Deposit refund outstanding') : balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
         <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(invoiceBalanceDue)}</dd><dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd></dl>
-        <details className="rental-accounting-breakdown"><summary>Full accounting breakdown</summary><dl className="rental-payment-lines">
+        <section className="rental-accounting-breakdown" aria-label="Full accounting breakdown"><h4>Full accounting breakdown</h4><dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
           <dt>Tax</dt><dd>{money(rental.tax_amount || 0)}</dd>
@@ -8464,7 +8473,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
           {depositAppliedToCharges + depositAppliedToRental > 0 && <><dt>Paid from security deposit</dt><dd>−{money(depositAppliedToCharges + depositAppliedToRental)}</dd></>}
           {customerCreditDue > 0 && <><dt className="credit-line">{cancelledBeforePickup ? 'Security deposit refund outstanding' : 'Booking credit reserved for refund'}</dt><dd className="credit-line">+{money(customerCreditDue)}</dd></>}
           <dt className="balance-line">Balance due</dt><dd className="balance-line">{money(balanceDue)}</dd>
-        </dl></details>
+        </dl></section>
         <div className="refund-status-item rental-deposit-summary"><ShieldCheck size={17}/><span><strong>Security deposit: {money(depositHeldAmount)} held</strong><small>{money(depositAllocations.reduce((sum, a) => sum + Number(a.amount_applied || 0), 0))} applied to charges · {money(depositAllocations.reduce((sum, a) => sum + Number(a.amount_released || 0), 0))} returned</small><small>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Returned to the original payment method.' : rental.deposit_status === 'release_pending' ? 'Stripe refund is processing.' : 'Booking cancelled. Refund this deposit to finish the financial closeout.') : `Required deposit of ${money(rental.security_deposit)} is included in the total above.`}</small></span></div>
         {Number(rental.manual_discount_amount || 0) > 0 && <small className="manual-discount-note"><Tag size={13}/> Reservation-only adjustment • {money(Number(rental.manual_discount_amount || 0) + Number(rental.manual_discount_tax_savings || 0))} total savings</small>}
         {rentalBalanceDue > 0 && <div className="rental-balance-callout"><CreditCard size={17}/><span><strong>{money(rentalBalanceDue)} remaining rental balance</strong><small>The original payment is credited. Stripe or an external payment collects only this remainder; no second deposit is added.</small><span className="rental-balance-actions"><button type="button" className="approve" onClick={openPaymentStep}>Take payment</button><button type="button" onClick={() => setContactModal({ charge: openRentalBalance, rentalBalance: true })}>Send Stripe link</button>{chargeRentalSavedCard && <button type="button" onClick={() => chargeRentalSavedCard(openRentalBalance)}>Charge saved card</button>}</span></span></div>}
@@ -8647,7 +8656,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
         onApply={applyManualRentalDiscount}
         onCancel={() => setDiscountModalOpen(false)}
       />, document.body)}
-      {contactModal && <CustomerContactModal profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.extension ? 'manual_extension_payment_due' : contactModal.charge ? 'manual_additional_charge_due' : contactModal.initialTemplateKey || ''} charge={contactModal.charge || null} extension={contactModal.extension || null} createPaymentLink={(contactModal.charge || contactModal.extension) && createManualStripePaymentLink ? () => createManualStripePaymentLink({ rental, charge: contactModal.charge || null, extension: contactModal.extension || null, rentalBalance: Boolean(contactModal.rentalBalance) }) : null} onClose={() => setContactModal(null)} />}
+      {contactModal && <CustomerContactModal preferredChannel={contactModal.preferredChannel || ''} profile={rental.profiles || { id: rental.user_id, email: rental.user_email }} rentals={[rental]} emailTemplates={emailTemplates} smsTemplates={smsTemplates} notify={notify} initialTemplateKey={contactModal.extension ? 'manual_extension_payment_due' : contactModal.charge ? 'manual_additional_charge_due' : contactModal.initialTemplateKey || ''} charge={contactModal.charge || null} extension={contactModal.extension || null} createPaymentLink={contactModal.stripeUrl ? () => Promise.resolve(contactModal.stripeUrl) : (contactModal.charge || contactModal.extension) && createManualStripePaymentLink ? () => createManualStripePaymentLink({ rental, charge: contactModal.charge || null, extension: contactModal.extension || null, rentalBalance: Boolean(contactModal.rentalBalance) }) : null} onClose={() => setContactModal(null)} />}
       {deadlineModalOpen && <RentalPaymentDeadlineModal
         rental={rental}
         onCancel={() => setDeadlineModalOpen(false)}
