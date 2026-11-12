@@ -8353,7 +8353,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
       </button>}
       <div className="rental-card-command">
         <span className={`workflow-badge ${adminState.tone}`}>{adminState.label}</span>
-        <small>{adminState.next}</small>
+        {adminState.tone !== 'payment-due' && <small>{adminState.next}</small>}
         <div className="rental-card-primary-action">
           {canMarkActive && <button className="approve primary-action" onClick={() => setPickupModal({})}><Car size={15}/> Mark Vehicle Picked Up</button>}
           {canCompleteReturn && <button className="approve primary-action" onClick={openReturnPanel}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
