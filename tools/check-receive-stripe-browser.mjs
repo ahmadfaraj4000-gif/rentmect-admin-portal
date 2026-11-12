@@ -53,7 +53,7 @@ try{
   const history=page.getByRole('dialog',{name:'Payment history and details'});
   await history.getByText('$457.40',{exact:true}).waitFor();await history.getByText('$117.26',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Close payment details',exact:true}).click();
-  await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
+  await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tabpanel',{name:'External payments'}).waitFor();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'78.70');
@@ -68,7 +68,7 @@ try{
   assert.equal(await page.getByRole('button',{name:'Email',exact:true}).getAttribute('class'),'active');
   assert.equal((await page.evaluate(()=>window.stripeCalls)).length,1,'email reuses the same checkout');
   await page.getByRole('button',{name:'Close',exact:true}).click();
-  await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
+  await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   await page.getByLabel('Stripe payment for').selectOption('fee');
   await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
@@ -79,14 +79,14 @@ try{
   assert.ok(await page.getByRole('region',{name:'Full accounting breakdown'}).isVisible());
   assert.equal(await page.locator('details.rental-accounting-breakdown').count(),0);
   assert.ok(await page.locator('.rental-card-payment-toolbar').evaluate(el=>{const b=el.getBoundingClientRect();const r=[...el.children].map(x=>x.getBoundingClientRect());return Math.abs((Math.min(...r.map(x=>x.left))+Math.max(...r.map(x=>x.right)))/2-(b.left+b.right)/2)<2;}));
-  await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
+  await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   await page.getByLabel('Stripe payment for').selectOption('fee');
   await page.getByRole('button',{name:'Charge saved card · $50.00',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Stripe confirmed the saved-card payment.'}).waitFor();
   assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[2],{kind:'saved',id:'fee',amount:50});
   await page.getByRole('button',{name:'Close payment dialog'}).click();
-  await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
+  await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   await page.getByLabel('Stripe payment amount').fill('25');
   await page.getByRole('button',{name:'Charge saved card · $25.00',exact:true}).click();

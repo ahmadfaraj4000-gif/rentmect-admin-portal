@@ -8391,11 +8391,6 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
       {returnState.hardLocked && <small className="late-return-critical"><AlertTriangle size={14}/> PHYSICAL RETURN LOCK — complete the return inspection before another booking.</small>}
     </div>}
 
-    <div className="rental-card-payment-toolbar">
-      {(flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" className="approve" onClick={() => openReceivePayment()}>{rental.pending_external_payment_id ? 'Resume Payment' : 'Receive Payment'}</button>}
-      {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
-      <button type="button" onClick={() => { setDetailsExpanded(true); setPaymentBrowserOpen(true); }}><Pencil size={15}/> Edit Payment Details</button>
-    </div>
     {receivePaymentOpen && flexiblePaymentsEnabled && rental.pending_external_payment_id && !flexibleState && <RentalReceiptDialog title="Checking unfinished payment" onClose={() => setReceivePaymentOpen(false)}>{flexibleReadError ? <><p role="alert">{flexibleReadError}</p><button type="button" onClick={refreshFlexibleState}>Retry</button></> : <p role="status">Loading the saved payment…</p>}</RentalReceiptDialog>}
     {receivePaymentOpen && (!flexiblePaymentsEnabled || !rental.pending_external_payment_id || flexibleState) && (flexiblePaymentsEnabled && (!rental.pending_external_payment_id || flexibleState?.receipts?.some(r => r.id === rental.pending_external_payment_id && r.allocation_version === 2))
       ? <FlexibleReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
@@ -8418,7 +8413,7 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
       client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>)}
     {paymentBrowserOpen && <RentalReceiptDialog title="Payment history and details" onClose={() => setPaymentBrowserOpen(false)}>
       <RentalPaymentHistory payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)}/>
-      {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <button type="button" onClick={() => { setPaymentBrowserOpen(false); setPaymentDetailsOpen(true); }}>Correct legacy rental payment method / refund</button>}
+      {adjustExternalRentalPayment && editableExternalPayments.length > 0 && <div className="payment-history-actions"><button type="button" onClick={() => { setPaymentBrowserOpen(false); setPaymentDetailsOpen(true); }}>Correct legacy rental payment method / refund</button></div>}
     </RentalReceiptDialog>}
     <button
       type="button"
@@ -8432,6 +8427,12 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     </button>
 
     {detailsExpanded && <div className="rental-card-expanded-content" id={`rental-expanded-details-${rental.id}`}>
+
+    <div className="rental-card-payment-toolbar">
+      {(flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" className="approve" onClick={() => openReceivePayment()}>{rental.pending_external_payment_id ? 'Resume Payment' : 'Take Payment'}</button>}
+      {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
+      <button type="button" onClick={() => { setDetailsExpanded(true); setPaymentBrowserOpen(true); }}><Pencil size={15}/> Edit Payment Details</button>
+    </div>
 
     <div className="rental-card-workspace">
       <div className="rental-card-left-column">
@@ -10026,7 +10027,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
   function renderChargeActions(charge) {
     if (charge.external_toll_receipt_id && charge.status !== 'paid') return <small>External toll payment pending · Open Record toll payment to resume.</small>;
     if (charge.included_in_initial_payment || !['pending', 'failed', 'checkout_open'].includes(charge.status)) return null;
-    if (onReceivePayment) return <div className="row-actions charge-collection-actions"><button type="button" className="approve" onClick={() => onReceivePayment([charge.id])}>Receive Payment</button><button type="button" className="reject" disabled={Boolean(waivingId)} onClick={() => waiveCharge(charge)}>{waivingId === charge.id ? 'Waiving…' : 'Waive remaining'}</button></div>;
+    if (onReceivePayment) return <div className="row-actions charge-collection-actions"><button type="button" className="approve" onClick={() => onReceivePayment([charge.id])}>Take Payment</button><button type="button" className="reject" disabled={Boolean(waivingId)} onClick={() => waiveCharge(charge)}>{waivingId === charge.id ? 'Waiving…' : 'Waive remaining'}</button></div>;
     return <div className="row-actions charge-collection-actions">
       <button type="button" disabled={Boolean(collectionCharges || waivingId)} onClick={() => sendPaymentLink?.(charge)}><Send size={14}/> {compact ? 'Send link' : 'Send payment link'}</button>
       <button type="button" className="approve" disabled={Boolean(collectionCharges || waivingId)} onClick={() => setCollectionCharges([charge])}><CreditCard size={14}/> Charge customer</button>
@@ -10056,7 +10057,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <div><span><strong>Additional charges: {outstandingTotal > 0 ? `${money(outstandingTotal)} outstanding` : paidTotal > 0 ? 'Paid in full' : 'No balance due'}</strong></span>
       <small>{money(paidTotal + outstandingTotal)} charged · {money(paidTotal)} paid · {money(outstandingTotal)} outstanding</small></div>
-      {collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(collectionCharges || waivingId)} onClick={() => onReceivePayment ? onReceivePayment(collectible.map(c => c.id)) : setCollectionCharges(collectible)}><CreditCard size={15}/>{onReceivePayment ? 'Receive Payment' : `Charge all · ${money(outstandingTotal)}`}</button>}
+      {collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(collectionCharges || waivingId)} onClick={() => onReceivePayment ? onReceivePayment(collectible.map(c => c.id)) : setCollectionCharges(collectible)}><CreditCard size={15}/>{onReceivePayment ? 'Take Payment' : `Charge all · ${money(outstandingTotal)}`}</button>}
     </div>
     {recordExternalTollPayment && charges.some(charge => charge.charge_type === 'toll') && <div className="row-actions"><button type="button" className="approve" disabled={Boolean(collectionCharges || waivingId || externalCharge)} onClick={() => onReceivePayment ? onReceivePayment(collectible.filter(c => c.charge_type === 'toll').map(c => c.id)) : setExternalTollsOpen(true)}><Banknote size={15}/> Record toll payment</button></div>}
     {charges.length === 0 && <small>No booking-specific charges. Add one to email the billing link automatically, send it by text, or charge the saved card.</small>}

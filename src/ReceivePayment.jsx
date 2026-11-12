@@ -69,7 +69,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
  }}
  return createPortal(<div className="admin-modal-backdrop receive-payment-backdrop"><form ref={dialog} tabIndex={-1} onKeyDown={keyboard} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="receive-payment-title" className="receive-payment-modal">
-  <header className="rp-header"><div><h2 id="receive-payment-title">Receive payment</h2><p>{rental.vehicles?.name} · {rental.profiles?.full_name}</p></div><button type="button" className="rp-close" disabled={saving} onClick={onClose} aria-label="Close payment dialog">×</button></header>
+  <header className="rp-header"><div><h2 id="receive-payment-title">Take Payment</h2><p>{rental.vehicles?.name} · {rental.profiles?.full_name}</p></div><button type="button" className="rp-close" disabled={saving} onClick={onClose} aria-label="Close payment dialog">×</button></header>
   <div className="rp-body">
   <div className="rp-payment-tabs" role="tablist" aria-label="Payment method">
    {['external','stripe'].map(t=><button key={t} type="button" role="tab" aria-selected={tab===t} disabled={saving} onClick={()=>setTab(t)}>{t==='external'?'External payments':'Stripe payments'}</button>)}
