@@ -52,8 +52,8 @@ test('Needs Action summary is a compact center pill and stacks responsively', ()
   assert.match(source, /<strong>\{needsActionReasons\[0\]\}<\/strong>/);
   assert.match(source, /needsActionReasons\.length > 1 \? `\+\$\{needsActionReasons\.length - 1\} more` : 'View full warning'/);
   assert.match(styles, /\.rental-card-header\.has-needs-action-summary\s*\{[\s\S]*grid-template-columns: minmax\(250px, 1fr\) minmax\(220px, 360px\) minmax\(300px, 1fr\) !important;[\s\S]*align-items: start !important/);
-  assert.match(styles, /\.rental-card-needs-action-summary\s*\{[\s\S]*display: flex !important;[\s\S]*align-self: start !important;[\s\S]*padding: 5px 8px !important;[\s\S]*border: 1px solid/);
-  assert.match(styles, /\.rental-card-needs-action-reasons\s*\{[\s\S]*white-space: nowrap !important/);
+  assert.match(styles, /\.rental-card-needs-action-summary\s*\{[\s\S]*display: grid !important;[\s\S]*align-self: start !important;[\s\S]*padding: 5px 8px !important;[\s\S]*border: 1px solid/);
+  assert.match(styles, /\.rental-card-needs-action-reasons\s*\{[^}]*grid-row: 2 !important;[^}]*white-space: normal !important;[^}]*overflow-wrap: anywhere !important/);
   assert.match(styles, /@media \(max-width: 1040px\)[\s\S]*\.rental-card-header\.has-needs-action-summary[\s\S]*grid-template-columns: minmax\(0, 1fr\) !important/);
 });
 

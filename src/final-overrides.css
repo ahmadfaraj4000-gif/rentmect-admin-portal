@@ -6310,7 +6310,8 @@ input[type="radio"] {
 
 .rental-card-needs-action-summary {
   appearance: none !important;
-  display: flex !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
@@ -6324,7 +6325,7 @@ input[type="radio"] {
   color: #672b0d !important;
   box-shadow: none !important;
   cursor: pointer !important;
-  text-align: center !important;
+  text-align: left !important;
 }
 
 .rental-card-needs-action-summary:hover {
@@ -6352,10 +6353,12 @@ input[type="radio"] {
 
 .rental-card-needs-action-reasons {
   display: block !important;
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
   min-width: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
 }
 
 .rental-card-needs-action-reasons strong {
