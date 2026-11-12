@@ -13,7 +13,7 @@ await writeFile(folder+'/refund.html','<div id="root"></div><script type="module
 await writeFile(folder+'/refund.jsx',`import React from 'react';import{createRoot}from'react-dom/client';import{ReceiptActions}from'../src/ReceiptActions.jsx';
 window.refundCalls=0;createRoot(document.getElementById('root')).render(<ReceiptActions canRefund payment={{flexibleReceipt:true,status:'posted',provider:'external',refundBlockReason:'This rental deposit has already been used. Reconcile the deposit before returning money.'}} onAction={()=>{window.refundCalls++}}/>);`);
 await writeFile(folder+'/test.jsx',`import React from 'react';import{createRoot}from'react-dom/client';import{RentalRow}from'../src/.flex-card-browser.jsx';import{DraftOwnerContext}from'../src/useTaskDraft.js';
-const rental={id:'synthetic-rental',user_id:'customer',vehicle_id:'car',status:'overdue',payment_status:'partially_paid',rental_total:346.4,security_deposit:300,deposit_held_amount:300,deposit_status:'held',paid_at:'2026-11-01T14:00:00Z',payment_amount_cents:45740,payment_provider:'local',external_payment_method:'cash',pickup_date:'2026-11-01',pickup_time:'10:00 AM',return_date:'2026-11-02',return_time:'10:00 AM',agreement_signed:true,vehicles:{name:'Synthetic Cadillac ATS #780',daily_rate:74},profiles:{full_name:'Synthetic Customer',email:'synthetic@example.com',phone_verified:true,identity_verification_status:'verified'}};
+const rental={id:'synthetic-rental',user_id:'customer',vehicle_id:'car',status:'overdue',payment_status:'partially_paid',rental_total:236.10000000000005,security_deposit:300,deposit_held_amount:300,deposit_status:'held',paid_at:'2026-11-01T14:00:00Z',payment_amount_cents:45740,payment_provider:'local',external_payment_method:'cash',pickup_date:'2026-11-01',pickup_time:'10:00 AM',return_date:'2026-11-02',return_time:'10:00 AM',agreement_signed:true,vehicles:{name:'Synthetic Cadillac ATS #780',daily_rate:74},profiles:{full_name:'Synthetic Customer',email:'synthetic@example.com',phone_verified:true,identity_verification_status:'verified'}};
 const charges=[{id:'toll',name:'Bridge toll',charge_type:'toll',status:'pending',total_amount:26,amount:26},{id:'fee',name:'New insurance',charge_type:'add_on',status:'pending',total_amount:50,amount:50}, {id:'historical-insurance',name:'Historical insurance',charge_type:'add_on',status:'paid',total_amount:117.26,amount:117.26,paid_at:'2026-11-02T14:00:00Z',payment_provider:'local',external_payment_method:'cash_app'}, ...Array.from({length:30},(_,i)=>({id:'old-'+i,name:'Historical toll '+i,charge_type:'toll',status:'paid',total_amount:1,amount:1,paid_at:'2026-11-01T12:00:00Z',payment_provider:'local'}))].map(c=>({...c,rental_id:rental.id,user_id:rental.user_id}));
 window.calls=[];window.stripeCalls=[];window.copiedLinks=[];Object.defineProperty(navigator,'clipboard',{value:{writeText:async url=>window.copiedLinks.push(url)},configurable:true});
 async function record(rentalId,id,request,cancel){window.calls.push({id,request,cancel});if(cancel){sessionStorage.removeItem('receipt');return{status:'cancelled'}}
@@ -32,7 +32,7 @@ try{
   await page.route('**/fixture/**',async route=>{
    const url=route.request().url();let data=[];
    if(url.includes('admin_flexible_payment_state')){const receipt=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('receipt')||'null'));data={version:2,availableCreditCents:20000,receipts:receipt?[receipt]:[],allocations:[]};}
-   if(url.includes('get_rental_account'))data={invoice_total:646.4,net_paid:457.4};
+   if(url.includes('get_rental_account'))data={invoice_total:536.1000000000001,net_paid:457.4};
    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
   });
   await page.goto('http://127.0.0.1:5195/'+folder.split('/').at(-1)+'/index.html');
@@ -56,6 +56,7 @@ try{
   await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
   await page.getByRole('tabpanel',{name:'External payments'}).waitFor();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
+  assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'78.70');
   await page.getByLabel('Stripe payment amount').fill('50');
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByRole('button',{name:'Copied',exact:true}).waitFor();
