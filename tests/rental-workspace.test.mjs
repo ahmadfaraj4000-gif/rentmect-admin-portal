@@ -355,3 +355,38 @@ test('large-list detail reads overlap two batches and never hydrate a stale or i
   gates[3].resolve();await pending;
   assert.equal(hydrated.length,76);assert.equal(peak,2);
 });
+
+test('deposit review keeps saved card and fresh ledger without inflating counts or hiding pagination', async () => {
+ let rows=[{id:'reviewed'},{id:'next'}], balance=445;
+ const {workspace,hydrated}=setup({inline:true,readList:async()=>({rows,total:12,counts:{deposit_review:12}}),readDetail:async id=>({rental:{id,balance}})});
+ await workspace.list(params('deposit_review'));
+ workspace.retainDepositReview('reviewed',300);
+ rows=[{id:'next'},{id:'third'}];balance=145;workspace.invalidate();
+ await workspace.list(undefined,true);
+ assert.deepEqual(workspace.getState().rows.map(r=>r.id),['reviewed','next','third']);
+ assert.equal(workspace.getState().total,12);assert.equal(workspace.getState().serverRowCount,2);
+ assert.equal(workspace.getState().retainedReviews.reviewed,300);
+ assert.equal(hydrated.findLast(d=>d.rental.id==='reviewed').rental.balance,145);
+ await workspace.list(params('deposit_review',10));
+ assert.equal(workspace.getState().rows[0].id,'reviewed');
+ await workspace.list(params('needs_action'));
+ await workspace.list(params('deposit_review'));
+ assert.deepEqual(workspace.getState().rows.map(r=>r.id),['next','third']);
+ assert.deepEqual(workspace.getState().retainedReviews,{});
+});
+
+test('leaving Rentals clears retained review cards without leaking cached membership', async () => {
+ let rows=[{id:'reviewed'}];
+ const {workspace}=setup({inline:true,readList:async()=>({rows,total:rows.length})});
+ await workspace.list(params('deposit_review'));
+ workspace.retainDepositReview('reviewed',300);rows=[];workspace.invalidate();await workspace.list(undefined,true);
+ assert.equal(workspace.getState().rows.length,1);
+ workspace.clearRetained();await workspace.list(params('deposit_review'));
+ assert.equal(workspace.getState().rows.length,0);
+});
+
+import { getRentalPaymentAction } from '../src/rentalNeedsAction.js';
+test('returned debt has a collection label, and settled returns have no payment warning',()=>{
+ assert.equal(getRentalPaymentAction({rentalStatus:'completed',balanceDue:145,paymentStatus:'paid'}).label,'Returned · Balance due');
+ assert.equal(getRentalPaymentAction({rentalStatus:'completed',balanceDue:0,paymentStatus:'paid'}),null);
+});

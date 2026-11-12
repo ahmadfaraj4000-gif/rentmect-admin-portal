@@ -37,6 +37,7 @@ export function rentalStillNeedsPickupClearance(status) {
 
 export function getRentalPaymentAction({
   customerName = 'Customer',
+  rentalStatus,
   balanceDue = 0,
   paymentStatus,
   formatMoney = (amount) => `$${Number(amount || 0).toFixed(2)}`,
@@ -49,7 +50,7 @@ export function getRentalPaymentAction({
   if (normalizedBalance > 0.005) {
     const formattedBalance = formatMoney(normalizedBalance);
     return {
-      label: 'Payment Due',
+      label: rentalStatus === 'completed' ? 'Returned · Balance due' : 'Payment Due',
       next: `${customerName} owes ${formattedBalance}. Collect the outstanding balance.`,
       reason: `${customerName} owes ${formattedBalance} — collect the outstanding balance`,
     };
