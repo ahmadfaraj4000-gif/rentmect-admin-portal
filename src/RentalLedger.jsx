@@ -31,5 +31,5 @@ export function RentalReceiptDialog({ title = 'Payment details', onClose, childr
       if (e.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { e.preventDefault(); last?.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     }
-  }}><header className="admin-modal-header"><strong>{title}</strong><button type="button" onClick={onClose} aria-label="Close payment details">×</button></header>{children}</section></div>, document.body);
+  }}><header className="admin-modal-header"><strong>{title}</strong><button type="button" onClick={onClose} aria-label="Close payment details">×</button></header><div className="payment-dialog-scroll">{children}</div></section></div>, document.body);
 }
