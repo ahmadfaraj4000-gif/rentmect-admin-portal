@@ -20,8 +20,16 @@ createRoot(document.getElementById('root')).render(location.search ? stripe : mo
 const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5197','--strictPort'],{cwd:root,env:{...process.env,VITE_SUPABASE_URL:'http://127.0.0.1:5197/fixture',VITE_SUPABASE_ANON_KEY:'synthetic'},stdio:['ignore','pipe','pipe']});
 let browser;
 try {
- await new Promise((ok,no)=>{server.stdout.on('data',d=>{if(d.toString().includes('Local:'))ok()});server.on('error',no);server.on('exit',()=>no(Error('Vite exited')))});
- browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL || 'chrome'});
+ let serverOutput='';server.stdout.on('data',d=>{serverOutput+=d});server.stderr.on('data',d=>{serverOutput+=d});
+ const deadline=Date.now()+30000;
+ for(;;){
+  if(server.exitCode!==null)throw Error(`Vite exited: ${serverOutput}`);
+  try{const response=await fetch('http://127.0.0.1:5197/',{signal:AbortSignal.timeout(1000)});if(response.status<500)break;}catch{}
+  if(Date.now()>deadline)throw Error(`Vite did not become ready: ${serverOutput}`);
+  await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ console.log('Contact fixture server ready; starting browser checks.');
+ browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL==='chromium'?undefined:process.env.PLAYWRIGHT_CHANNEL||'chrome'});
  for(const width of [1440,800,390]) {
   const page=await browser.newPage({viewport:{width,height:900}});
   await page.goto('http://127.0.0.1:5197/'+folder.split('/').at(-1)+'/index.html');
