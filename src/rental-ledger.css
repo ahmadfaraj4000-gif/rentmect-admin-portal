@@ -76,3 +76,19 @@
 .rental-ledger-workspace .rental-payment-history > .rental-payment-history-heading { position:sticky; top:-14px; background:var(--ui-surface); z-index:2; padding:10px 0; }
 .flexible-payment-dialog .modal-actions > button { min-height:40px; border:1px solid var(--ui-line-strong); border-radius:var(--ui-radius-sm); padding:8px 14px; font:inherit; cursor:pointer; }
 .flexible-payment-dialog .modal-actions > button:not(.approve) { color:var(--ui-ink); background:var(--ui-surface); }
+
+.rental-operations-card .rental-card-payment-toolbar { justify-content:center; width:100%; box-sizing:border-box; }
+.rental-operations-card .rental-card-payment-toolbar > button { flex:0 1 auto; min-width:180px; }
+.rental-accounting-breakdown > h4 { margin:12px 0; font-size:inherit; }
+.rp-stripe { border:1px solid var(--ui-line); border-radius:12px; padding:16px; margin-bottom:20px; background:var(--ui-surface-subtle); }
+.rp-stripe h3 { margin:0 0 8px; }.rp-stripe p { margin:0 0 12px; }
+.rp-stripe-actions { display:flex; justify-content:center; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.rp-stripe-actions button { flex:1 1 130px; min-height:40px; }
+.rp-stripe input { width:100%; min-width:0; box-sizing:border-box; }
+@media(max-width:600px){.rental-operations-card .rental-card-payment-toolbar > button { flex:1 1 100%; }}
+
+.rp-payment-tabs { display:flex; gap:8px; margin-bottom:18px; }.rp-payment-tabs button { flex:1; min-height:44px; }.rp-payment-tabs [aria-selected="true"] { background:var(--ui-green); color:white; }.receive-payment-modal [hidden] { display:none!important; }
+.rp-payment-tabs button,.rp-stripe-actions button { font:inherit; font-weight:650; border:1px solid var(--ui-line,#cbd8d0); border-radius:8px; padding:10px 12px; color:var(--ui-ink,#203a2c); background:var(--ui-surface,#fff); cursor:pointer; }
+.rp-payment-tabs [aria-selected="true"] { color:white; background:var(--ui-green,#176b48); border-color:var(--ui-green,#176b48); }
+.rp-payment-tabs button:disabled,.rp-stripe-actions button:disabled { opacity:.5; cursor:default; }
+.rp-payment-tabs button:focus-visible,.rp-stripe-actions button:focus-visible { outline:2px solid var(--ui-green,#176b48); outline-offset:2px; }

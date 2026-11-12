@@ -1,4 +1,5 @@
 import { ChargeScrollList } from './ChargeScrollList.jsx';
+import { StripeReceiveActions } from './StripeReceiveActions.jsx';
 import './payment-receipts.css';
 import React, {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
@@ -7,7 +8,8 @@ import {trackTaskDialog} from './lib/taskDraft.js';
 import {buildExternalPayment,eligiblePaymentCharges,paymentCents} from './lib/externalPayment.js';
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose,canCollectRent=true,canManageCharges=true}) {
+export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose,canCollectRent=true,canManageCharges=true,stripeTargets=[],onStripeCreate,onStripeEmail,onStripeOpen,onStripeSavedCard,protectedDeposit=0,initialTab='external'}) {
+ const [tab,setTab]=useState(initialTab);
  const [saving,setSaving]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[done,setDone]=useState(null),[recoveryReady,setRecoveryReady]=useState(false);
  const [form,setForm,clearDraft]=useTaskDraft(`receive-payment:${rental.id}`,{
   amount:'0.00',applyToRental:true,paymentMethod:'cash_app',receivedDate:today(),receivedTime:'',reference:'',notes:'',selectedJson:'[]',receiptId:'',requestJson:'',confirmed:false,
@@ -51,7 +53,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   }catch(e){if(active)setError(e.message);}finally{if(active)setLoading(false);}
  })();return()=>{active=false;};},[rental.id]);
  const change=(key,value)=>{setError('');setForm(f=>({...f,[key==='selected'?'selectedJson':key]:key==='selected'?JSON.stringify(value):value,confirmed:false}));};
- async function submit(e){e.preventDefault();if(saving||loading||!recoveryReady||!form.confirmed)return;setSaving(true);setError('');
+ async function submit(e){e.preventDefault();if(tab!=='external'||saving||loading||!recoveryReady||!form.confirmed)return;setSaving(true);setError('');
   try{const request=pending||buildExternalPayment(charges,selected,due,form);const id=form.receiptId||crypto.randomUUID();
    setForm(f=>({...f,receiptId:id,requestJson:JSON.stringify(request)}));
    const result=await onRecord(rental.id,id,request,false);setDone(result);clearDraft();
@@ -69,6 +71,14 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
  return createPortal(<div className="admin-modal-backdrop receive-payment-backdrop"><form ref={dialog} tabIndex={-1} onKeyDown={keyboard} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="receive-payment-title" className="receive-payment-modal">
   <header className="rp-header"><div><h2 id="receive-payment-title">Receive payment</h2><p>{rental.vehicles?.name} · {rental.profiles?.full_name}</p></div><button type="button" className="rp-close" disabled={saving} onClick={onClose} aria-label="Close payment dialog">×</button></header>
   <div className="rp-body">
+  <div className="rp-payment-tabs" role="tablist" aria-label="Payment method">
+   {['external','stripe'].map(t=><button key={t} type="button" role="tab" aria-selected={tab===t} disabled={saving} onClick={()=>setTab(t)}>{t==='external'?'External payments':'Stripe payments'}</button>)}
+  </div>
+  <div role="tabpanel" aria-label="Stripe payments" hidden={tab!=='stripe'}>
+   <StripeReceiveActions targets={stripeTargets} onCreate={onStripeCreate} onEmail={onStripeEmail} onOpen={onStripeOpen} onSavedCard={onStripeSavedCard} protectedDeposit={protectedDeposit} disabled={saving||loading||!!pending||!recoveryReady}/>
+   {pending&&<p>Resume or cancel the unfinished external payment before starting a Stripe payment.</p>}
+  </div>
+  <div role="tabpanel" aria-label="External payments" hidden={tab!=='external'}>
   {loading?<p>Checking for an unfinished payment…</p>:done?<><p role="status">{done.status === 'refunded' ? 'This payment was already refunded. No new payment was recorded.' : `${money(done.amountCents/100)} recorded. Rental balance: ${money(done.balanceDue)}.`}</p><small>Receipt {done.receiptId}</small></>:<>
   {pending&&<p className="rp-notice" role="status">This payment is awaiting confirmation. Resume the same receipt, or cancel its recording. Cancelling does not return funds.</p>}
   <fieldset disabled={saving||!!pending||!recoveryReady} className="rp-fields">
@@ -96,7 +106,7 @@ export function ReceivePayment({client,rental,charges,rentalDue,onRecord,onClose
   {!pending&&!appliesToRental&&unallocated>0&&<p className="rp-notice">{money(unallocated/100)} is unassigned. Select “Apply to rental” or change the amount to match the selected charges.</p>}
   <label className="rp-confirmation"><input type="checkbox" checked={form.confirmed} disabled={saving||!recoveryReady} onChange={e=>setForm(f=>({...f,confirmed:e.target.checked}))}/><span>I confirm this payment was received and cleared.</span></label>
   </>}{error&&<p role="alert" className="rp-error">{error}</p>}
-  </div>
-  <footer className="rp-footer">{done?<button type="button" className="rp-primary" onClick={onClose}>Done</button>:<><button type="button" className="rp-secondary" disabled={saving||loading} onClick={pending?cancel:onClose}>{pending?'Cancel recording':'Cancel'}</button><button type="submit" className="rp-primary" disabled={saving||loading||!recoveryReady||!form.confirmed||(!pending&&!amountValid)}>{saving?'Recording…':pending?'Resume recording':`Record ${money(Number.isFinite(amountNumber)?amountNumber:0)} payment`}</button></>}</footer>
+  </div></div>
+  <footer className="rp-footer" hidden={tab!=='external'}>{done?<button type="button" className="rp-primary" onClick={onClose}>Done</button>:<><button type="button" className="rp-secondary" disabled={saving||loading} onClick={pending?cancel:onClose}>{pending?'Cancel recording':'Cancel'}</button><button type="submit" className="rp-primary" disabled={saving||loading||!recoveryReady||!form.confirmed||(!pending&&!amountValid)}>{saving?'Recording…':pending?'Resume recording':`Record ${money(Number.isFinite(amountNumber)?amountNumber:0)} payment`}</button></>}</footer>
  </form></div>,document.body);
 }
