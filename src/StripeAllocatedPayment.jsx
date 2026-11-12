@@ -41,10 +41,12 @@ export function StripeAllocatedPayment({client,rental,charges,due,depositDue,sta
    if(error||data?.error){let message=data?.error||error?.message;try{message=(await error?.context?.clone?.().json())?.error||message;}catch{}throw new Error(message||'Unable to confirm payment. Check this same attempt again.');}
    if(data.status==='posted'){setDone(data);setReview(null);await onRefresh?.();return;}
    if(data.status==='cancelled'){setAttempt(null);setReview(null);setNotice('The unpaid Stripe attempt was cancelled. You can change the amount and allocations.');await onRefresh?.();return;}
-   setAttempt({...saved,url:data.url||active?.url});setReview(null);await onRefresh?.();
+   setAttempt({...saved,url:data.url||active?.url});setReview(null);
    if(data.url){
     setNotice('Stripe payment link is ready. Open, copy, or email it below.');
    }else setNotice(data.message||'Payment is awaiting Stripe confirmation. Check payment status before starting another attempt.');
+   // The saved link is usable now; refreshing balances must not block opening it.
+   void Promise.resolve().then(()=>onRefresh?.()).catch(()=>setNotice('Payment details could not refresh. Use Check payment status to update this same attempt.'));
   }catch(e){setError(e.message);}
   finally{setBusy(false);onBusyChange?.(false);lock.current=false;}
  }
