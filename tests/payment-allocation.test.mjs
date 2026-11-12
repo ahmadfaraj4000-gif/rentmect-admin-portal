@@ -38,3 +38,19 @@ test('refunded receipts keep the original payment and a dated reversal',()=>{
  assert.equal(rows.length,2);assert.equal(rows[0].amount,300);assert.equal(rows[1].amount,300);
  assert.equal(rows[1].kind,'refund');assert.equal(rows[1].moneyReturned,true);assert.equal(rows[1].date,'2026-11-11');assert.equal(rows[1].correctableReceiptId,null);
 });
+
+import { calculatePaymentRevenue } from '../src/lib/paymentRevenue.js';
+test('partially paid extras count their allocated revenue once, excluding unused customer credit',()=>{
+ const receipt={id:'r1',rental_id:'r',funding_kind:'external',amount_cents:10000,credit_amount_cents:8000,status:'posted',received_date:'2026-11-10'};
+ const entry={receipt_id:'r1',charge_id:'fee',amount_cents:2000,charge_type:'toll',total_amount:50,tax_amount:0};
+ const charge={id:'fee',rental_id:'r',status:'pending',charge_type:'toll',total_amount:50,allocated_payment_cents:2000,allocation_managed:true};
+ const result=calculatePaymentRevenue({charges:[charge],allocatedReceipts:[receipt],allocatedEntries:[entry]},new Date('2026-11-11T17:00:00Z'));
+ assert.equal(result.month,20);assert.deepEqual(result.issues,[]);
+ // Paying the remainder from credit adds only the newly settled portion; no header or original charge duplicates it.
+ const more={...receipt,id:'credit',funding_kind:'credit',amount_cents:3000,credit_amount_cents:0};
+ const all=calculatePaymentRevenue({charges:[{...charge,status:'paid',payment_provider:'local',payment_amount_cents:5000,paid_at:'2026-11-10T17:00:00Z'}],allocatedReceipts:[receipt,more],allocatedEntries:[entry,{...entry,receipt_id:'credit',amount_cents:3000}]},new Date('2026-11-11T17:00:00Z'));
+ assert.equal(all.month,50);assert.deepEqual(all.issues,[]);
+ const reversed=calculatePaymentRevenue({charges:[charge],allocatedReceipts:[{...receipt,status:'refunded',refunded_at:'2026-11-11T17:00:00Z'}],allocatedEntries:[entry]},new Date('2026-11-11T18:00:00Z'));
+ assert.equal(reversed.month,0);
+});
+

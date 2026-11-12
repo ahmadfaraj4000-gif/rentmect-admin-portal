@@ -21,7 +21,7 @@ async function record(rentalId,id,request,cancel){window.calls.push({id,request,
  if(!sessionStorage.getItem('failed')){sessionStorage.setItem('failed','1');sessionStorage.setItem('receipt',JSON.stringify({id,allocation_version:2,status:'pending',request}));throw Error('Synthetic network interruption. Resume this same payment.');}
  sessionStorage.setItem('receipt',JSON.stringify({id,allocation_version:2,status:'posted',request,result}));return result;}
 createRoot(document.getElementById('root')).render(<DraftOwnerContext.Provider value="synthetic-staff"><main className="admin-main" style={{padding:16,maxWidth:1400,margin:'auto',width:'100%',boxSizing:'border-box'}}><RentalRow rental={rental} rentalCharges={charges} detailed chargeRentalSavedCard={async charge=>{window.stripeCalls.push({kind:'saved',id:charge.id,amount:charge.total_amount});return true}} createAdminPaymentLink={async(r,mode,amount)=>{window.stripeCalls.push({kind:'rental',id:r.id,mode,amount});return 'https://checkout.stripe.com/c/pay/cs_test_synthetic_rental'}} createManualStripePaymentLink={async({charge})=>{window.stripeCalls.push({kind:'charge',id:charge.id});return 'https://checkout.stripe.com/c/pay/cs_test_synthetic_charge'}} recordTestPayment={()=>true} recordExternalRentalCharge={()=>true} recordExternalTollPayment={record} applyManualRentalDiscount={()=>true} addRentalCharge={()=>true} waiveRentalCharge={()=>true} notify={()=>{}}/></main></DraftOwnerContext.Provider>);`);
-const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5195','--strictPort'],{cwd:root,env:{...process.env,VITE_SUPABASE_URL:'http://127.0.0.1:5195/fixture',VITE_SUPABASE_ANON_KEY:'synthetic-anon',VITE_FLEXIBLE_PAYMENTS:'false',VITE_UNIFIED_EXTERNAL_PAYMENTS:'true'},stdio:['ignore','pipe','pipe']});
+const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5195','--strictPort'],{cwd:root,env:{...process.env,VITE_SUPABASE_URL:'http://127.0.0.1:5195/fixture',VITE_SUPABASE_ANON_KEY:'synthetic-anon',VITE_FLEXIBLE_PAYMENTS:process.env.VITE_FLEXIBLE_PAYMENTS || 'false',VITE_UNIFIED_EXTERNAL_PAYMENTS:'true'},stdio:['ignore','pipe','pipe']});
 let browser;
 try{
  await new Promise((ok,no)=>{server.stdout.on('data',d=>{if(d.toString().includes('Local:'))ok()});server.on('error',no);server.on('exit',()=>no(Error('Vite exited')))});
@@ -54,7 +54,7 @@ try{
   await history.getByText('$457.40',{exact:true}).waitFor();await history.getByText('$117.26',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Close payment details',exact:true}).click();
   await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
-  await page.getByLabel('Amount received',{exact:true}).waitFor();
+  await page.getByRole('tabpanel',{name:'External payments'}).waitFor();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   await page.getByLabel('Stripe payment amount').fill('50');
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
@@ -82,6 +82,13 @@ try{
   await page.getByRole('button',{name:'Charge saved card · $50.00',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Stripe confirmed the saved-card payment.'}).waitFor();
   assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[2],{kind:'saved',id:'fee',amount:50});
+  await page.getByRole('button',{name:'Close payment dialog'}).click();
+  await page.getByRole('button',{name:'Receive Payment',exact:true}).first().click();
+  await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
+  await page.getByLabel('Stripe payment amount').fill('25');
+  await page.getByRole('button',{name:'Charge saved card · $25.00',exact:true}).click();
+  await page.getByRole('status').filter({hasText:'Stripe confirmed the saved-card payment.'}).waitFor();
+  assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[3],{kind:'rental',id:'synthetic-rental',mode:'saved',amount:25});
   await page.screenshot({path:'/tmp/rentme-card-screenshots/stripe-tabs-'+viewport.width+'.png',fullPage:false});
   assert.ok(await page.getByRole('dialog').evaluate(n=>n.scrollWidth<=n.clientWidth+1));
   assert.deepEqual(errors,[]);await page.close();

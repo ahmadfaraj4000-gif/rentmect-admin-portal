@@ -13,7 +13,7 @@ export function StripeReceiveActions({targets=[],onCreate,onEmail,onOpen,onSaved
   if(target.id==='rental'&&value<target.amount&&target.amount-value<protectedDeposit-0.005){setError(`Leave the ${money(protectedDeposit)} refundable deposit for the final Stripe payment, or collect the full balance.`);return;}
   lock.current=true;setBusy(true);setError('');setCopied(false);
   try{
-   if(kind==='saved'){if(value!==target.amount||!target.charge)throw Error('Select the full charge balance for the existing saved-card flow.');const success=await onSavedCard(target);if(success)setPaid(true);return;}
+   if(kind==='saved'){if(target.id!=='rental' && (value!==target.amount||!target.charge))throw Error('Select the full charge balance for the existing saved-card flow.');const success=await onSavedCard({...target,amount:value});if(success)setPaid(true);return;}
    if(kind==='open'){await onOpen({...target,amount:value});return;}
    const link=url||await onCreate({...target,amount:value});
    if(!link||!/^https:\/\//.test(link))throw Error('Stripe did not return a payment link. Please try again.');
@@ -30,7 +30,7 @@ export function StripeReceiveActions({targets=[],onCreate,onEmail,onOpen,onSaved
   {paid&&<p role="status">Stripe confirmed the saved-card payment.</p>}
   <div className="rp-stripe-actions">
    <button type="button" disabled={disabled||busy||paid||!target||!onOpen} onClick={()=>act('open')}>Open Stripe checkout</button>
-   {onSavedCard&&<button type="button" disabled={disabled||busy||paid||!target?.charge||Number(amount)!==target.amount} onClick={()=>act('saved')}>Charge saved card{target?` · ${money(target.amount)}`:''}</button>}
+   {onSavedCard&&<button type="button" disabled={disabled||busy||paid||!target||(target.id!=='rental'&&(!target.charge||Number(amount)!==target.amount))} onClick={()=>act('saved')}>Charge saved card{target?` · ${money(Number(amount)||0)}`:''}</button>}
    <button type="button" disabled={disabled||busy||paid||!target} onClick={()=>act('create')}>{busy?'Preparing Stripe…':'Send Stripe link'}</button>
    <button type="button" disabled={disabled||busy||paid||!target} onClick={()=>act('copy')}>{copied?'Copied':'Copy link'}</button>
    <button type="button" disabled={disabled||busy||paid||!target||!onEmail} onClick={()=>act('email')}>Email link</button>
