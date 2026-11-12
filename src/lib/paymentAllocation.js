@@ -10,8 +10,25 @@ export const chargePaid = charge => charge.allocated_payment_cents != null && Nu
   ? Number(charge.allocated_payment_cents) / 100
   : charge.status === 'paid' ? Number(charge.payment_amount_cents ?? Math.round(Number(charge.total_amount || 0) * 100)) / 100 : 0;
 
-// Explicit allocations never change when staff changes the received amount.
-// Checkbox defaults are a convenience; both client and server validate cents.
+// Refill the suggested allocation when the payment amount changes. Submitted
+// requests remain immutable; callers only use this while editing a new payment.
+export function depositFirstAllocation({ amount, depositDueCents = 0, rentalDueCents = 0, charges = [], funding = 'external' }) {
+  let remaining;
+  try { remaining = paymentCents(amount || '0'); } catch { return null; }
+  const deposit = funding === 'credit' ? 0 : Math.min(remaining, depositDueCents);
+  remaining -= deposit;
+  const rent = Math.min(remaining, rentalDueCents);
+  remaining -= rent;
+  const allocations = {};
+  for (const charge of charges) {
+    const take = Math.min(remaining, chargeRemainingCents(charge));
+    if (take > 0) allocations[charge.id] = (take / 100).toFixed(2);
+    remaining -= take;
+  }
+  return { depositAmount: (deposit / 100).toFixed(2), rentalAmount: (rent / 100).toFixed(2), allocations };
+}
+
+// Both client and server validate explicit allocations in cents.
 export function buildPaymentAllocation({ charges = [], rentalDueCents, depositDueCents, availableCreditCents = 0, form }) {
   const amountCents = paymentCents(form.amount);
   const rentalAmountCents = paymentCents(form.rentalAmount || '0');
@@ -19,6 +36,7 @@ export function buildPaymentAllocation({ charges = [], rentalDueCents, depositDu
   const depositAmountCents = explicitDeposit ? paymentCents(form.depositAmount || '0') : 0;
   if (explicitDeposit && (depositDueCents < 0 || depositAmountCents > depositDueCents)) throw new Error('Deposit allocation exceeds the deposit still needed.');
   const funding = form.funding || 'external';
+  if (explicitDeposit && funding !== 'credit' && rentalAmountCents > 0 && depositAmountCents < depositDueCents) throw new Error('Fund the security deposit before applying money to rental.');
   if (funding === 'credit' && depositAmountCents > 0) throw new Error('Collect deposits using Stripe or an external payment.');
   if (!['external', 'credit', 'stripe', 'stripe_link', 'saved_card'].includes(funding)) throw new Error('Choose a collection method.');
   if (!amountCents) throw new Error('Enter an amount greater than zero.');
@@ -44,7 +62,7 @@ export function buildPaymentAllocation({ charges = [], rentalDueCents, depositDu
   }
   if (!form.confirmed) throw new Error('Review and confirm the payment.');
   if (funding === 'external' && !form.receivedDate) throw new Error('Choose the received date.');
-  return { kind: 'rental_payment', version: 2, ...(explicitDeposit ? { depositAmountCents, expectedDepositDueCents: depositDueCents } : {}), funding, charges: allocations, amountCents, rentalAmountCents,
+  return { kind: 'rental_payment', version: 2, ...(explicitDeposit ? { depositAmountCents, expectedDepositDueCents: depositDueCents, allocationPriority: 'deposit_first' } : {}), funding, charges: allocations, amountCents, rentalAmountCents,
     creditAmountCents, expectedRentalDueCents: rentalDueCents, paymentMethod: form.paymentMethod || 'other',
     receivedDate: form.receivedDate, receivedTime: form.receivedTime || '', reference: (form.reference || '').trim(), notes: (form.notes || '').trim() };
 }
