@@ -3849,6 +3849,7 @@ function App() {
 
   async function createAdminPaymentLink(rental, mode = 'copy', requestedAmount = null) {
     if (!requireStaffPermission('payment.collect', 'collect customer payments')) return false;
+    if (mode === 'saved' && (!requireStaffPermission('charge.manage', 'charge a saved card') || !window.confirm(`Charge the customer's saved card ${money(requestedAmount)} toward this rental? This attempts the charge immediately.`))) return false;
     const checkoutWindow = mode === 'open' ? window.open('about:blank', '_blank') : null;
     if (mode === 'open' && !checkoutWindow) {
       notify('The browser blocked the Stripe window. Allow pop-ups for the admin portal and try again.');
@@ -3880,6 +3881,10 @@ function App() {
       checkoutWindow?.close();
       notify(data?.error || error?.message || 'The secure Stripe payment session could not be created.');
       return null;
+    }
+    if (mode === 'saved') {
+      if (!data.targetId) throw new Error('Stripe did not identify the prepared rental installment.');
+      return chargeRentalSavedCard({id:data.targetId,rental_id:rental.id,name:'Rental payment',total_amount:requestedAmount},{skipConfirmation:true});
     }
     if (mode === 'open') {
       try {
@@ -8380,13 +8385,21 @@ function RentalRow({ onInteract, refreshing = false, rental, showNeedsActionSumm
     </div>
     {receivePaymentOpen && flexiblePaymentsEnabled && rental.pending_external_payment_id && !flexibleState && <RentalReceiptDialog title="Checking unfinished payment" onClose={() => setReceivePaymentOpen(false)}>{flexibleReadError ? <><p role="alert">{flexibleReadError}</p><button type="button" onClick={refreshFlexibleState}>Retry</button></> : <p role="status">Loading the saved payment…</p>}</RentalReceiptDialog>}
     {receivePaymentOpen && (!flexiblePaymentsEnabled || !rental.pending_external_payment_id || flexibleState) && (flexiblePaymentsEnabled && (!rental.pending_external_payment_id || flexibleState?.receipts?.some(r => r.id === rental.pending_external_payment_id && r.allocation_version === 2))
-      ? <FlexibleReceivePayment client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} initialChargeIds={receiveChargeIds} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={async (...args) => { const result = await recordExternalTollPayment(...args); await refreshFlexibleState(); return result; }} onClose={() => setReceivePaymentOpen(false)}/>
-       : <ReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
+      ? <FlexibleReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
       onStripeOpen={async target => {if(target.id==='rental')return createAdminPaymentLink(rental,'open',target.amount);const win=window.open('about:blank','_blank');if(!win)throw Error('Allow pop-ups to open Stripe checkout.');win.opener=null;try{const url=await createManualStripePaymentLink({rental,charge:target.charge});win.location.replace(url);}catch(e){win.close();throw e;}}}
-      onStripeSavedCard={chargeRentalSavedCard ? target=>chargeRentalSavedCard(target.charge) : null}
+      onStripeSavedCard={chargeRentalSavedCard ? target=>target.id==='rental' ? createAdminPaymentLink(rental,'saved',target.amount) : chargeRentalSavedCard({...target.charge,total_amount:target.amount}) : null}
       stripeTargets={[
         ...(invoiceBalanceDue >= 0.5 && createAdminPaymentLink ? [{id:'rental',label:'Rental balance',amount:invoiceBalanceDue,charge:openRentalBalance,rentalBalance:true}] : []),
-        ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && Number(c.total_amount)>=0.5).map(c=>({id:c.id,label:c.name,amount:Number(c.total_amount),charge:c})) : []),
+        ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && chargeRemaining(c)>=0.5).map(c=>({id:c.id,label:c.name,amount:chargeRemaining(c),charge:c})) : []),
+      ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
+      onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
+ client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} initialChargeIds={receiveChargeIds} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={async (...args) => { const result = await recordExternalTollPayment(...args); await refreshFlexibleState(); return result; }} onClose={() => setReceivePaymentOpen(false)}/>
+       : <ReceivePayment initialTab={receivePaymentTab} protectedDeposit={['held','adjustment_refund_due','release_pending','released','transferred'].includes(String(rental.deposit_status||'').toLowerCase())?0:Number(rental.security_deposit||0)}
+      onStripeOpen={async target => {if(target.id==='rental')return createAdminPaymentLink(rental,'open',target.amount);const win=window.open('about:blank','_blank');if(!win)throw Error('Allow pop-ups to open Stripe checkout.');win.opener=null;try{const url=await createManualStripePaymentLink({rental,charge:target.charge});win.location.replace(url);}catch(e){win.close();throw e;}}}
+      onStripeSavedCard={chargeRentalSavedCard ? target=>target.id==='rental' ? createAdminPaymentLink(rental,'saved',target.amount) : chargeRentalSavedCard({...target.charge,total_amount:target.amount}) : null}
+      stripeTargets={[
+        ...(invoiceBalanceDue >= 0.5 && createAdminPaymentLink ? [{id:'rental',label:'Rental balance',amount:invoiceBalanceDue,charge:openRentalBalance,rentalBalance:true}] : []),
+        ...(createManualStripePaymentLink ? trueAdditionalCharges.filter(c=>!c.included_in_initial_payment && ['pending','failed','checkout_open'].includes(c.status) && chargeRemaining(c)>=0.5).map(c=>({id:c.id,label:c.name,amount:chargeRemaining(c),charge:c})) : []),
       ]} onStripeCreate={createAdminPaymentLink || createManualStripePaymentLink ? async target => target.id==='rental' ? createAdminPaymentLink(rental,'link',target.amount) : createManualStripePaymentLink({rental,charge:target.charge}) : null}
       onStripeEmail={(target,url,channel) => {setReceivePaymentOpen(false);setContactModal({charge:target.charge||null,rentalBalance:Boolean(target.rentalBalance),stripeUrl:url,preferredChannel:channel,initialTemplateKey:'manual_payment_due'});}}
       client={supabase} rental={rental} charges={rentalCharges} rentalDue={invoiceBalanceDue} canCollectRent={Boolean(recordTestPayment)} canManageCharges={Boolean(recordExternalRentalCharge)} onRecord={recordExternalTollPayment} onClose={() => setReceivePaymentOpen(false)}/>)}

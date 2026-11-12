@@ -17,7 +17,8 @@ const dateKey = (date) => {
 const referenceKeys = (row) => [row.stripe_payment_intent_id && `intent:${row.stripe_payment_intent_id}`, row.stripe_checkout_session_id && `session:${row.stripe_checkout_session_id}`].filter(Boolean);
 
 export function calculatePaymentRevenue(data = {}, now = new Date()) {
-  const { rentals = [], payments = [], charges = [], extensions = [], refunds = [], externalActions = [], applications = [], allocations = [] } = data;
+  const { rentals = [], payments = [], charges = [], extensions = [], refunds = [], externalActions = [], applications = [], allocations = [], allocatedReceipts = [], allocatedEntries = [] } = data;
+  const flexibleExtraIds = new Set(allocatedEntries.filter(a => !['rental_amendment', 'rental_installment'].includes(a.charge_type)).map(a => a.charge_id));
   const today = dateKey(now);
   const issues = [];
   const receipts = [];
@@ -152,7 +153,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       gross, deposit, tax: taxShare(gross - deposit, positive(row.extension_total_amount) - positive(row.extension_deposit_amount), positive(row.extension_tax_amount)) }, row);
   }
   for (const row of charges) {
-    if (row.included_in_initial_payment || !paid(row.status) || row.charge_type === 'rental_amendment' || row.charge_type === 'rental_installment') continue;
+    if (flexibleExtraIds.has(row.id) || row.allocation_managed || row.included_in_initial_payment || !paid(row.status) || row.charge_type === 'rental_amendment' || row.charge_type === 'rental_installment') continue;
     if (row.payment_provider === 'deposit') {
       if (!appliedCharges.has(row.id)) issue(row, 'A deposit-paid charge is missing its application record.');
       continue;
@@ -161,9 +162,25 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
     add({ id: `charge:${row.id}`, rentalId: row.rental_id, date: row.paid_at,
       gross, deposit: 0, tax: taxShare(gross, positive(row.total_amount), positive(row.tax_amount)) }, row);
   }
+  // Flexible extra allocations are receipt evidence even before a charge is paid in full.
+  // Rental allocations already enter the existing rental receipt/tax/deposit calculation.
+  const flexibleReceipts = new Map(allocatedReceipts.map(row => [row.id, row]));
+  const allocatedTax = new Map();
+  for (const row of allocatedEntries) {
+    if (['rental_amendment', 'rental_installment'].includes(row.charge_type)) continue;
+    const receipt = flexibleReceipts.get(row.receipt_id);
+    if (!receipt) continue;
+    const gross = Number(row.amount_cents);
+    const previous = allocatedTax.get(row.charge_id) || 0;
+    const tax = taxShare(previous + gross, positive(row.total_amount), positive(row.tax_amount)) - taxShare(previous, positive(row.total_amount), positive(row.tax_amount));
+    allocatedTax.set(row.charge_id, previous + gross);
+    const id = `allocation:${row.receipt_id}:${row.charge_id}`;
+    add({ id, rentalId: receipt.rental_id, date: receipt.received_date || receipt.posted_at, gross, deposit: 0, tax }, {});
+    if (receipt.status === 'refunded') events.push({ rentalId: receipt.rental_id, date: receipt.refunded_at, net: -(gross - tax) });
+  }
   for (const row of applications) {
     const charge = byCharge.get(row.charge_id);
-    if (!charge || charge.status !== 'paid' || charge.payment_provider !== 'deposit') { issue(row, 'A deposit application does not match a paid charge.'); continue; }
+    if (!charge || (!charge.allocation_managed && !flexibleExtraIds.has(charge.id) && (charge.status !== 'paid' || charge.payment_provider !== 'deposit'))) { issue(row, 'A deposit application does not match a paid charge.'); continue; }
     let total = positive(charge.total_amount), tax = positive(charge.tax_amount);
     if (charge.charge_type === 'rental_amendment') {
       const rental = byRental.get(row.rental_id);

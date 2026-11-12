@@ -4,11 +4,14 @@ import { useTaskDraft } from './useTaskDraft.js';
 import { trackTaskDialog } from './lib/taskDraft.js';
 import { buildPaymentAllocation, chargeRemainingCents } from './lib/paymentAllocation.js';
 import './rental-ledger.css';
+import './payment-receipts.css';
+import { StripeReceiveActions } from './StripeReceiveActions.jsx';
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue, onRecord, onClose,
-  initialChargeIds = [], canCollectRent = true, canManageCharges = true, stripeEnabled = false }) {
+  initialChargeIds = [], canCollectRent = true, canManageCharges = true, stripeTargets = [], onStripeCreate, onStripeEmail, onStripeOpen, onStripeSavedCard, protectedDeposit = 0, initialTab = 'external' }) {
+  const [tab, setTab] = useState(initialTab);
   const [state, setState] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState(null);
   const [form, setForm, clearDraft] = useTaskDraft(`flex-payment:${rental.id}`, {
     amount: '', rentalAmount: '', allocationsJson: JSON.stringify(Object.fromEntries(charges.filter(c => initialChargeIds.includes(c.id)).map(c => [c.id, (chargeRemainingCents(c) / 100).toFixed(2)]))),
@@ -48,7 +51,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   function change(key, value) { setError(''); setForm(f => ({ ...f, [key]: value, confirmed: false })); }
   function allocate(id, value) { const next = { ...allocations }; if (value === null) delete next[id]; else next[id] = value; change('allocationsJson', JSON.stringify(next)); }
   async function submit(event) {
-    event.preventDefault(); if (submitLock.current || !state || !form.confirmed) return;
+    event.preventDefault(); if (tab !== 'external' || submitLock.current || !state || !form.confirmed) return;
     submitLock.current = true; setBusy(true); setError('');
     try {
       const request = pending || buildPaymentAllocation({ charges: eligible, rentalDueCents: due, availableCreditCents: state.availableCreditCents,
@@ -81,11 +84,17 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   }
   return createPortal(<div className="admin-modal-backdrop rental-ledger-dialog-backdrop"><form className="admin-modal flexible-payment-dialog" ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="flex-payment-title" onSubmit={submit} onKeyDown={keyboard}>
     <header className="admin-modal-header"><div><strong id="flex-payment-title">Receive Payment</strong><span>{rental.vehicles?.name} · {rental.profiles?.full_name}</span></div><button type="button" disabled={busy} onClick={onClose} aria-label="Close payment dialog">×</button></header>
+    <div className="rp-payment-tabs" role="tablist" aria-label="Payment method">{['external','stripe'].map(t => <button key={t} type="button" role="tab" aria-selected={tab === t} disabled={busy} onClick={() => setTab(t)}>{t === 'external' ? 'External payments' : 'Stripe payments'}</button>)}</div>
+    <div role="tabpanel" aria-label="Stripe payments" hidden={tab !== 'stripe'}>
+      <StripeReceiveActions targets={stripeTargets} onCreate={onStripeCreate} onEmail={onStripeEmail} onOpen={onStripeOpen} onSavedCard={onStripeSavedCard} protectedDeposit={protectedDeposit} disabled={busy || !state || !!pending || !!done}/>
+      {pending && <p>Resume or cancel the unfinished external payment before starting a Stripe payment.</p>}
+    </div>
+    <div role="tabpanel" aria-label="External payments" hidden={tab !== 'external'}>
     {done ? <><p role="status">{done.status === 'refunded' ? 'This receipt has already been reversed.' : `${money(done.amountCents)} ${done.funding === 'credit' ? 'credit applied' : 'recorded'}. ${money(done.availableCreditCents || 0)} customer credit available.`}</p><button type="button" onClick={onClose}>Done</button></> : <>
       {!state && !error && <p role="status">Checking balances and unfinished payments…</p>}
       {pending && <p role="status">This payment is awaiting confirmation. Resume the same payment to check its result.</p>}
-      <fieldset disabled={busy || !!pending || !state} className="flexible-payment-fields">
-        <label>Collection method<select value={funding} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}{stripeEnabled && <><option value="stripe_link">Send Stripe payment link</option><option value="saved_card">Charge saved card</option></>}</select></label>
+      <fieldset disabled={tab !== 'external' || busy || !!pending || !state} className="flexible-payment-fields">
+        <label>Collection method<select value={funding} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
         <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<input type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
         <p className="allocation-explanation">Enter the full payment, even if it exceeds the balance due. Choose charges below and edit how much goes to each. Unallocated money stays as customer credit for this rental.</p>
         <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
@@ -102,6 +111,6 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
       {state?.paymentUrl && <p><a href={state.paymentUrl} target="_blank" rel="noopener noreferrer">Open secure Stripe payment link</a></p>}
       <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} disabled={busy || !state} onChange={e => setForm(f => ({ ...f, confirmed: e.target.checked }))}/>{funding === 'external' ? 'I confirm this money was received and cleared, and these allocations are correct.' : funding === 'credit' ? 'I confirm the credit allocations. No new money is being received.' : 'I confirm the amount and allocations for this Stripe payment.'}</label>
       <div className="modal-actions"><button type="button" disabled={busy} onClick={pending ? cancelPending : onClose}>{pending ? 'Cancel pending payment' : 'Cancel'}</button><button className="approve" disabled={busy || !state || !form.confirmed || credit < 0}>{busy ? 'Checking payment…' : pending ? 'Resume payment' : funding === 'credit' ? 'Apply credit' : funding === 'external' ? 'Record payment' : funding === 'stripe_link' ? 'Create payment link' : 'Charge saved card'}</button></div>
-    </>}{error && <p className="form-error" role="alert">{error}</p>}
+    </>}</div>{error && <p className="form-error" role="alert">{error}</p>}
   </form></div>, document.body);
 }
