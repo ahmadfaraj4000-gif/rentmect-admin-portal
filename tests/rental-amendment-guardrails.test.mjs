@@ -25,7 +25,7 @@ test('deposit requirements can be overridden without implying a refund; complete
   assert.match(mainSource, /Use new deposit/);
   assert.match(mainSource, /onPreview\(rental, candidate\)/);
   assert.match(mainSource, /Correct this completed rental/);
-  assert.match(mainSource, /minimumReasonLength = completed \? 20 : 10/);
+  assert.match(mainSource, /minimumReasonLength = 1/);
 });
 
 test('the review explains payment, credit, and re-signing outcomes', () => {

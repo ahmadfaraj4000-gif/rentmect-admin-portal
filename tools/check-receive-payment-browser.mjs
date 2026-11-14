@@ -50,6 +50,7 @@ try{
   assert.equal(await page.getByLabel('Apply to rental',{exact:true}).isChecked(),true);
   assert.equal(await page.getByRole('checkbox',{name:/Manual charge/}).isChecked(),true,'late fee starts selected');
   await page.getByRole('checkbox',{name:/Manual charge/}).uncheck();
+  await page.getByLabel('Select all tolls').uncheck();
   await page.getByLabel('Amount received',{exact:true}).fill('100.00');
   assert.match(await page.locator('.rp-summary').innerText(),/Applied to rental\s*\$100.00/);
   await page.getByLabel('Apply to rental',{exact:true}).uncheck();

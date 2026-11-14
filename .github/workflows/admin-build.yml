@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ahmadfaraj4000-gif/rentmect
-          ref: c54958e951dea5151aefada0423bd6e2cc09a62a
+          ref: c01acd2562fec998b5e9a874af3fecfd8ed5430f
           path: .ci-backend
           persist-credentials: false
 
@@ -75,6 +75,7 @@ jobs:
           node tools/check-collapsed-workflow-browser.mjs
           node tools/check-history-screens-browser.mjs
           node tools/check-lazy-screens-browser.mjs
+          node tools/test-rental-amendment-browser.mjs
 
       - name: Build production assets
         run: npm run build

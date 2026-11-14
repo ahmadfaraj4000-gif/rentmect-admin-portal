@@ -1,3 +1,4 @@
+import { adminErrorMessage } from './lib/adminErrors.js';
 import { PortalInbox } from './PortalInbox.jsx';
 import { CustomerDirectory } from './CustomerDirectory.jsx';
 import { AuditHistory, DocumentHistory, MaintenanceHistory, PaymentActivity, EmailHistory, LazyHistoryDetail } from './HistoryScreens.jsx';
@@ -684,6 +685,7 @@ function App() {
     paymentCollectionPreference: 'customer_link',
   }, ['customerMode', 'customerId', 'vehicleId', 'pickupDate', 'returnDate', 'pickupTime', 'returnTime', 'onboardingDelivery', 'paymentCollectionPreference'], session?.user?.id || '');
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
+  const [manualBookingError, setManualBookingError] = useState('');
 
   useEffect(() => {
     setManualBookingForm((current) => {
@@ -2038,7 +2040,7 @@ function App() {
       if (!data?.error && error?.context) {
         try {
           const payload = await error.context.clone().json();
-          detail = payload?.error || detail;
+          detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
         } catch {
           try {
             detail = await error.context.clone().text() || detail;
@@ -2081,8 +2083,8 @@ function App() {
       notify('Refund amount must be at least $0.50.');
       return false;
     }
-    if (reason.length < 5) {
-      notify('Enter a refund reason of at least 5 characters.');
+    if (reason.length < 1) {
+      notify('Enter a refund reason.');
       return false;
     }
 
@@ -2101,7 +2103,7 @@ function App() {
       let detail = data?.error || error?.message || 'The Stripe refund could not be submitted.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload?.error || detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
       } catch {
         // Keep the function error message.
       }
@@ -2291,8 +2293,8 @@ function App() {
       if (error) return notify(error.message);
       quote = data;
       if (rate !== Number(request.agreed_daily_rate)) {
-        const reason = window.prompt('Record the customer’s agreement to this extension rate (at least 10 characters).');
-        if (!reason || reason.trim().length < 10) return notify('A specific rate agreement reason is required.');
+        const reason = window.prompt('Record the customer’s agreement to this extension rate.');
+        if (!reason || reason.trim().length < 1) return notify('A specific rate agreement reason is required.');
         rateAgreement = { p_extension_request_id: id, p_daily_rate: rate, p_reason: reason.trim() };
       }
     }
@@ -2432,7 +2434,7 @@ function App() {
       let detail = data?.error || error?.message || 'The rental changes could not be applied.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload?.error || detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
       } catch {
         // Keep the Edge Function error when no JSON response is available.
       }
@@ -2489,7 +2491,7 @@ function App() {
       let detail = data?.error || error?.message || 'The manual discount could not be applied.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload?.error || detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
       } catch {
         // Keep the Edge Function error when no JSON response is available.
       }
@@ -2754,7 +2756,7 @@ function App() {
   async function overrideVehicleMaintenance(vehicle, reason, hours) {
     if (!requireStaffPermission('vehicle.manage', 'override vehicle maintenance')) return false;
     const duration = Number(hours);
-    if (String(reason || '').trim().length < 10) return notify('Enter a specific maintenance override reason of at least 10 characters.');
+    if (String(reason || '').trim().length < 1) return notify('Enter a specific maintenance override reason.');
     if (!Number.isInteger(duration) || duration < 1 || duration > 168) return notify('Choose an override between 1 and 168 hours.');
     const { error } = await supabase.rpc('admin_override_vehicle_maintenance', {
       p_vehicle_id: vehicle.id,
@@ -3751,6 +3753,7 @@ function App() {
 
   async function createManualBooking(event) {
     event.preventDefault();
+    setManualBookingError('');
     if (!requireStaffPermission('booking.create', 'create bookings')) return false;
     const vehicle = vehicles.find((item) => item.id === manualBookingForm.vehicleId);
     if (manualBookingForm.customerMode === 'existing' && !manualBookingForm.customerId) return notify('Choose a customer.');
@@ -3831,11 +3834,13 @@ function App() {
       let detail = data?.error || error?.message || 'Could not create the booking.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload?.error || detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
       } catch {
         // Keep the function error message.
       }
-      return notify(detail);
+      detail = adminErrorMessage({ message: detail }, 'Create this booking');
+      setManualBookingError(detail);
+      return notify(detail, 'error');
     }
 
     setManualBookingForm({ customerMode: 'existing', customerId: '', existingFirstName: '', existingLastName: '', existingDateOfBirth: '', existingPhone: '', firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
@@ -4075,7 +4080,7 @@ function App() {
       let detail = data?.error || error?.message || 'The secure Stripe payment link could not be created.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload?.error || detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
       } catch {
         // Keep the Edge Function error when no JSON response is available.
       }
@@ -4204,7 +4209,7 @@ function App() {
       let detail = error.message || 'Could not send SMS reminder.';
       try {
         const payload = await error.context?.clone?.().json();
-        detail = payload?.error || detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
       } catch {
         try {
           detail = await error.context?.clone?.().text() || detail;
@@ -4410,7 +4415,7 @@ function App() {
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'tickets' && <TicketResolution focusId={ticketFocusId} canFlagCustomer={canUsePermission('ticket.manage') && canUsePermission('customer.manage')} canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={openRentalCard} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
-        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
+        {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} bookingError={manualBookingError} onReviewCustomerRentals={() => { const customer = profiles.find(p => p.id === manualBookingForm.customerId); selectAdminTab('rentals'); setRentalFilter('all'); setSearch(customer?.email || customer?.full_name || manualBookingForm.customerId); }} />}
         {activeTab === 'rentals' && <Rentals onOpenReviewedRentalArchive={openReviewedRentalArchive} manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} recordExternalTollPayment={(canUsePermission('charge.manage') || canUsePermission('payment.collect')) ? recordExternalTollPayment : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
         {activeTab === 'customers' && <CustomerDirectory client={supabase} revision={historyRevision} Panel={Panel}
           renderDetails={(data, close, saved) => <CustomerDetailsModal {...data} openDocument={openDocument}
@@ -4584,8 +4589,8 @@ function DepositChargeSettlementModal({ preview, onCancel, onConfirm }) {
     <div className="portal-form"><label><span>Reason</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} disabled={saving}/></label></div>
     <p className="muted">No additional card charge is made. If the refund cannot finish, the recorded deductions remain and you can retry the remainder from Refund Deposit.</p>
     <div className="button-row end-row"><button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Cancel</button>
-      <button type="button" className="approve" disabled={saving || reason.trim().length < 5} onClick={async () => {
-        if (saving || reason.trim().length < 5) return;
+      <button type="button" className="approve" disabled={saving || reason.trim().length < 1} onClick={async () => {
+        if (saving || reason.trim().length < 1) return;
         setSaving(true);
         try { await onConfirm({ chargeIds: preview.chargeIds, expectedApplied: preview.expectedApplied, expectedRefund: preview.expectedRefund, reason: reason.trim() }); }
         finally { setSaving(false); }
@@ -4975,7 +4980,7 @@ function TollsTab({ notify }) {
     const rentalId = rentalSelections[transaction.id] || '';
     const verificationNote = String(rentalVerificationNotes[transaction.id] || '').trim();
     if (!rentalId) return notify('Choose the customer rental that was responsible for this toll.');
-    if (verificationNote.length < 10) return notify('Explain how you verified the rental using at least 10 characters.');
+    if (verificationNote.length < 1) return notify('Explain how you verified the rental.');
 
     setBusy(`assign_rental:${transaction.id}`);
     const { error } = await supabase.rpc('admin_assign_tollspot_transaction_to_rental', {
@@ -5148,7 +5153,7 @@ function TollsTab({ notify }) {
                 <span>{selectedCandidate.rental.vehicles?.name} • {formatRentalDate(selectedCandidate.rental.pickup_date, selectedCandidate.rental.pickup_time)} to {formatRentalDate(selectedCandidate.rental.return_date, selectedCandidate.rental.return_time)}</span>
               </div>}
               <label className="tollspot-verification-note"><span>How did you verify this customer and rental?</span><textarea rows="3" maxLength="500" placeholder="Example: Transponder 00811688812 is physically installed in Audi Q5 #225; customer had the vehicle when the toll occurred." value={rentalVerificationNotes[transaction.id] || ''} onChange={(event) => setRentalVerificationNotes((current) => ({ ...current, [transaction.id]: event.target.value.slice(0, 500) }))}/></label>
-              <button type="button" className="approve tollspot-assign-rental" disabled={Boolean(busy) || !rentalSelections[transaction.id] || String(rentalVerificationNotes[transaction.id] || '').trim().length < 10} onClick={() => assignTollToRental(transaction)}>{busy === `assign_rental:${transaction.id}` ? 'Assigning and creating charge…' : 'Confirm rental & create toll charge'}</button>
+              <button type="button" className="approve tollspot-assign-rental" disabled={Boolean(busy) || !rentalSelections[transaction.id] || String(rentalVerificationNotes[transaction.id] || '').trim().length < 1} onClick={() => assignTollToRental(transaction)}>{busy === `assign_rental:${transaction.id}` ? 'Assigning and creating charge…' : 'Confirm rental & create toll charge'}</button>
             </div>}
           </article>;
         })}
@@ -7259,7 +7264,7 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
       <form className="admin-modal maintenance-action-modal" onSubmit={submitOverride}>
         <div className="admin-modal-header"><AlertTriangle size={21}/><div><strong>Override Maintenance Lock</strong><span>This is time-limited, audited, and sends an admin push alert.</span></div><button type="button" className="vehicle-editor-close admin-close-button" onClick={() => setOverrideOpen(false)} aria-label="Close maintenance override"><X size={18}/></button></div>
         <div className="portal-form">
-          <label><span>Specific operational reason</span><textarea required minLength="10" maxLength="1000" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Explain why this vehicle is safe to release before service…"/></label>
+          <label><span>Specific operational reason</span><textarea required maxLength="1000" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Explain why this vehicle is safe to release before service…"/></label>
           <label><span>Override duration</span><select value={overrideHours} onChange={(event) => setOverrideHours(event.target.value)}><option value="4">4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option><option value="168">7 days maximum</option></select></label>
         </div>
         <div className="modal-actions"><button type="button" className="secondary-btn" onClick={() => setOverrideOpen(false)}>Cancel</button><button className="reject" disabled={busy}>{busy ? 'Applying…' : 'Apply Audited Override'}</button></div>
@@ -7415,7 +7420,7 @@ function CommunicationsInbox({ rentals, messages, selectedRental, onSelectThread
   </section>;
 }
 
-function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, customerDirectoryState, refreshCustomerDirectory, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, bookingPolicy = DEFAULT_BOOKING_POLICY, createManualBooking, submitting }) {
+function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, customerDirectoryState, refreshCustomerDirectory, vehicles, rentals, pendingBookings = [], availabilityBlocks, under25Pricing, bookingPolicy = DEFAULT_BOOKING_POLICY, createManualBooking, submitting, bookingError = '', onReviewCustomerRentals }) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const update = (key, value) => setManualBookingForm((current) => ({ ...current, [key]: value }));
@@ -7501,6 +7506,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, cust
     <Panel title="Create a Booking" eyebrow="Admin Booking">
       <p className="muted">Choose an existing customer or add a new one, then select the car and exact pickup and return times.</p>
       <form className="portal-form manual-booking-form" onSubmit={createManualBooking}>
+        {bookingError && <div className="form-error full-field" role="alert"><p>{bookingError}</p>{/customer already has/i.test(bookingError) && onReviewCustomerRentals && <button type="button" onClick={onReviewCustomerRentals}>View customer rentals</button>}</div>}
         <div className="booking-divider"><span>1. Customer</span></div>
         <div className="customer-mode-switch" role="group" aria-label="Customer type">
           <button type="button" className={manualBookingForm.customerMode === 'existing' ? 'active' : ''} onClick={() => chooseCustomerMode('existing')}><UserRound size={17}/> Existing customer</button>
@@ -8989,8 +8995,8 @@ function RestoreCancelledRentalModal({ rental, onCancel, onConfirm }) {
       setError('The cancellation deadline cannot be more than seven days away.');
       return;
     }
-    if (reason.trim().length < 5) {
-      setError('Enter a restore reason of at least five characters for the audit log.');
+    if (reason.trim().length < 1) {
+      setError('Enter a restore reason for the audit log.');
       return;
     }
     setSaving(true);
@@ -9023,12 +9029,12 @@ function RestoreCancelledRentalModal({ rental, onCancel, onConfirm }) {
           <button type="button" onClick={() => chooseQuickDeadline('sevenDays')}>7 days</button>
         </div>
         <label><span>Cancel again if still unpaid — Eastern Time</span><input type="datetime-local" required min={formatEasternDateTimeInput(minimumDeadline)} max={formatEasternDateTimeInput(maximumDeadline)} value={deadline} onChange={(event) => setDeadline(event.target.value)}/><small>No time is preselected. The administrator must choose one.</small></label>
-        <label><span>Reason for restoring this reservation</span><textarea required minLength="5" maxLength="500" value={reason} onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="Why is this cancelled reservation being restored?"/></label>
+        <label><span>Reason for restoring this reservation</span><textarea required maxLength="500" value={reason} onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="Why is this cancelled reservation being restored?"/></label>
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
       <footer className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel} disabled={saving}>Keep Cancelled</button>
-        <button type="submit" className="primary-btn restore-rental-confirm" disabled={saving || !deadline || reason.trim().length < 5}>{saving ? 'Restoring…' : 'Restore With This Deadline'}</button>
+        <button type="submit" className="primary-btn restore-rental-confirm" disabled={saving || !deadline || reason.trim().length < 1}>{saving ? 'Restoring…' : 'Restore With This Deadline'}</button>
       </footer>
     </form>
   </div>;
@@ -9069,7 +9075,7 @@ function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
       setError('Choose a future deadline in Eastern Time.');
       return;
     }
-    if (reason.trim().length < 5) {
+    if (reason.trim().length < 1) {
       setError('Enter a short reason so the deadline change is clear in activity history.');
       return;
     }
@@ -9100,7 +9106,7 @@ function RentalPaymentDeadlineModal({ rental, onCancel, onConfirm }) {
           <button type="button" onClick={() => chooseQuickDeadline('sevenDays')}>7 days</button>
         </div>
         <label><span>New deadline — Eastern Time</span><input type="datetime-local" required min={formatEasternDateTimeInput(minimumDeadline)} max={formatEasternDateTimeInput(maximumDeadline)} value={deadline} onChange={(event) => setDeadline(event.target.value)}/></label>
-        <label><span>Reason for activity history</span><textarea required minLength="5" maxLength="500" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why this customer needs a different payment deadline."/></label>
+        <label><span>Reason for activity history</span><textarea required maxLength="500" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why this customer needs a different payment deadline."/></label>
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
       <footer className="modal-actions">
@@ -9229,7 +9235,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
           <label><span>New return date</span><input type="date" required min={revising && extensionStart ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(extensionStart)) : rental.return_date} value={form.returnDate} onChange={(e) => change('returnDate', e.target.value)}/></label>
           <label><span>New return time (Eastern)</span><select value={form.returnTime} onChange={(e) => change('returnTime', e.target.value)}>{calendarTimeOptions(form.returnTime).map((time) => <option key={time}>{time}</option>)}</select></label>
           <label><span>Agreed daily rate</span><MoneyInput type="number" required min="0" max={MONEY_MAX} step="0.01" value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label>
-          <label className="wide"><span>Reason and customer agreement</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
+          <label className="wide"><span>Reason and customer agreement</span><textarea required maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <div className="row-actions">{[1, 3, 4, 5, 7].map(days => <button key={days} type="button" disabled={busy} onClick={() => {
           const dates = rentalDayShortcut(revising ? extensionStart : parseBookingDateTime(rental.return_date, rental.return_time), days);
@@ -9321,7 +9327,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
           <label className="checkbox-label"><input type="checkbox" checked={Boolean(form.handoverConfirmed)} onChange={e => change('handoverConfirmed', e.target.checked)} required/><span>I confirm the old vehicle has been physically received and the replacement is being handed over.</span></label>
           <label><span>Outgoing vehicle return odometer</span><input type="number" min={returnMileageContext(rental).minimum} max={MILEAGE_MAX} step="1" required value={form.outgoingMileage} onChange={e => change('outgoingMileage', e.target.value)}/></label>
           <label><span>Replacement vehicle pickup odometer</span><input type="number" min={vehicles.find(v => v.id === form.vehicleId)?.current_mileage || 0} max={MILEAGE_MAX} step="1" required value={form.incomingMileage} onChange={e => change('incomingMileage', e.target.value)}/></label>
-          <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
+          <label className="wide"><span>Reason and agreement details</span><textarea required maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <p>{form.timeMode === 'custom' ? 'Use the time the vehicles were actually exchanged. Your entered time is kept when reopening this form.' : 'The swap time defaults to now. Choose a replacement vehicle and review the swap.'}</p>
         <p>Checking availability from <strong>{formatEasternDateTime(effectiveIso) || 'Select Swap now or enter a valid time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
@@ -9466,9 +9472,9 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
   }
 
   async function apply() {
-    const minimumReasonLength = completed ? 20 : 10;
+    const minimumReasonLength = 1;
     if (form.reason.trim().length < minimumReasonLength) {
-      setError(`Enter a specific reason of at least ${minimumReasonLength} characters.`);
+      setError(`Enter a specific reason.`);
       return;
     }
     if (completed && !closedCorrectionConfirmed) {
@@ -9530,7 +9536,7 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
 
         <section className="rental-amendment-section">
           <div className="rental-amendment-section-heading"><span>3</span><div><strong>Reason and review</strong><small>The reason and exact before/after values become permanent audit history.</small></div></div>
-          <label className="rental-amendment-reason"><span>Reason for change (required)</span><textarea minLength={completed ? 20 : 10} maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} onInvalid={() => setError(`Enter a reason for change of at least ${completed ? 20 : 10} characters. Admin notes do not replace the required reason.`)} placeholder="Example: Customer requested a later return and a $250 deposit." required /></label>
+          <label className="rental-amendment-reason"><span>Reason for change (required)</span><textarea maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} onInvalid={() => setError(`Enter a reason for change. Admin notes do not replace the required reason.`)} placeholder="Example: Customer requested a later return and a $250 deposit." required /></label>
           <details className="rental-amendment-notes" open={form.adminNotes ? true : undefined}>
             <summary>Admin notes (optional)</summary>
             <label className="rental-amendment-reason"><span>Admin notes</span><textarea maxLength="2000" value={form.adminNotes} onChange={(event) => update('adminNotes', event.target.value)} placeholder="Additional operational notes visible to staff."/></label>
@@ -9714,7 +9720,7 @@ function EmergencyExceptionModal({ rental, checklist, defaultMileage, onCancel, 
           <span><strong>{EMERGENCY_SCOPE_LABELS[scope]}</strong><small>Remains incomplete after release</small></span>
         </label>)}
       </fieldset>
-      <label><span>Emergency reason</span><textarea required minLength="20" maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain the extraordinary circumstances, who authorized the decision, and why waiting is not practical."/></label>
+      <label><span>Emergency reason</span><textarea required maxLength="1000" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain the extraordinary circumstances, who authorized the decision, and why waiting is not practical."/></label>
       <label><span>Evidence or follow-up note</span><textarea maxLength="1000" value={form.evidenceNote} onChange={(event) => update('evidenceNote', event.target.value)} placeholder="Paper agreement location, insurer confirmation, payment plan, callback reference…"/></label>
       <div className="emergency-form-grid">
         <label><span>Exception expires</span><input type="datetime-local" required min={emergencyDateTimeValue(new Date(Date.now() + 15 * 60 * 1000))} max={emergencyDateTimeValue(new Date(Date.now() + 24 * 60 * 60 * 1000))} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)}/></label>
@@ -9821,8 +9827,8 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
 
   async function completeStep(event) {
     event.preventDefault();
-    if (note.trim().length < 5) {
-      setError('Add a completion note of at least 5 characters so staff can see what was verified.');
+    if (note.trim().length < 1) {
+      setError('Add a completion note so staff can see what was verified.');
       return;
     }
     if (scope === 'agreement' && !alreadySigned) {
@@ -9910,7 +9916,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
           <small role="status">{signatureImage ? 'Signature ready. Save the signed agreement to finish.' : 'Use the typed name or draw in the signature field.'}</small>
         </div>}
       </>}
-      {(!alreadySigned || scope !== 'agreement') && <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/><small>{Math.min(note.trim().length, 5)}/5 minimum characters</small></label>}
+      {(!alreadySigned || scope !== 'agreement') && <label><span>{scope === 'agreement' ? 'In-office signing note' : 'Completion note'}</span><textarea value={note} onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength="500" placeholder={scope === 'agreement' ? 'Customer reviewed and signed while physically present.' : 'Describe what you inspected or how this requirement was completed.'}/></label>}
       {error && <p className="form-error" role="alert">{error}</p>}
       {canBypass && !complete && <div className="document-step-bypass-option">
         <span><strong>Emergency only</strong> This bypasses only {label.toLowerCase()}, remains auditable, and does not release the vehicle by itself.</span>
@@ -10062,7 +10068,7 @@ function EmergencyStepBypassModal({ rental, scope, onCancel, onConfirm }) {
   const [submitted, setSubmitted] = useState(false);
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const reasonLength = form.reason.trim().length;
-  const reasonValid = reasonLength >= 20;
+  const reasonValid = reasonLength > 0;
   const confirmationValid = form.confirmation === 'BYPASS STEP';
 
   async function submit(event) {
@@ -10094,12 +10100,12 @@ function EmergencyStepBypassModal({ rental, scope, onCancel, onConfirm }) {
       </div>
       <div className="emergency-truth-warning"><ShieldCheck size={20}/><span>Only this step receives a temporary exception. Every other incomplete step remains required, and this action does not release the vehicle.</span></div>
       <div className="emergency-rental-summary"><strong>{rental.profiles?.full_name || 'Customer'} • {rental.vehicles?.name || 'Vehicle'}</strong><span>The vehicle can be released only after every other requirement is complete or separately bypassed.</span></div>
-      <label className={!reasonValid && (submitted || form.reason.length > 0) ? 'field-has-error' : ''}><span>Emergency reason <strong>Required — minimum 20 characters</strong></span><textarea ref={reasonRef} required minLength="20" maxLength="1000" aria-invalid={!reasonValid && (submitted || form.reason.length > 0)} aria-describedby="step-bypass-reason-help" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain exactly why this one requirement must be bypassed and who authorized it."/><small id="step-bypass-reason-help" className={`field-requirement ${reasonValid ? 'valid' : ''}`}><span>{reasonValid ? 'Reason requirement met.' : `Add ${20 - reasonLength} more character${20 - reasonLength === 1 ? '' : 's'} to continue.`}</span><strong>{reasonLength}/20 minimum</strong></small></label>
+      <label className={!reasonValid && (submitted || form.reason.length > 0) ? 'field-has-error' : ''}><span>Emergency reason <strong>Required</strong></span><textarea ref={reasonRef} required maxLength="1000" aria-invalid={!reasonValid && (submitted || form.reason.length > 0)} aria-describedby="step-bypass-reason-help" value={form.reason} onChange={(event) => update('reason', event.target.value)} placeholder="Explain exactly why this one requirement must be bypassed and who authorized it."/><small id="step-bypass-reason-help" className={`field-requirement ${reasonValid ? 'valid' : ''}`}><span>{reasonValid ? 'Reason requirement met.' : 'Enter an emergency reason to continue.'}</span></small></label>
       <label><span>Evidence or follow-up note</span><textarea maxLength="1000" value={form.evidenceNote} onChange={(event) => update('evidenceNote', event.target.value)} placeholder="Insurer callback, paper document location, payment arrangement, verification reference…"/></label>
       <label><span>Exception expires</span><input type="datetime-local" required min={emergencyDateTimeValue(new Date(Date.now() + 15 * 60 * 1000))} max={emergencyDateTimeValue(new Date(Date.now() + 24 * 60 * 60 * 1000))} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)}/></label>
       <label className={!confirmationValid && submitted ? 'field-has-error' : ''}><span>Type BYPASS STEP</span><input ref={confirmationRef} required autoComplete="off" aria-invalid={!confirmationValid && submitted} value={form.confirmation} onChange={(event) => update('confirmation', event.target.value)} placeholder="BYPASS STEP"/><small className={`field-requirement ${confirmationValid ? 'valid' : ''}`}>{confirmationValid ? 'Confirmation phrase matches.' : 'Enter the exact phrase shown above.'}</small></label>
       <div className={`bypass-form-status ${reasonValid && confirmationValid ? 'ready' : ''}`} role="status" aria-live="polite">
-        {reasonValid && confirmationValid ? <><CheckCircle2 size={16}/><span>Ready to record this one-step bypass.</span></> : <><AlertTriangle size={16}/><span>{!reasonValid ? 'Emergency reason must contain at least 20 characters.' : 'Enter BYPASS STEP exactly to continue.'}</span></>}
+        {reasonValid && confirmationValid ? <><CheckCircle2 size={16}/><span>Ready to record this one-step bypass.</span></> : <><AlertTriangle size={16}/><span>{!reasonValid ? 'Enter an emergency reason.' : 'Enter BYPASS STEP exactly to continue.'}</span></>}
       </div>
       <div className="modal-actions">
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
@@ -10159,11 +10165,11 @@ function ChargeCustomerModal({ rental, allocations, charges, onCancel, onCollect
         {options.map(a => <label key={a.id} className="deposit-payment-option"><input type="radio" name="collection-source" checked={source === a.id} disabled={!a.available} onChange={() => setSource(a.id)}/><span>{a.label} · {money(a.held)} held{a.reason && <small>{a.reason}</small>}</span></label>)}
         {!options.length && <p>No held deposit is available for this rental.</p>}
         {!depositOnly && <label className="deposit-payment-option"><input type="radio" name="collection-source" checked={source === 'card'} onChange={() => setSource('card')}/><span>Charge the saved card · {money(total)}</span></label>}
-        {selected && <><p><strong>{money(selected.applied)} deducted · {money(selected.remaining)} left in this {selected.provider === 'stripe' ? 'Stripe' : 'external'} deposit.</strong> The remainder stays held until you refund it. No money is refunded now.</p><label>Deduction note<input required minLength={5} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)}/></label></>}
+        {selected && <><p><strong>{money(selected.applied)} deducted · {money(selected.remaining)} left in this {selected.provider === 'stripe' ? 'Stripe' : 'external'} deposit.</strong> The remainder stays held until you refund it. No money is refunded now.</p><label>Deduction note<input required maxLength={1000} value={reason} onChange={e => setReason(e.target.value)}/></label></>}
       </fieldset>
       {error && <p role="alert" className="form-error">{error}</p>}
     </div>
-    <footer className="rental-amendment-actions"><button type="button" disabled={busy} onClick={onCancel}>Cancel</button><button className="primary-btn" disabled={busy || (depositOnly && source === 'card') || (source !== 'card' && (!selected?.available || reason.trim().length < 5))}>{busy ? 'Processing…' : source === 'card' ? `Charge card ${money(total)}` : `Deduct ${money(total)} from deposit`}</button></footer>
+    <footer className="rental-amendment-actions"><button type="button" disabled={busy} onClick={onCancel}>Cancel</button><button className="primary-btn" disabled={busy || (depositOnly && source === 'card') || (source !== 'card' && (!selected?.available || reason.trim().length < 1))}>{busy ? 'Processing…' : source === 'card' ? `Charge card ${money(total)}` : `Deduct ${money(total)} from deposit`}</button></footer>
   </form></div>;
 }
 
@@ -10559,7 +10565,7 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
   const valid = Number.isFinite(numericAmount)
     && numericAmount >= 0.5
     && numericAmount <= maximumAmount + 0.001
-    && reason.trim().length >= 5;
+    && reason.trim().length >= 1;
 
   return <div className="admin-modal-backdrop" role="presentation">
     <form ref={dialogRef} className="admin-modal refund-payment-modal" role="dialog" aria-modal="true" aria-label="Refund Rental Payment" onSubmit={async (event) => {
@@ -10591,7 +10597,7 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
       </label>
       <button type="button" className="secondary-btn" onClick={() => setAmount(maximumAmount.toFixed(2))}>Use maximum {money(maximumAmount)}</button>
       <label className="field-label">Refund reason
-        <textarea value={reason} minLength="5" maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="Explain exactly why this amount is being refunded." required />
+        <textarea value={reason} maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="Explain exactly why this amount is being refunded." required />
       </label>
       <div className="cancel-warning">
         <strong>This submits the Stripe refund immediately.</strong>
@@ -10659,8 +10665,8 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
   async function submit(event, mode = form.mode) {
     event?.preventDefault?.();
     if (saving) return;
-    if (form.reason.trim().length < 10) {
-      setError('Enter a specific internal reason of at least 10 characters.');
+    if (form.reason.trim().length < 1) {
+      setError('Enter a specific internal reason.');
       return;
     }
     if (previewing || !manualDiscountPreviewMatches(preview, rental.id, mode, numericValue)) {
@@ -10720,7 +10726,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
 
       <label className="modal-field">
         <span>Internal reason</span>
-        <textarea minLength="10" maxLength="500" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: limitText(event.target.value, 500) }))} placeholder="Example: Cash price approved by manager for this reservation." required />
+        <textarea maxLength="500" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: limitText(event.target.value, 500) }))} placeholder="Example: Cash price approved by manager for this reservation." required />
       </label>
       <small className="modal-hint">The reason, administrator, old total, and new total are written to rental history. The customer sees the discount amount, not this internal note.</small>
       {error && <small className="form-error" role="alert">{error}</small>}
@@ -10728,7 +10734,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       <div className="modal-actions">
         {hasManualDiscount && <button type="button" className="reject manual-discount-remove" onClick={() => setForm(current => ({ ...current, mode: 'remove', value: '0' }))} disabled={saving || form.mode === 'remove'}>Remove Discount</button>}
         <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className="approve" disabled={saving || previewing || !previewValid || form.reason.trim().length < 10}><CheckCircle2 size={15}/> {saving ? 'Saving…' : form.mode === 'remove' ? 'Confirm Removal' : 'Apply Discount'}</button>
+        <button type="submit" className="approve" disabled={saving || previewing || !previewValid || form.reason.trim().length < 1}><CheckCircle2 size={15}/> {saving ? 'Saving…' : form.mode === 'remove' ? 'Confirm Removal' : 'Apply Discount'}</button>
       </div>
     </form>
   </div>;
@@ -10738,7 +10744,7 @@ function CancelRentalModal({ rental, onCancel, onConfirm, refundDeposit = false,
   const dialogRef = useDialogFocus(onCancel);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const minimumReason = refundDeposit ? 5 : 3;
+  const minimumReason = 1;
   const refundBlocked = refundDeposit && (rentalRefundRemaining > 0.005 || rentalRefundPending);
   return <div className="admin-modal-backdrop" role="presentation">
     <form ref={dialogRef} className="admin-modal" role="dialog" aria-modal="true" aria-label="Confirm Rental Cancellation" onSubmit={async (event) => {
@@ -10762,7 +10768,7 @@ function CancelRentalModal({ rental, onCancel, onConfirm, refundDeposit = false,
         <span>The rental will no longer block the vehicle for this customer. Use this only when the booking should be stopped.</span>
       </div>
       <label className="field-label">Cancellation reason
-        <textarea value={reason} minLength={minimumReason} disabled={submitting} maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="For example: customer did not complete payment before the deadline." required />
+        <textarea value={reason} disabled={submitting} maxLength="500" onChange={(event) => setReason(limitText(event.target.value, 500))} placeholder="For example: customer did not complete payment before the deadline." required />
       </label>
       <div className="mini-actions modal-actions">
         <button type="button" onClick={onCancel} disabled={submitting}>Keep Rental</button>
@@ -11461,7 +11467,7 @@ function ExternalPaymentDetailsModal({ rental, payments = [], onCancel, onConfir
     event.preventDefault();
     setError('');
     if (!selected) return setError('Choose an external receipt to edit.');
-    if (reason.trim().length < 5) return setError('Enter an audit reason of at least five characters.');
+    if (reason.trim().length < 1) return setError('Enter an audit reason.');
     if (actionType === 'method_correction' && !paymentMethod) return setError('Choose the corrected payment type.');
     if (actionType === 'refund' && !confirmedReturned) return setError('Confirm that the full receipt amount was actually returned to the customer.');
     setSaving(true);
@@ -11664,10 +11670,10 @@ function ReturnCompletionPanel({ rental, onCancel, onComplete }) {
       setMileageError('Complete the required mileage, fuel, and condition checks before closing the rental.');
       return;
     }
-    if ((inspection.mileageOverride || mileage.missingBaseline) && inspection.damageNote.trim().length < 10) {
-      setMileageError('Explain the missing mileage or override in at least 10 characters.'); return;
+    if ((inspection.mileageOverride || mileage.missingBaseline) && inspection.damageNote.trim().length < 1) {
+      setMileageError('Explain the missing mileage or override.'); return;
     }
-    if ((inspection.damageFound || inspection.depositDecision === 'hold') && inspection.damageNote.trim().length < 5) {
+    if ((inspection.damageFound || inspection.depositDecision === 'hold') && inspection.damageNote.trim().length < 1) {
       setMileageError('Add a note explaining the damage or deposit hold.');
       return;
     }
@@ -11912,17 +11918,8 @@ function PortalDataHealth({ health, onRetry, audience = 'portal' }) {
   </section>;
 }
 
-function userFacingPortalError(error, fallback = 'Something went wrong. Please try again.') {
-  const message = String(error?.message || error || '').trim();
-  if (!message) return fallback;
-  if (/timed out|timeout/i.test(message)) return `${message} The last loaded records remain visible; automatic refresh will retry.`;
-  if (/permission denied|row-level security|\brls\b/i.test(message)) return 'Your staff account does not have access to this data. Ask an administrator to check permissions.';
-  if (/schema cache|relation .* does not exist|function .* does not exist/i.test(message)) return 'The database is missing a required update. An administrator needs to check the deployment.';
-  if (/failed to fetch|network|load failed|connection/i.test(message)) return 'The connection was interrupted. Check your internet connection and try again.';
-  if (/jwt|token|session|not authenticated/i.test(message)) return 'Your secure session needs to be refreshed. Sign in again and retry.';
-  if (/row-level security|\\brls\\b|schema cache|relation .* does not exist|function .* does not exist|policy/i.test(message)) return fallback;
-  if (/duplicate key|already exists/i.test(message)) return 'That change was already recorded. Refresh to see the latest status.';
-  return fallback;
+function userFacingPortalError(error, fallback = 'Complete this action') {
+  return adminErrorMessage(error, fallback);
 }
 
 function useDialogFocus(onClose, { closeOnEscape = true } = {}) {
