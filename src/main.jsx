@@ -12739,9 +12739,12 @@ function rentalFilterOptions() {
 }
 
 function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests = [], vehicles = [], reports = [], emergencyExceptions = [], rentalCharges = [] } = {}) {
+  const status = String(rental.status || '').toLowerCase();
+  const terminal = ['completed', 'cancelled'].includes(status);
+  const vehicleOut = ['active', 'rented', 'overdue', 'return_initiated'].includes(status);
   if (filter === 'deposit_review') return needsDepositReview(rental);
-  if (filter === 'archive') return ['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase()) && !needsDepositReview(rental);
-  if (filter === 'all') return !['completed', 'cancelled'].includes(String(rental.status || '').toLowerCase());
+  if (filter === 'archive') return terminal && !needsDepositReview(rental);
+  if (filter === 'all') return !terminal;
   const rentalDocuments = documents.filter((document) => document.rental_id === rental.id);
   const reusableLicense = latestCustomerDocument(documents, rental.user_id, 'license');
   const documentsForProgress = reusableLicense && !rentalDocuments.some((document) => document.id === reusableLicense.id)
@@ -12770,11 +12773,12 @@ function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests
   const vehicle = vehicles.find((item) => item.id === rental.vehicle_id) || rental.vehicles;
   const vehicleStatus = String(vehicle?.status || '').toLowerCase();
 
-  if (filter === 'ready_pickup') return releaseChecklist.ready && !['active', 'overdue', 'return_initiated', 'completed', 'cancelled'].includes(rental.status);
-  if (filter === 'cars_out') return ['active', 'overdue', 'return_initiated'].includes(rental.status);
-  if (filter === 'returns_today') return ['active', 'overdue', 'return_initiated'].includes(rental.status) && isToday(rental.return_date);
-  if (filter === 'extensions') return hasOpenExtension;
-  if (filter === 'maintenance') return ['maintenance', 'unavailable', 'inactive'].includes(vehicleStatus);
+  const maintenance = Boolean(vehicle?.maintenance_lock_active) || ['maintenance', 'unavailable', 'inactive', 'retired'].includes(vehicleStatus);
+  if (filter === 'ready_pickup') return releaseChecklist.ready && !terminal && !vehicleOut && !maintenance;
+  if (filter === 'cars_out') return vehicleOut;
+  if (filter === 'returns_today') return vehicleOut && rental.return_date === new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if (filter === 'extensions') return !terminal && hasOpenExtension;
+  if (filter === 'maintenance') return !terminal && maintenance;
   return rentalHasActionableIssue({
     status: rental.status,
     paymentStatus: rental.payment_status,
@@ -12783,7 +12787,7 @@ function rentalMatchesFilter(rental, filter, { documents = [], extensionRequests
     hasActiveEmergencyException,
     hasOutstandingCharge,
     returnIsOverdue: isOverdue(rental.return_date, rental.return_time, rental.status),
-    releaseChecklistReady: releaseChecklist.ready,
+    releaseChecklistReady: releaseChecklist.ready && !maintenance,
   });
 }
 
