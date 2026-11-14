@@ -67,8 +67,18 @@ createRoot(document.getElementById('root')).render(<App/>);
 `);
 const server = spawn(process.execPath, [root + '/node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5197', '--strictPort'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser;
+let serverOutput = '';
+server.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
+server.stderr.on('data', chunk => { serverOutput += chunk.toString(); });
 try {
-  await new Promise((ready, reject) => { server.stdout.on('data', d => { if (d.toString().includes('Local:')) ready(); }); server.on('error', reject); server.on('exit', () => reject(Error('Vite exited'))); });
+  let ready = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (server.exitCode !== null) throw new Error('Navigation fixture server exited: ' + serverOutput);
+    try { await fetch('http://127.0.0.1:5197', { signal: AbortSignal.timeout(1000) }); ready = true; break; }
+    catch { await new Promise(resolve => setTimeout(resolve, 100)); }
+  }
+  assert.ok(ready, 'Navigation fixture server did not become ready: ' + serverOutput);
+  console.log('Navigation fixture server ready; starting browser checks.');
   browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL === 'chromium' ? undefined : process.env.PLAYWRIGHT_CHANNEL || 'chrome' });
   for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 720 }]) {
     const page = await browser.newPage({ viewport });
