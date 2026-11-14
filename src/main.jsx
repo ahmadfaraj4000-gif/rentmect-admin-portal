@@ -1,3 +1,4 @@
+import { AuditHistory, DocumentHistory } from './HistoryScreens.jsx';
 import { MoneyInput } from './MoneyInput.jsx';
 import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
 import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
@@ -194,9 +195,9 @@ const ADMIN_TAB_DOMAINS = {
   rentals: ['rental-list'],
   customers: ['customer-directory', 'core', 'workflow', 'templates'],
   vehicles: ['customer-directory', 'core', 'maintenance-history'],
-  documents: ['customer-directory', 'core', 'workflow'],
+  documents: [],
   emails: ['customer-directory', 'core', 'workflow', 'templates'],
-  audit: ['audit'],
+  audit: [],
   settings: ['settings'],
   tolls: ['customer-directory', 'core'],
   tickets: [],
@@ -580,6 +581,7 @@ function App() {
   const [bookingPolicySaving, setBookingPolicySaving] = useState(false);
   const [sitePromotions, setSitePromotions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
   const [editingPromotionId, setEditingPromotionId] = useState('');
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]);
@@ -957,6 +959,7 @@ function App() {
       recoveryInFlight = true;
       lastRecoveryAt = now;
       try {
+        if (['audit', 'documents'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
         const domains = adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
         await Promise.all(domains.map((domain) => loadAdminDomain(domain, { force: true })));
       } finally {
@@ -965,6 +968,12 @@ function App() {
     };
 
     const scheduleDomainRefresh = (domain, rentalId = null) => {
+      if (activeTabRef.current === 'documents' && domain === 'workflow') {
+        window.clearTimeout(refreshTimers.get('document-history'));
+        refreshTimers.set('document-history', window.setTimeout(() => {
+          if (document.visibilityState !== 'hidden') setHistoryRevision(value => value + 1);
+        }, 400));
+      }
       domainInvalidationsRef.current.set(domain, (domainInvalidationsRef.current.get(domain) || 0) + 1);
       rentalWorkspaceRef.current?.invalidate();
       if (activeTabRef.current === 'rentals') {
@@ -1360,6 +1369,10 @@ function App() {
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
+    if (['audit', 'documents'].includes(activeTabRef.current) && !domains) {
+      setHistoryRevision(value => value + 1);
+      return;
+    }
     if (activeTabRef.current === 'tickets' && !domains) {
       if (force) setTicketRefreshKey((value) => value + 1);
       return;
@@ -3483,14 +3496,22 @@ function App() {
 
   async function markDocument(id, status) {
     if (!requireStaffPermission('rental.edit', 'review rental documents')) return false;
-    const changedDocument = documents.find((document) => document.id === id);
+    // Review the current complete packet, not just the visible history page.
+    const { data: changedDocument, error: documentError } = await supabase.from('rental_documents').select('*').eq('id', id).single();
+    if (documentError) return notify(documentError.message, 'error');
+    let reviewDocuments = [changedDocument];
+    if (changedDocument.document_type === 'insurance' && changedDocument.insurance_packet_id) {
+      const { data: packet, error: packetError } = await supabase.from('rental_documents').select('*').eq('insurance_packet_id', changedDocument.insurance_packet_id);
+      if (packetError) return notify(packetError.message, 'error');
+      reviewDocuments = packet;
+    }
     const packetId = changedDocument?.document_type === 'insurance'
       ? (changedDocument.insurance_packet_id || changedDocument.id)
       : null;
     const packetDocumentIds = packetId
-      ? documents.filter((document) => (document.insurance_packet_id || document.id) === packetId).map((document) => document.id)
+      ? reviewDocuments.filter((document) => (document.insurance_packet_id || document.id) === packetId).map((document) => document.id)
       : [id];
-    if (packetId && status === 'approved' && !insuranceDocumentsComplete(documents.filter((document) => packetDocumentIds.includes(document.id)))) {
+    if (packetId && status === 'approved' && !insuranceDocumentsComplete(reviewDocuments.filter((document) => packetDocumentIds.includes(document.id)))) {
       notify('This packet needs one combined file or both liability and collision files before approval.');
       return;
     }
@@ -3508,7 +3529,7 @@ function App() {
       : [];
     const documentMessage = packetId
       ? `${prettyStatus(status)} insurance packet (${packetDocumentIds.length} ${packetDocumentIds.length === 1 ? 'file' : 'files'}).`
-      : `${prettyStatus(status)} ${docLabel(documents.find((document) => document.id === id)?.document_type || 'document')}.`;
+      : `${prettyStatus(status)} ${docLabel(changedDocument.document_type || 'document')}.`;
     const transitionMessage = movedRentals.length
       ? ` ${movedRentals.map((rental) => rentalDisplayName(rental)).join(', ')} moved to Ready For Pickup.`
       : '';
@@ -4319,9 +4340,12 @@ function App() {
         {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
-        {activeTab === 'documents' && <Documents documents={documents} markDocument={markDocument} openDocument={openDocument} deleteDocument={deleteDocument} />}
+        {activeTab === 'documents' && <DocumentHistory client={supabase} revision={historyRevision} Panel={Panel} docLabel={docLabel}
+          renderDocument={(document, refresh) => <Documents documents={[document]} openDocument={openDocument}
+            markDocument={async (id, status) => { await markDocument(id, status); refresh(); }}
+            deleteDocument={async (row) => { await deleteDocument(row); refresh(); }}/>} /> }
         {activeTab === 'merchants' && <Merchants onOpenRental={openRentalCard} />}
-        {activeTab === 'audit' && <AuditLog auditLogs={auditLogs} />}
+        {activeTab === 'audit' && <AuditHistory client={supabase} revision={historyRevision} Panel={Panel} prettyStatus={prettyStatus} actionLabel={auditActionLabel}/>}
         {activeTab === 'settings' && <SettingsTab key={session?.user?.id} canManagePerformance={canUsePermission('settings.operational')} employeePermissions={employeePermissions} canManageEmployeePermissions={staffContext.can_manage_employee_permissions} updateEmployeePermission={updateEmployeePermission} inviteEmployee={inviteEmployee} discountCodes={discountCodes} discountForm={discountForm} setDiscountForm={setDiscountForm} generateDiscountCode={generateDiscountCode} copyDiscountCode={copyDiscountCode} createDiscountCode={createDiscountCode} toggleDiscountCode={toggleDiscountCode} deleteDiscountCode={deleteDiscountCode} sitePromotions={sitePromotions} promotionForm={promotionForm} setPromotionForm={setPromotionForm} editingPromotionId={editingPromotionId} saveSitePromotion={saveSitePromotion} editSitePromotion={editSitePromotion} resetPromotionForm={resetPromotionForm} toggleSitePromotion={toggleSitePromotion} deleteSitePromotion={deleteSitePromotion} serviceFees={serviceFees} serviceFeeForm={serviceFeeForm} setServiceFeeForm={setServiceFeeForm} createServiceFee={createServiceFee} toggleServiceFee={toggleServiceFee} deleteServiceFee={deleteServiceFee} under25Pricing={under25Pricing} setUnder25Pricing={setUnder25Pricing} saveUnder25Pricing={saveUnder25Pricing} under25PricingSaving={under25PricingSaving} billingAutomation={billingAutomation} setBillingAutomation={setBillingAutomation} saveBillingAutomation={saveBillingAutomation} billingAutomationSaving={billingAutomationSaving} bookingPolicy={bookingPolicy} setBookingPolicy={setBookingPolicy} saveBookingPolicy={saveBookingPolicy} bookingPolicySaving={bookingPolicySaving} availabilityTypes={availabilityTypes} updateAvailabilityType={updateAvailabilityType} />}
         </>}
       </main>
