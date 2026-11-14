@@ -8,8 +8,8 @@ const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8')
 test('terminal rentals are separated from the open rental manager', () => {
   assert.match(source, /\{ key: 'all', label: 'All Open' \}/);
   assert.match(source, /\{ key: 'archive', label: 'Archive' \}/);
-  assert.match(source, /filter === 'archive'.*\['completed', 'cancelled'\]/);
-  assert.match(source, /filter === 'all'.*!\['completed', 'cancelled'\]/);
+  assert.match(source, /filter === 'archive'.*terminal && !needsDepositReview/);
+  assert.match(source, /filter === 'all'.*!terminal/);
   assert.match(source, /Archive \(\$\{prettyStatus\(status\)\}\)/);
 });
 
