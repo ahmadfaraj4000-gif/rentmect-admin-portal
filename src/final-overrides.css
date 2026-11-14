@@ -10111,3 +10111,7 @@ input[type="radio"] {
   line-height: 1.5;
 }
 .deposit-review-balance-banner span { overflow-wrap: anywhere; }
+
+/* Summary cards contain no detail workspace until explicitly expanded. */
+.rental-summary-card .rental-card-header { grid-template-columns: minmax(0, 1fr) !important; }
+.rental-summary-card > p { margin: 0 !important; padding: 0 20px 12px !important; overflow-wrap: anywhere; }

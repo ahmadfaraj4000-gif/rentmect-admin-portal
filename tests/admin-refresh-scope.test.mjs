@@ -52,7 +52,7 @@ test('realtime changes invalidate inactive pages without starting background dow
   const context = vm.createContext({flexibleCashEvents,chargeRemaining,receiptHistory, groupPaymentHistory,
     ADMIN_TAB_DOMAINS: tabs, activeTabRef, adminRefreshDomains,
     domainInvalidationsRef: { current: versions }, loadedAdminDomainsRef: { current: loaded },
-    rentalWorkspaceRef: { current: { invalidate() {}, refresh: (options) => calls.push(['rental-workspace', options.details]) } }, rentalDetailDirty: false,
+    rentalWorkspaceRef: { current: { invalidate() {}, refresh: (options) => calls.push(['rental-workspace', options.details]) } }, rentalDetailDirty: false, rentalSummaryFullRefresh: false, changedRentalIds: new Set(),
     refreshTimers: new Map(), document: { visibilityState: 'visible' },
     window: { clearTimeout() {}, setTimeout(callback) { callbacks.push(callback); return callbacks.length; } },
     loadAdminDomain: (domain, options) => calls.push([domain, options.force]),

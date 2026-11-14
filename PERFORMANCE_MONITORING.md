@@ -42,7 +42,7 @@ never awaited by business operations and never create uncertain-write tasks.
 Other writes retain the existing recovery protection.
 
 The database reserves at most 5,000 events per UTC day across all browsers.
-Raw data expires after seven days, with hourly cleanup and a daily intake
+Raw data expires after seven days, with daily cleanup and a daily intake
 fallback. Reports cover only 24 hours or seven days and at most five releases.
 No user/customer IDs, URLs, search text, error messages or financial values
 are stored. Only action, load type, source, duration, outcome, viewport class,
@@ -69,7 +69,9 @@ isolated telemetry tables in place without affecting operational tables.
 Migration: `supabase/migrations/20261029030000_admin_performance_telemetry.sql`.
 Apply only this migration transaction and register its migration history; do
 not push unrelated pending migrations. The hourly job is
-`admin-performance-retention`.
+`admin-performance-retention`. Since the speed rollout it invokes
+`admin_performance_maintenance()`: cheap hourly health observations, with
+retention cleanup once per UTC day. Existing intake cleanup remains intact.
 
 ## Verification (2026-10-28)
 
@@ -114,3 +116,34 @@ render time and is not a production p95. Migration:
 This still reads reporting history into the browser. At substantially larger
 volumes, server-side incremental accounting/reporting is the next step; the
 single-request change alone does not make unlimited history inexpensive.
+
+## Rental summary rollout (2026-11-13)
+
+Collapsed rental cards read summaries only. Full records load on explicit
+expansion (including View rental navigation), one selected card at a time.
+Ordinary filters start at 25; Archive starts at 5; Deposit Review starts at 5
+and adds 10. A fresh Load more reuses the loaded summary prefix. Manual
+refresh rebuilds the visible summaries to preserve current membership.
+
+Realtime bursts coalesce for 400 ms. Identified rental events use
+`admin_rental_summary_changes`: changed/new summaries, ordered visible IDs,
+and authoritative counts. Unidentified events, retained Deposit Review cards,
+more than 500 visible rows, and endpoint failures use a summary-list fallback.
+Only the selected affected rental reloads its full record. Counts still
+require classifying the eligible population; the change avoids resending
+unchanged summaries, not every database scan.
+
+Settings → Performance shows hourly slow-load alerts (at least 20 successful
+foreground samples and p95 above the action target) and query-memory pressure
+alerts (at least 64 MiB of new temporary-file writes between observations).
+The first observation establishes a baseline; a statistics reset rebaselines.
+These are in-app alerts, not email/push notifications or server RAM metrics.
+Missing/stale monitoring is visibly identified after two hours.
+
+Database migrations: `20261114010000_rental_summary_speed` and
+`20261114011000_performance_pressure_alerts`. Both were tested in rolled-back
+production transactions; no synthetic samples were retained. The list fixture
+preserves the deployed merchant-verification and deposit-review behavior.
+The frontend can roll back independently: existing read RPCs remain compatible.
+To roll back monitoring, restore the previous job command
+`select public.admin_performance_cleanup()`; the new tables can remain unused.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { createRentalWorkspace, RENTAL_PAGE_SIZE, ARCHIVE_PAGE_SIZE } from './lib/rentalWorkspace.js';
+import { createRentalWorkspace } from './lib/rentalWorkspace.js';
+import { createRentalSummaryReader } from './lib/rentalSummaryReader.js';
 import { withReadRetry } from './requestDeadline.js';
 import { subscribeTaskDialogs } from './lib/taskDraft.js';
 import { performanceTelemetry } from './lib/performance.js';
@@ -15,6 +16,7 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   useEffect(() => {
+    if (search === query) return;
     const timer = setTimeout(() => { setQuery(search); setOffset(0); }, 200);
     return () => clearTimeout(timer);
   }, [search]);
@@ -22,27 +24,21 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   useEffect(() => {
     const controller = createRentalWorkspace({
       observe: { ...performanceTelemetry, errorOutcome: performanceOutcome },
-      inline: true,
-      readList: async (params) => {
-        let result;
-        const rows = [];
-        const paginated = ['archive', 'deposit_review'].includes(params.filter);
-        const initialPageSize = paginated ? ARCHIVE_PAGE_SIZE : RENTAL_PAGE_SIZE;
-        const visibleLimit = paginated ? params.offset + initialPageSize : Infinity;
-        // Deposit Review starts with five, then expands by ten on request.
-        do {
-          const pageSize = params.filter === 'deposit_review' && rows.length > 0 ? Math.min(10, visibleLimit - rows.length) : initialPageSize;
-          const { data, error } = await withReadRetry(() => client.rpc('admin_rental_list', {
-            p_filter: params.filter, p_search: params.search, p_offset: rows.length,
-            p_limit: pageSize, p_rental_id: params.focusId || null,
-          }), 'Rental list');
-          if (error) throw error;
-          if (!data || !Array.isArray(data.rows)) throw new Error('Rental list response was incomplete. Please retry.');
-          result = data;
-          rows.push(...data.rows);
-          if (!data.rows.length) break;
-        } while (rows.length < result.total && rows.length < visibleLimit);
-        return { ...result, rows, offset: params.offset };
+      inline: false,
+      readList: createRentalSummaryReader(async (args) => {
+        const { data, error } = await withReadRetry(() => client.rpc('admin_rental_list', args), 'Rental list');
+        if (error) throw error;
+        return data;
+      }),
+      readChanges: async (params, ids, knownIds) => {
+        const size = ['archive', 'deposit_review'].includes(params.filter) ? 5 : 25;
+        const { data, error } = await withReadRetry(() => client.rpc('admin_rental_summary_changes', {
+          p_filter: params.filter, p_search: params.search, p_offset: 0,
+          p_limit: params.offset + size, p_rental_id: params.focusId || null,
+          p_changed_ids: ids, p_known_ids: knownIds,
+        }), 'Rental updates');
+        if (error) throw error;
+        return data;
       },
       readDetail: async (id) => {
         const [{ data, error }] = await Promise.all([
@@ -51,14 +47,6 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
         ]);
         if (error) throw error;
         if (!data?.rental?.id) throw new Error('Rental details were incomplete. Please retry.');
-        return data;
-      },
-      readDetails: async (ids) => {
-        const [{ data, error }] = await Promise.all([
-          withReadRetry(() => client.rpc('admin_rental_details', { p_rental_ids: ids }), 'Rental details'),
-          callbacks.current.prepareDetails(),
-        ]);
-        if (error) throw error;
         return data;
       },
       hydrate: (data) => callbacks.current.hydrate(data),

@@ -7,7 +7,7 @@ const styles = readFileSync(new URL('../src/final-overrides.css', import.meta.ur
 
 test('every Rentals filter uses the same compact operational card', () => {
   assert.match(source, /rentalFilterOptions\(\)\.map/);
-  assert.match(source, /displayedRentals\.map\(\(r\) => <RentalRow/);
+  assert.match(source, /displayedRentals\.map\(\(row\) =>/);
   assert.match(source, /rental-operations-card/);
   assert.match(source, /rental-card-header/);
   assert.match(source, /rental-card-workspace/);
@@ -16,7 +16,7 @@ test('every Rentals filter uses the same compact operational card', () => {
 });
 
 test('rental cards start minimized and reveal one complete detail workspace on demand', () => {
-  assert.match(source, /const \[detailsExpanded, setDetailsExpanded\] = useState\(false\)/);
+  assert.match(source, /const \[detailsExpanded, setDetailsExpanded\] = useState\(initiallyExpanded\)/);
   assert.match(source, /aria-expanded=\{detailsExpanded\}/);
   assert.match(source, /aria-controls=\{`rental-expanded-details-\$\{rental\.id\}`\}/);
   assert.match(source, /detailsExpanded \? 'Hide rental details' : 'Show rental details'/);
@@ -115,5 +115,5 @@ test('the compact card stacks cleanly only at narrow widths', () => {
  test('performance reads preserve inline cards and archive expansion without a second rental screen', () => {
   assert.doesNotMatch(source, /RentalSummaryList|Selected rental|initialExpanded|detailSectionRef/);
   assert.match(source, /Load 5 more archived rentals/);
-  assert.match(source, /manager.rows.map/);
+  assert.match(source, /const displayedRentals = manager.rows/);
 });
