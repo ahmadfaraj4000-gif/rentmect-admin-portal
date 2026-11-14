@@ -2040,7 +2040,7 @@ function App() {
       if (!data?.error && error?.context) {
         try {
           const payload = await error.context.clone().json();
-          detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
+          detail = payload ? adminErrorMessage(payload, 'Refund this deposit') : detail;
         } catch {
           try {
             detail = await error.context.clone().text() || detail;
@@ -2103,7 +2103,7 @@ function App() {
       let detail = data?.error || error?.message || 'The Stripe refund could not be submitted.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
+        detail = payload ? adminErrorMessage(payload, 'Refund this rental payment') : detail;
       } catch {
         // Keep the function error message.
       }
@@ -2434,7 +2434,7 @@ function App() {
       let detail = data?.error || error?.message || 'The rental changes could not be applied.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
+        detail = payload ? adminErrorMessage(payload, 'Save these rental changes') : detail;
       } catch {
         // Keep the Edge Function error when no JSON response is available.
       }
@@ -2491,7 +2491,7 @@ function App() {
       let detail = data?.error || error?.message || 'The manual discount could not be applied.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
+        detail = payload ? adminErrorMessage(payload, 'Apply this discount') : detail;
       } catch {
         // Keep the Edge Function error when no JSON response is available.
       }
@@ -3754,34 +3754,35 @@ function App() {
   async function createManualBooking(event) {
     event.preventDefault();
     setManualBookingError('');
+    const rejectBooking = (message) => { setManualBookingError(message); return notify(message, 'error'); };
     if (!requireStaffPermission('booking.create', 'create bookings')) return false;
     const vehicle = vehicles.find((item) => item.id === manualBookingForm.vehicleId);
-    if (manualBookingForm.customerMode === 'existing' && !manualBookingForm.customerId) return notify('Choose a customer.');
+    if (manualBookingForm.customerMode === 'existing' && !manualBookingForm.customerId) return rejectBooking('Choose a customer.');
     const selectedExistingCustomer = profiles.find((profile) => profile.id === manualBookingForm.customerId);
     if (manualBookingForm.customerMode === 'existing' && !selectedExistingCustomer?.full_name?.trim()
       && (!manualBookingForm.existingFirstName.trim() || !manualBookingForm.existingLastName.trim())) {
-      return notify('Enter the existing customer’s first and last name so it can be saved to their profile.');
+      return rejectBooking('Enter the existing customer’s first and last name so it can be saved to their profile.');
     }
     if (manualBookingForm.customerMode === 'new' && (!manualBookingForm.firstName.trim() || !manualBookingForm.lastName.trim() || !manualBookingForm.email.trim() || !manualBookingForm.phone.trim() || !manualBookingForm.dateOfBirth)) {
-      return notify('Enter the new customer’s first name, last name, email, phone, and date of birth.');
+      return rejectBooking('Enter the new customer’s first name, last name, email, phone, and date of birth.');
     }
     if (manualBookingForm.customerMode === 'new' && !isEligibleAdminBirthday(manualBookingForm.dateOfBirth)) {
-      return notify('Enter a real birthday for a renter who is at least 21 years old.');
+      return rejectBooking('Enter a real birthday for a renter who is at least 21 years old.');
     }
     if (manualBookingForm.customerMode === 'existing' && !isEligibleAdminBirthday(
       profiles.find((profile) => profile.id === manualBookingForm.customerId)?.date_of_birth || manualBookingForm.existingDateOfBirth
     )) {
-      return notify('Enter a real birthday for a renter who is at least 21 years old.');
+      return rejectBooking('Enter a real birthday for a renter who is at least 21 years old.');
     }
     const deliveryNeedsText = ['text', 'both'].includes(manualBookingForm.onboardingDelivery);
     const deliveryPhone = manualBookingForm.customerMode === 'new' ? manualBookingForm.phone : manualBookingForm.existingPhone;
     if (deliveryNeedsText && !isValidUSPhone(deliveryPhone)) {
-      return notify('Enter a valid 10-digit US mobile number before sending the secure link by text.');
+      return rejectBooking('Enter a valid 10-digit US mobile number before sending the secure link by text.');
     }
-    if (!vehicle) return notify('Choose a vehicle.');
+    if (!vehicle) return rejectBooking('Choose a vehicle.');
 
     const bookingWindow = getBookingWindow(manualBookingForm, bookingPolicy);
-    if (!bookingWindow.valid) return notify(bookingWindow.error);
+    if (!bookingWindow.valid) return rejectBooking(bookingWindow.error);
 
     const { data: policyQuote, error: policyQuoteError } = await supabase.rpc('get_booking_quote', {
       p_vehicle_id: vehicle.id,
@@ -3790,11 +3791,11 @@ function App() {
       p_return_date: manualBookingForm.returnDate,
       p_return_time: manualBookingForm.returnTime,
     });
-    if (policyQuoteError) return notify(policyQuoteError.message);
-    if (!policyQuote?.valid) return notify(policyQuote?.error || 'These pickup and return times are not allowed.');
+    if (policyQuoteError) return rejectBooking(policyQuoteError.message);
+    if (!policyQuote?.valid) return rejectBooking(policyQuote?.error || 'These pickup and return times are not allowed.');
 
-    const available = await isVehicleAvailable(vehicle.id, manualBookingForm.pickupDate, manualBookingForm.pickupTime, manualBookingForm.returnDate, manualBookingForm.returnTime);
-    if (!available) return notify('Vehicle is not available for that pickup and return time.');
+    // The atomic booking RPC owns availability validation and returns its exact
+    // conflict reason; a boolean precheck would discard that explanation.
 
     setManualBookingSubmitting(true);
     const { data, error } = await supabase.functions.invoke('admin-manual-booking', {
@@ -3840,7 +3841,7 @@ function App() {
       }
       detail = adminErrorMessage({ message: detail }, 'Create this booking');
       setManualBookingError(detail);
-      return notify(detail, 'error');
+      return rejectBooking(detail);
     }
 
     setManualBookingForm({ customerMode: 'existing', customerId: '', existingFirstName: '', existingLastName: '', existingDateOfBirth: '', existingPhone: '', firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
@@ -4080,7 +4081,7 @@ function App() {
       let detail = data?.error || error?.message || 'The secure Stripe payment link could not be created.';
       try {
         const payload = await error?.context?.clone?.().json();
-        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
+        detail = payload ? adminErrorMessage(payload, 'Create this payment link') : detail;
       } catch {
         // Keep the Edge Function error when no JSON response is available.
       }
@@ -4209,7 +4210,7 @@ function App() {
       let detail = error.message || 'Could not send SMS reminder.';
       try {
         const payload = await error.context?.clone?.().json();
-        detail = payload ? adminErrorMessage(payload, 'Create this booking') : detail;
+        detail = payload ? adminErrorMessage(payload, 'Send this reminder') : detail;
       } catch {
         try {
           detail = await error.context?.clone?.().text() || detail;
