@@ -685,6 +685,7 @@ function App() {
     paymentCollectionPreference: 'customer_link',
   }, ['customerMode', 'customerId', 'vehicleId', 'pickupDate', 'returnDate', 'pickupTime', 'returnTime', 'onboardingDelivery', 'paymentCollectionPreference'], session?.user?.id || '');
   const [manualBookingSubmitting, setManualBookingSubmitting] = useState(false);
+  const manualBookingInFlight = useRef(false);
   const [manualBookingError, setManualBookingError] = useState('');
 
   useEffect(() => {
@@ -3753,6 +3754,7 @@ function App() {
 
   async function createManualBooking(event) {
     event.preventDefault();
+    if (manualBookingInFlight.current) return;
     setManualBookingError('');
     const rejectBooking = (message) => { setManualBookingError(message); return notify(message, 'error'); };
     if (!requireStaffPermission('booking.create', 'create bookings')) return false;
@@ -3784,6 +3786,9 @@ function App() {
     const bookingWindow = getBookingWindow(manualBookingForm, bookingPolicy);
     if (!bookingWindow.valid) return rejectBooking(bookingWindow.error);
 
+    manualBookingInFlight.current = true;
+    setManualBookingSubmitting(true);
+    try {
     const { data: policyQuote, error: policyQuoteError } = await supabase.rpc('get_booking_quote', {
       p_vehicle_id: vehicle.id,
       p_pickup_date: manualBookingForm.pickupDate,
@@ -3797,7 +3802,6 @@ function App() {
     // The atomic booking RPC owns availability validation and returns its exact
     // conflict reason; a boolean precheck would discard that explanation.
 
-    setManualBookingSubmitting(true);
     const { data, error } = await supabase.functions.invoke('admin-manual-booking', {
       body: {
         customerMode: manualBookingForm.customerMode,
@@ -3825,11 +3829,11 @@ function App() {
         returnDate: manualBookingForm.returnDate,
         pickupTime: manualBookingForm.pickupTime,
         returnTime: manualBookingForm.returnTime,
-        onboardingDelivery: manualBookingForm.onboardingDelivery,
+        // Delivery is a separate operation after booking success is displayed.
+        onboardingDelivery: 'none',
         paymentCollectionPreference: manualBookingForm.paymentCollectionPreference,
       },
     });
-    setManualBookingSubmitting(false);
 
     if (error || data?.error) {
       let detail = data?.error || error?.message || 'Could not create the booking.';
@@ -3844,6 +3848,8 @@ function App() {
       return rejectBooking(detail);
     }
 
+    if (!data?.rental?.id) return rejectBooking('The server did not confirm a rental ID. Check Rental Manager for the saved booking before submitting again.');
+
     setManualBookingForm({ customerMode: 'existing', customerId: '', existingFirstName: '', existingLastName: '', existingDateOfBirth: '', existingPhone: '', firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', address: '', driverLicenseNumber: '', driverLicenseState: '', insuranceProvider: '', insurancePolicyNumber: '', vehicleId: '', pickupDate: adminBookingDateOffset(0), returnDate: adminBookingDateOffset(Number(bookingPolicy.minimum_rental_days || 1)), pickupTime: '9:00 AM', returnTime: '9:00 AM', onboardingDelivery: 'both', paymentCollectionPreference: 'customer_link' });
     clearBookingDraft();
     refreshAfterSavedTask();
@@ -3852,12 +3858,34 @@ function App() {
     setRentalFilter('needs_action');
     setActiveTab('rentals');
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
-    const deliveredBy = (data?.deliveryChannels || []).map((channel) => channel === 'text' ? 'text' : 'email').join(' and ');
-    notify(`${data?.customerCreated ? 'Customer saved and booking created' : 'Booking created'}${data?.onboardingSent ? ` — secure completion link sent by ${deliveredBy}.` : ' — finish it from the workflow circles in Rental Manager.'}`, 'success');
-    if (data?.onboardingWarning) notify(`Booking was saved, but one delivery method needs attention: ${data.onboardingWarning}`);
-    const textDelivery = (data?.deliveryDetails || []).find((item) => item.channel === 'text');
-    if (textDelivery && textDelivery.status !== 'delivered') {
-      notify(`Booking saved. Twilio status: ${prettySmsDeliveryStatus(textDelivery)}. Carrier delivery is not confirmed; use Email Only or Copy secure checklist link if the customer needs it now.`);
+    notify('Booking created — finish it from the workflow circles in Rental Manager.', 'success');
+    if (data?.onboardingWarning) notify(data.onboardingWarning);
+    const delivery = manualBookingForm.onboardingDelivery;
+    if (delivery && delivery !== 'none') {
+      // Do not hold booking completion hostage to an email/SMS provider.
+      void deliverCreatedBookingLink(data.rental.id, delivery);
+    }
+    } catch (error) {
+      rejectBooking(adminErrorMessage(error, 'Create this booking'));
+    } finally {
+      manualBookingInFlight.current = false;
+      setManualBookingSubmitting(false);
+    }
+  }
+
+  async function deliverCreatedBookingLink(rentalId, delivery) {
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-manual-booking', {
+        body: { action: 'create_onboarding_link', rentalId, delivery },
+      });
+      if (error || data?.error) throw error || new Error(data.error);
+      const channels = (data?.deliveryChannels || []).join(' and ');
+      notify(`Booking saved. Secure completion link sent by ${channels}.`, 'success');
+      if (data?.onboardingWarning) notify(`Booking saved. Link delivery needs attention: ${data.onboardingWarning}`);
+      const text = (data?.deliveryDetails || []).find(item => item.channel === 'text');
+      if (text && text.status !== 'delivered') notify(`Booking saved. Twilio status: ${prettySmsDeliveryStatus(text)}. Carrier delivery is not confirmed.`);
+    } catch (error) {
+      notify(`Booking saved. The completion link could not be sent: ${adminErrorMessage(error, 'Send completion link')} Open this rental’s Contact action to retry delivery. Do not create another booking.`, 'error');
     }
   }
 
@@ -7585,7 +7613,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, cust
         <label><span>Return date</span><input type="date" min={manualBookingForm.pickupDate || undefined} value={manualBookingForm.returnDate} onChange={(event) => updateSchedule('returnDate', event.target.value)} required /></label>
         <label><span>Return time</span><select value={manualBookingForm.returnTime} onChange={(event) => updateSchedule('returnTime', event.target.value)}>{calendarTimeOptions(manualBookingForm.returnTime).map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
         <p className={`booking-policy-message full-field ${bookingWindow.valid ? 'valid' : 'invalid'}`}><Clock size={17}/><span>{bookingWindow.valid ? `${formatAdminDuration(bookingWindow.actualMinutes)} rental · ${days} daily rate${days === 1 ? '' : 's'}.` : bookingWindow.error}</span></p>
-        <label className="full-field vehicle-availability-field"><span>Vehicle availability</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={!reservationWindowReady} required><option value="">{reservationWindowReady ? 'Choose an available vehicle' : 'Choose pickup and return dates first'}</option>{vehicleChoices.map(({ vehicle, availability }) => <option key={vehicle.id} value={vehicle.id} disabled={!availability.available}>{availability.available ? '✓ Available' : '✕ Unavailable'} — {vehicle.name} — {money(vehicle.daily_rate)}/day{!availability.available ? ` — ${availability.reason}` : ''}</option>)}</select></label>
+        <label className="full-field vehicle-availability-field"><span>Vehicle availability</span><select value={manualBookingForm.vehicleId} onChange={(event) => update('vehicleId', event.target.value)} disabled={submitting || !reservationWindowReady} required><option value="">{reservationWindowReady ? 'Choose an available vehicle' : 'Choose pickup and return dates first'}</option>{vehicleChoices.map(({ vehicle, availability }) => <option key={vehicle.id} value={vehicle.id} disabled={!availability.available}>{submitting && vehicle.id === manualBookingForm.vehicleId ? 'Creating booking…' : availability.available ? '✓ Available' : '✕ Unavailable'} — {vehicle.name} — {money(vehicle.daily_rate)}/day{!submitting && !availability.available ? ` — ${availability.reason}` : ''}</option>)}</select></label>
         <div className="booking-divider"><span>4. Next steps &amp; payment plan</span></div>
         <label className="full-field"><span>Send the customer’s guided completion link</span><select value={manualBookingForm.onboardingDelivery} onChange={(event) => update('onboardingDelivery', event.target.value)}><option value="both">Email + text guided link (recommended)</option><option value="text">Text guided link only</option><option value="email">Email guided link only</option><option value="none">Do not send yet — I will send it later</option></select></label>
         <label className="full-field"><span>How will payment be collected?</span><select value={manualBookingForm.paymentCollectionPreference} onChange={(event) => update('paymentCollectionPreference', event.target.value)}><option value="customer_link">Customer pays through the secure link (recommended)</option><option value="admin_stripe">Admin opens Stripe Checkout on this device</option><option value="external">Admin records payment received outside Stripe</option><option value="later">Decide later</option></select></label>
@@ -7595,7 +7623,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, cust
           ? 'Returning-customer path: the link asks for the account email. Verified phone, successful Stripe Identity, and an approved driver license are reused automatically; only missing or rental-specific steps remain.'
           : 'New-customer path: the link asks for the booking email, then guides the customer through phone, Stripe Identity, driver license, insurance, agreement, and payment.'}</span></p>
         {reservationWindowReady && <div className="vehicle-availability-legend full-field"><span className="available"><CheckCircle2 size={16}/> Available for these exact times</span><span className="unavailable"><XCircle size={16}/> Unavailable vehicles are blocked</span></div>}
-        {selectedVehicleAvailability && !selectedVehicleAvailability.available && <div className="vehicle-selection-warning full-field"><AlertTriangle size={17}/>{selectedVehicleAvailability.reason}</div>}
+        {!submitting && selectedVehicleAvailability && !selectedVehicleAvailability.available && <div className="vehicle-selection-warning full-field"><AlertTriangle size={17}/>{selectedVehicleAvailability.reason}</div>}
         <button className="primary-btn full-field" disabled={submitting || !bookingWindow.valid || !selectedVehicle || !selectedVehicleAvailability?.available}><CalendarClock size={17}/> {submitting ? 'Creating booking…' : manualBookingForm.onboardingDelivery === 'none' ? 'Create Booking' : 'Create Booking & Send Next Steps'}</button>
       </form>
     </Panel>

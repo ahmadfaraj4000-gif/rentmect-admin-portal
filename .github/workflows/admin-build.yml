@@ -75,6 +75,7 @@ jobs:
           node tools/check-collapsed-workflow-browser.mjs
           node tools/check-history-screens-browser.mjs
           node tools/check-lazy-screens-browser.mjs
+          node tools/check-booking-submit-browser.mjs
           node tools/test-rental-amendment-browser.mjs
 
       - name: Build production assets
