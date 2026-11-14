@@ -94,3 +94,9 @@
 .email-template-modal>.modal-actions{padding:13px 18px;border-top:1px solid var(--admin-line)}
 @media(max-width:900px){.communications-inbox,.email-card-grid,.email-compose-layout,.email-template-editor{grid-template-columns:1fr}.communications-inbox>.panel{min-height:auto}.email-preview-frame,.email-template-editor .email-preview-frame{height:440px}}
 @media(max-width:620px){.email-admin-header{align-items:flex-start;flex-direction:column}.email-card-grid,.email-compose-form,.email-recipient-picker{grid-template-columns:1fr!important}.email-history-list article,.communications-customer-list article{grid-template-columns:1fr}.communications-customer-avatar{display:none}.communications-customer-list article button{width:100%}.email-send-actions>*{width:100%!important;max-width:none!important}}
+
+/* Summary rows have no avatar: keep copy flexible and metadata intrinsic. */
+.communications-thread.communications-thread--summary{grid-template-columns:minmax(0,1fr) auto;min-width:0}
+.communications-thread--summary>.communications-thread-copy{display:grid;gap:3px;min-width:0;text-align:left}
+.communications-thread--summary>.communications-thread-unread{justify-self:end;width:max-content}
+.communications-thread--summary>.communications-thread-date{justify-self:end;white-space:nowrap;background:transparent;color:#607176;font-size:11px;font-style:normal;font-weight:500}
