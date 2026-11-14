@@ -20,7 +20,7 @@ export function RentalRateChange({rental, client, initialEffectiveAt, toIso, for
    <fieldset disabled={busy} className="rental-amendment-grid" style={{border:0,padding:0,margin:0}}>
     <label><span>Change price starting on (Eastern)</span><input type="datetime-local" required value={form.effectiveAt} onChange={e=>change('effectiveAt',e.target.value)}/></label>
     <label><span>New daily rate</span><input type="number" required min="0" max="100000" step="0.01" inputMode="decimal" value={form.dailyRate} onChange={e=>change('dailyRate',e.target.value)}/></label>
-    <label className="wide"><span>Reason and customer agreement</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
+    <label className="wide"><span>Reason and customer agreement</span><textarea required maxLength={1000} value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
    </fieldset>
    {preview&&<section ref={review} className="rental-amendment-preview" aria-live="polite"><strong>Review price change</strong>
     <p>Before {formatDate(preview.effective_at)}: existing charges stay the same.</p>

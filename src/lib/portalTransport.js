@@ -1,3 +1,4 @@
+import { adminError } from './adminErrors.js';
 // Bound the complete response (including its body). A lost write response is
 // an unknown outcome, never an instruction to submit the write again.
 export const REQUEST_TIMEOUT_MS = 30_000;
@@ -10,6 +11,8 @@ const TICKET_READ_RPC = new Set([
   'admin_ticket_lookup', 'admin_ticket_candidates', 'admin_ticket_customer_flags',
   'admin_performance_report',
   'admin_payment_revenue_snapshot',
+  'admin_customer_directory_page', 'admin_payment_activity_page', 'admin_communication_threads',
+  'admin_operation_summaries', 'admin_toll_rental_candidates', 'admin_audit_history_page', 'admin_audit_history_detail',
 ]);
 const isReadRpc = name => READ_RPC.test(name) || TICKET_READ_RPC.has(name);
 function isStoredRead(entry) {
@@ -103,15 +106,25 @@ export function createPortalTransport({ fetch: fetchImpl, storage, now = Date.no
       const response = await Promise.race([deadline, (async () => {
         const result = await fetchImpl(input, { ...options, signal: controller.signal });
         // Fetch can resolve headers while response.json() would wait forever.
-        const bytes = await result.arrayBuffer();
+        let bytes = await result.arrayBuffer();
+        if (!result.ok && result.headers.get('content-type')?.includes('json')) {
+          try {
+            const payload = JSON.parse(new TextDecoder().decode(bytes));
+            const detail = adminError(payload, request.label);
+            bytes = new TextEncoder().encode(JSON.stringify({...payload, message:detail.message,
+              ...(typeof payload.error === 'string' ? {error:detail.message} : {}), code:payload.code || detail.code}));
+          } catch { /* Preserve malformed responses for the existing recovery guard. */ }
+        }
         if (tracked && result.ok && bytes.byteLength) {
           // The caller must be able to read the acknowledgement before a write
           // is safe to consider complete. Proxy HTML or broken JSON is unknown.
           if (!result.headers.get('content-type')?.includes('json')) throw new Error('The saved result could not be read. Check saved result before submitting again.');
           JSON.parse(new TextDecoder().decode(bytes));
         }
+        const headers = new Headers(result.headers);
+        headers.delete('content-length');
         return new Response([101, 204, 205, 304].includes(result.status) ? null : bytes,
-          { status: result.status, statusText: result.statusText, headers: result.headers });
+          { status: result.status, statusText: result.statusText, headers });
       })()]);
       if (tracked && owner === requestOwner) {
         if (response.status >= 500 || response.status === 408) {

@@ -1,3 +1,4 @@
+import { installFunctionErrors } from './adminErrors.js';
 import { createClient } from '@supabase/supabase-js';
 import { createPortalTransport } from './portalTransport.js';
 import { performanceTelemetry, connectPerformanceSender } from './performance.js';
@@ -27,6 +28,7 @@ export const portalTransport = createPortalTransport({ fetch: (...args) => fetch
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: { fetch: portalTransport.fetch },
 });
+installFunctionErrors(supabase);
 connectPerformanceSender(async (events, signal) => {
   const { data, error } = await supabase.rpc('admin_record_performance', { p_events: events }).abortSignal(signal);
   if (error) throw error;

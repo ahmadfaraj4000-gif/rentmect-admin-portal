@@ -18,8 +18,8 @@ test('each actionable domino opens an audited admin completion flow', () => {
 });
 
 test('admin completion explains its audit-note requirement before submission', () => {
-  assert.match(source, /Add a completion note of at least 5 characters/);
-  assert.match(source, /5 minimum characters/);
+  assert.match(source, /Add a completion note/);
+  assert.doesNotMatch(source, /5 minimum characters/);
   assert.match(source, /every action is added to activity history/);
   assert.match(source, /disabled=\{busy\}/);
   assert.match(styles, /\.admin-completion-badge/);
