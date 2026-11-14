@@ -5207,7 +5207,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   const viewEnd = days[days.length - 1]?.iso || viewStart;
   const updateBlock = (key, value) => setAvailabilityBlockForm({ ...availabilityBlockForm, [key]: value });
   const canonicalRentals = canonicalEvents
-    .filter((event) => ['rental', 'checkout_hold'].includes(event.event_type))
+    .filter((event) => ['rental', 'checkout_hold', 'late_return_lock'].includes(event.event_type))
     .map((event) => ({
       id: event.id,
       vehicle_id: event.vehicle_id,
@@ -5218,6 +5218,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
       status: event.status,
       profiles: { full_name: event.customer_name },
       booking_source: event.label,
+      physical_return_lock: event.event_type === 'late_return_lock',
       checkout_expires_at: event.expires_at,
     }));
   const canonicalBlocks = canonicalEvents
@@ -12229,6 +12230,18 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId
     const blockedUntil = getRentalBlockedUntil(rental);
     const standardAvailableAt = bookedEnd ? new Date(bookedEnd.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000) : null;
     if (!start || !bookedEnd || !blockedUntil) return [];
+    // Canonical possession events end at the viewport boundary, not the
+    // scheduled return. Never render that boundary as an actual due date.
+    if (rental.physical_return_lock) {
+      if (start >= nextDayStart || blockedUntil <= dayStart) return [];
+      return [{
+        id: `rental-possession-${rental.id}`, kind: 'rental', item: rental,
+        ...toSegmentPosition(start, blockedUntil),
+        color: availabilityTypes.on_road?.color || DEFAULT_AVAILABILITY_TYPES.on_road.color,
+        label: 'Awaiting return',
+        title: `${rental.profiles?.full_name || 'Client'} — vehicle out. Unavailable until admin-confirmed return and inspection.`,
+      }];
+    }
     const type = rentalStatusToAvailabilityType(rental.status);
     const color = availabilityTypes[type]?.color || DEFAULT_AVAILABILITY_TYPES[type]?.color;
     const title = `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. ${requiresPhysicalReturnLock(rental) ? 'Unavailable until admin-confirmed return.' : 'Reserved through ' + formatDateTime(blockedUntil) + '.'}`;
@@ -12350,7 +12363,7 @@ function getReturnDayBlockedPercent(rental, dayIso) {
 }
 function rentalStatusToAvailabilityType(status) {
   const normalized = String(status || '').toLowerCase();
-  if (['active', 'overdue', 'return_initiated'].includes(normalized)) return 'on_road';
+  if (['active', 'rented', 'overdue', 'return_initiated'].includes(normalized)) return 'on_road';
   return 'reserved';
 }
 function formatTimeOnly(date) {
