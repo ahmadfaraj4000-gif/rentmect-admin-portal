@@ -21,7 +21,7 @@ const helpers = { rentalDayShortcut, React, supabase: {}, parseBookingDateTime: 
   calendarTimeOptions:()=>['9:00 AM','10:00 AM'] };
 function harness(savedContext = { daily_rate: 49, fleet_daily_rate: 69, revisable_extension: { starts_at: '2026-10-04T13:00:00Z', daily_rate: 49 } }) {
   const state=[]; let cursor=0; const calls=[]; let loadRates;
-  const context = vm.createContext({ ...helpers, withReadRetry, supabase: { rpc: async () => typeof savedContext === 'function' ? savedContext() : ({ data: savedContext }) }, crypto:{randomUUID:()=>`key-${calls.length}-${Math.random()}`},
+  const context = vm.createContext({ ...helpers,runCardAction: (_action, run) => run(), withReadRetry, supabase: { rpc: async () => typeof savedContext === 'function' ? savedContext() : ({ data: savedContext }) }, crypto:{randomUUID:()=>`key-${calls.length}-${Math.random()}`},
     useDialogFocus:()=>({current:null}), useRef:()=>({current:null}), useEffect:(effect, deps)=>{ if (deps?.[0] === rental.id && !loadRates) loadRates = effect; },
     useState(initial) { const index=cursor++; if (!(index in state)) state[index]=typeof initial==='function'?initial():initial;
       return [state[index],value=>{state[index]=typeof value==='function'?value(state[index]):value;}]; },
@@ -81,10 +81,10 @@ test('a replacement vehicle fleet rate is never silently used for an extension',
 });
 
 test('Extend rental is available on active and overdue rentals and hidden after return',async()=>{
-  const line=source.split('\n').find(line=>line.includes('onClick={() => setExtensionOpen(true)}'));
+  const line=source.split('\n').find(line=>line.includes('<CalendarClock size={14}/> Extend rental</button>'));
   const code=await transformWithOxc(`function Action(){return <>${line}</>}; Action;`,'action.jsx',{jsx:{runtime:'classic'}});
   for (const [status,visible] of [['active',true],['rented',true],['overdue',true],['completed',false],['cancelled',false],['return_initiated',false],['ready_for_pickup',false]]) {
-    const Action=vm.runInNewContext(code.code,{...helpers,rental:{...rental,status},detailed:true,previewRentalAmendment:()=>{},applyRentalAmendment:()=>{},setExtensionOpen:()=>{}});
+    const Action=vm.runInNewContext(code.code,{...helpers,runCardAction: (_action, run) => run(),rental:{...rental,status},detailed:true,previewRentalAmendment:()=>{},applyRentalAmendment:()=>{},setExtensionOpen:()=>{}});
     assert.equal(renderToStaticMarkup(React.createElement(Action)).includes('Extend rental'),visible,status);
   }
 });
@@ -94,7 +94,7 @@ test('Edit remains for unstarted reservations while started rentals use Extend r
   const code=await transformWithOxc(`function Action(){return <>${line}</>}; Action;`,'edit-action.jsx',{jsx:{runtime:'classic'}});
   for (const [status,expected] of [['active',null],['rented',null],['overdue',null],['ready_for_pickup','edit'],['cancelled',null],['return_initiated',null]]) {
     const calls=[];
-    const Action=vm.runInNewContext(code.code,{...helpers,Pencil:()=>null,tripStartIsLocked,rental:{...rental,status},detailed:true,
+    const Action=vm.runInNewContext(code.code,{...helpers,runCardAction: (_action, run) => run(),Pencil:()=>null,tripStartIsLocked,rental:{...rental,status},detailed:true,
       setExtensionOpen:()=>calls.push('extension'),setEditRentalOpen:()=>calls.push('edit')});
     const tree=Action();
     const button=find(tree,e=>e.type==='button');

@@ -41,7 +41,7 @@ const client={rpc:async(name,args)=>{window.reads.push({name,args});await new Pr
  if(name==='admin_rental_details')return {data:args.p_rental_ids.map(id=>({rental:rows.find(r=>r.id===id)}))};
  throw Error(name);}};
 const Panel=({title,children})=><section><h2>{title}</h2>{children}</section>,Metric=()=>null,DepositActionPanel=()=>null,ReminderMenu=()=>null;
-const RentalRow=({rental,onCloseDetails})=><article data-rental-id={rental.id}><h3>{rental.profiles.full_name}</h3><p>{rental.vehicles.name}</p><button onClick={onCloseDetails}>Hide rental details</button></article>;
+const RentalRow=({rental,summaryOnly,onRequestDetails,onCloseDetails})=><article data-rental-id={rental.id}><h3>{rental.profiles.full_name}</h3><p>{rental.vehicles.name}</p><button onClick={summaryOnly?onRequestDetails:onCloseDetails}>{summaryOnly?'Show rental details':'Hide rental details'}</button></article>;
 const isToday=()=>false,getLateReturnState=()=>({overdue:true,hardLocked:true}),formatRentalDate=(d,t)=>d+' '+t,prettyStatus=s=>s,money=n=>'$'+n;
 const rentalFilterOptions=()=>[{key:'needs_action',label:'Needs action'},{key:'archive',label:'Archive'}],limitText=(s,n)=>s.slice(0,n);
 ${components}

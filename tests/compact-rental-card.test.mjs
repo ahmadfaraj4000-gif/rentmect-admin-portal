@@ -37,7 +37,7 @@ test('collapsed Needs Action cards retain every blocker while leading with the f
   assert.doesNotMatch(source, /Incomplete rental records/);
   assert.match(source, /open damage or incident/);
   assert.match(source, /className="rental-card-needs-action-summary"/);
-  assert.match(source, /onClick=\{\(\) => setNeedsActionModalOpen\(true\)\}/);
+  assert.match(source, /onClick=\{\(\) => runCardAction\('warnings', \(\) => setNeedsActionModalOpen\(true\)\)\}/);
   assert.match(source, /aria-haspopup="dialog"/);
   assert.match(source, /title="View full warning"/);
 });
@@ -81,7 +81,7 @@ test('rare rental actions use a clearly labelled More Actions menu', () => {
 test('the card renders exactly one clickable horizontal workflow rail', () => {
   assert.equal((source.match(/<RentalProgressTracker/g) || []).length, 1);
   assert.doesNotMatch(source, /<AdminBookingProcedure/);
-  assert.match(source, /onStepClick=\{\(step\) => step\.key === 'payment' \? openPaymentStep\(\) : setAdminStepScope\(step\.key\)\}/);
+  assert.match(source, /onStepClick=\{\(step\) => runCardAction\('step:' \+ step\.key, \(\) => step\.key === 'payment' \? openPaymentStep\(\) : setAdminStepScope\(step\.key\)\)\}/);
   assert.match(styles, /grid-template-columns: repeat\(9, minmax\(74px, 1fr\)\)/);
   assert.match(styles, /\.rental-card-workflow \.rental-progress-tracker[\s\S]*overflow-x: auto !important/);
 });
