@@ -27,3 +27,17 @@ test('REST errors retain status and do not create uncertain writes on a known re
 test('summary reads do not create pending-write recovery locks',()=>{
  for(const rpc of ['admin_customer_directory_page','admin_payment_activity_page','admin_operation_summaries','admin_toll_rental_candidates','admin_communication_threads']) assert.equal(describeRequest('https://db.example/rest/v1/rpc/'+rpc,{method:'POST'}).read,true);
 });
+
+test('real booking submit keeps exact backend conflicts inline and avoids boolean availability masking',async()=>{
+ const {readFileSync}=await import('node:fs');const vm=await import('node:vm');
+ const source=readFileSync(new URL('../src/main.jsx',import.meta.url),'utf8');
+ const start=source.indexOf('  async function createManualBooking(event)');
+ const controller=source.slice(start,source.indexOf('\n  async function ',start+1));
+ const messages=[],inline=[],busy=[],calls=[];
+ const profile={id:'customer',full_name:'Synthetic Customer',date_of_birth:'1990-01-01'};
+ const form={customerMode:'existing',customerId:'customer',vehicleId:'car',onboardingDelivery:'none',pickupDate:'2026-12-01',returnDate:'2026-12-02',pickupTime:'9:00 AM',returnTime:'9:00 AM',existingPhone:'',driverLicenseNumber:'',driverLicenseState:'',insuranceProvider:'',insurancePolicyNumber:''};
+ const conflict='This customer already has a rental scheduled during those dates and times. A customer can use only one rental vehicle at a time.';
+ const context=vm.createContext({adminErrorMessage,manualBookingForm:form,profiles:[profile],vehicles:[{id:'car'}],bookingPolicy:{},requireStaffPermission:()=>true,isEligibleAdminBirthday:()=>true,getBookingWindow:()=>({valid:true}),setManualBookingError:x=>inline.push(x),setManualBookingSubmitting:x=>busy.push(x),notify:x=>messages.push(x),isVehicleAvailable:()=>{throw Error('Boolean precheck must not hide the database reason');},supabase:{rpc:async(name)=>{calls.push(name);return{data:{valid:true}}},functions:{invoke:async()=>({error:{message:'Edge Function returned a non-2xx status code',context:new Response(JSON.stringify({error:conflict,code:'CUSTOMER_DATES_OVERLAP'}),{status:400})}})}}});
+ vm.runInContext(controller,context);await context.createManualBooking({preventDefault(){}});
+ assert.match(inline.at(-1),/already has a reservation/);assert.equal(messages.at(-1),inline.at(-1));assert.deepEqual(busy,[true,false]);assert.deepEqual(calls,['get_booking_quote']);assert.equal(form.customerId,'customer');assert.equal(form.vehicleId,'car');
+});
