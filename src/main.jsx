@@ -145,7 +145,7 @@ const VEHICLE_IMAGE_BUCKET = 'vehicle-images';
 const BLOCKING_RENTAL_STATUSES = ['pending', 'documents_needed', 'document_review', 'ready_for_pickup', 'approved', 'active', 'overdue', 'return_initiated', 'checkout_hold'];
 const AVAILABILITY_RENTAL_STATUSES = [...BLOCKING_RENTAL_STATUSES];
 const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
-const TURNAROUND_BUFFER_MINUTES = 180;
+const TURNAROUND_BUFFER_MINUTES = 0; // No time-based availability buffer; possession is released by admin return.
 const SMS_TEMPLATE_MAX_LENGTH = 900;
 const SMS_COMPLIANCE_FOOTER = 'Reply STOP to unsubscribe or HELP for help.';
 const FINANCIAL_SUMMARY_VIEWER_EMAIL = 'anconamgt@aol.com';
@@ -5234,13 +5234,13 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   }
 
   function blockedRentalHint(rental) {
-    setCalendarHint(`${availabilityTypes[rentalStatusToAvailabilityType(rental?.status)]?.label || 'Booked'} time comes from a rental. The return-day cell becomes bookable after the shown three-hour turnaround; Available only removes manual calendar blocks.`);
+    setCalendarHint(`${availabilityTypes[rentalStatusToAvailabilityType(rental?.status)]?.label || 'Booked'} time comes from a rental. Cars that are out remain unavailable until admin-confirmed return; Available only removes manual calendar blocks.`);
     setPaintRange(null);
   }
 
   function openAvailableWindow(segment, dayIso) {
     if (selectedType === 'available') {
-      setCalendarHint(`${segment.label}. This part of the day is already available after the turnaround window.`);
+      setCalendarHint(`${segment.label}. This part of the day is outside the reserved window.`);
       return;
     }
     setPaintModal({
@@ -5259,7 +5259,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
   }
 
   function handleGraceSegment(segment, dayIso) {
-    setCalendarHint(`Protected three-hour turnaround. The ${formatTimeOnly(segment.dueAt)} return remains unavailable until ${formatTimeOnly(segment.standardAvailableAt)} and cannot be cleared as a normal availability block.`);
+    setCalendarHint(`Awaiting admin-confirmed return. The scheduled return was ${formatTimeOnly(segment.dueAt)}. This possession lock cannot be cleared as a normal calendar block.`);
     setPaintRange(null);
   }
 
@@ -5273,7 +5273,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     <div className="calendar-toolbar">
       <div>
         <strong>{days[0]?.label} - {days[days.length - 1]?.label}</strong>
-        <span>Live customer bookings, checkout holds, admin bookings, manual blocks, and vehicle maintenance locks. Times are Eastern; every return includes the protected three-hour turnaround.</span>
+        <span>Live customer bookings, checkout holds, admin bookings, manual blocks, and vehicle maintenance locks. Times are Eastern; cars that are out stay unavailable until an admin confirms return.</span>
       </div>
       <div className="calendar-date-navigation">
         <button type="button" className="secondary-btn" onClick={() => moveCalendarDays(-14)} aria-label="Previous two weeks">← 2 weeks</button>
@@ -5329,7 +5329,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
           {calendarActionLabel(key, availabilityTypes)}
         </button>
       ))}
-      <em>Reserved and On the Road appear automatically from rentals. Clear Manual Block never removes rentals, extension holds, or turnaround time.</em>
+      <em>Reserved and On the Road appear automatically from rentals. Clear Manual Block never removes rentals, extension holds, or physical-return locks.</em>
     </div>
 
     <div className="calendar-scroller">
@@ -5403,8 +5403,8 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                   className={`calendar-time-segment ${segment.kind}`}
                   key={segment.id}
                   title={segment.title}
-                  aria-label={segment.kind === 'grace'
-                    ? `Protected three-hour turnaround until ${formatTimeOnly(segment.standardAvailableAt)}.`
+                  aria-label={segment.kind === 'possession'
+                    ? `Unavailable until admin-confirmed return.`
                     : segment.kind === 'manual-block' && !MANUAL_CALENDAR_BLOCK_TYPES.has(String(segment.item?.block_type || '').toLowerCase())
                       ? `${segment.label}. System controlled.`
                       : `${segment.label}. Click to edit.`}
@@ -5413,7 +5413,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
                     event.stopPropagation();
                     if (segment.kind === 'rental') blockedRentalHint(segment.item);
                     else if (segment.kind === 'available') openAvailableWindow(segment, day.iso);
-                    else if (segment.kind === 'grace') handleGraceSegment(segment, day.iso);
+                    else if (segment.kind === 'possession') handleGraceSegment(segment, day.iso);
                     else openBlockEdit(segment.item);
                   }}
                 >
@@ -5498,7 +5498,7 @@ function AvailabilityBlockModal({ modal, setModal, vehicles, availabilityTypes, 
         <CalendarClock size={22}/>
         <div>
           <strong>{modal.mode === 'edit' ? 'Edit Calendar Block' : isClear ? 'Clear Availability Blocks' : 'Confirm Calendar Block'}</strong>
-          <span>{isClear ? 'Only admin-created blocks are cleared. Rentals, extension holds, and turnaround time stay protected.' : 'Adjust the vehicle, dates, and block type before saving.'}</span>
+          <span>{isClear ? 'Only admin-created blocks are cleared. Rentals, extension holds, and physical-return locks stay protected.' : 'Adjust the vehicle, dates, and block type before saving.'}</span>
         </div>
         <button type="button" className="admin-close-button" onClick={onCancel} disabled={modal.saving} aria-label="Close calendar block dialog"><X size={18}/></button>
       </div>
@@ -8024,7 +8024,6 @@ function ReturnMonitorRow({ rental, sendManualReminder, onOpenRental }) {
       <strong>{rental.profiles?.full_name || rental.user_email || 'Client'}</strong>
       <span>{rental.vehicles?.name || 'Vehicle'}</span>
       <small>Return {formatRentalDate(rental.return_date, rental.return_time)}</small>
-      {returnState.inGrace && <small>Three-hour grace ends {returnState.graceEnds.toLocaleString()}</small>}
       {returnState.hardLocked && <small>Inventory hard-locked until physical return and inspection.</small>}
     </div>
     <div className="row-actions">
@@ -8452,7 +8451,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
         </div>
         <div className="rental-card-secondary-actions">
           {detailed && rental.status !== 'cancelled' && !tripStartIsLocked(rental) && <button type="button" onClick={() => runCardAction('edit', () => setEditRentalOpen(true))}><Pencil size={14}/> Edit</button>}
-          {detailed && previewRentalAmendment && applyRentalAmendment && (tripStartIsLocked(rental) || rental.status === 'completed') && <button type="button" onClick={() => runCardAction('swap', () => setSwapOpen(true))}><Car size={14}/> Swap vehicle</button>}
+          {detailed && previewRentalAmendment && applyRentalAmendment && requiresPhysicalReturnLock(rental) && <button type="button" onClick={() => runCardAction('swap', () => setSwapOpen(true))}><Car size={14}/> Swap vehicle</button>}
           {detailed && previewRentalAmendment && applyRentalAmendment && ['active', 'rented', 'overdue'].includes(rental.status) && !rental.inspection_completed_at && <button type="button" onClick={() => runCardAction('extend', () => setExtensionOpen(true))}><CalendarClock size={14}/> Extend rental</button>}
           <button type="button" onClick={() => runCardAction('step:agreement', () => setAdminStepScope('agreement'))}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => runCardAction('contact', () => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' }))}><MessageCircle size={14}/> Contact</button>
@@ -8481,7 +8480,6 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
       {!depositReviewCompleteWithDebt && reviewedDepositApplied !== undefined && <p role="status" className="deposit-review-note">{money(reviewedDepositApplied)} deposit applied · {balanceDue > 0.005 ? `${money(balanceDue)} still due.` : 'Balance settled.'}</p>}
       {depositReviewRequired && <small className="deposit-review-note">{rental.deposit_status === 'release_pending' ? 'Refund processing' : rental.deposit_release_error ? 'Refund needs attention' : rental.deposit_review_follow_up_at ? 'On hold' : 'Needs deposit review'} · Returned {rental.inspection_completed_at ? formatEasternDateTime(rental.inspection_completed_at) : '—'}{rental.deposit_review_follow_up_at ? ` · Follow up ${formatEasternDateTime(rental.deposit_review_follow_up_at)}` : ''}</small>}
       {rental.customer_auth_deleted_at && <small className="archived-customer-note"><AlertTriangle size={14}/> Auth account deleted {new Date(rental.customer_auth_deleted_at).toLocaleDateString()}; rental retained as an auditable business record.</small>}
-      {returnState.inGrace && <small className="late-return-warning"><Clock size={14}/> Three-hour grace is active until {returnState.graceEnds.toLocaleString()}.</small>}
       {returnState.hardLocked && <small className="late-return-critical"><AlertTriangle size={14}/> PHYSICAL RETURN LOCK — complete the return inspection before another booking.</small>}
     </div>}
 
@@ -9049,7 +9047,7 @@ function RentalAvailabilityNotice({ availability, vehicleId }) {
   return <div aria-live="polite">
     <p className={row.available ? 'muted' : 'form-error'}><strong>{row.available ? 'Available for these dates' : 'Unavailable for these dates'}</strong></p>
     {row.conflicts.map((conflict, index) => <p key={`${conflict.source_id}-${index}`}>{conflict.reason}{conflict.starts_at ? `: ${formatEasternDateTime(conflict.starts_at)} → ${formatEasternDateTime(conflict.ends_at)}` : ''}</p>)}
-    {row.next_reservation && <p>Next reservation: {formatEasternDateTime(row.next_reservation.starts_at)} → {formatEasternDateTime(row.next_reservation.ends_at)}. This rental must end at least three hours before that pickup.</p>}
+    {row.next_reservation && <p>Next reservation: {formatEasternDateTime(row.next_reservation.starts_at)} → {formatEasternDateTime(row.next_reservation.ends_at)}. This rental must end by that pickup, and the vehicle must be physically returned before it can be released again.</p>}
     <small>Availability is checked again when you confirm.</small>
   </div>;
 }
@@ -9142,7 +9140,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
 
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onExtend }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
-  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'now', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', outgoingMileage: '', incomingMileage: '', reason: '' }, ['outgoingMileage', 'incomingMileage', 'operation', 'vehicleId', 'timeMode', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
+  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'now', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', outgoingMileage: '', incomingMileage: '', reason: '', handoverConfirmed: false }, ['outgoingMileage', 'incomingMileage', 'operation', 'vehicleId', 'timeMode', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
   const currentSwapTime = () => {
     const date = new Date();
     return `${formatEasternDateTimeInput(date)}:${String(date.getUTCSeconds()).padStart(2, '0')}`;
@@ -9179,6 +9177,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
   }
   async function review(event) {
     event.preventDefault();
+    if (!form.handoverConfirmed) { setError('Confirm the old vehicle has been physically received before reviewing the swap.'); return; }
     if (parseMileageInput(form.outgoingMileage) === null || parseMileageInput(form.incomingMileage) === null) { setError('Record both vehicles’ verified odometer readings.'); return; }
     if (!availabilityReady) { setError('Choose available dates and a vehicle before reviewing.'); return; }
     setBusy(true); setError('');
@@ -9208,6 +9207,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
           <label><span>When are the vehicles being exchanged?</span><select value={form.timeMode} onChange={e => change('timeMode', e.target.value)}><option value="now">Swap now</option><option value="custom">Enter actual swap time</option></select></label>
           {form.timeMode === 'custom' && <label><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
           {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><MoneyInput type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
+          <label className="checkbox-label"><input type="checkbox" checked={Boolean(form.handoverConfirmed)} onChange={e => change('handoverConfirmed', e.target.checked)} required/><span>I confirm the old vehicle has been physically received and the replacement is being handed over.</span></label>
           <label><span>Outgoing vehicle return odometer</span><input type="number" min={returnMileageContext(rental).minimum} max={MILEAGE_MAX} step="1" required value={form.outgoingMileage} onChange={e => change('outgoingMileage', e.target.value)}/></label>
           <label><span>Replacement vehicle pickup odometer</span><input type="number" min={vehicles.find(v => v.id === form.vehicleId)?.current_mileage || 0} max={MILEAGE_MAX} step="1" required value={form.incomingMileage} onChange={e => change('incomingMileage', e.target.value)}/></label>
           <label className="wide"><span>Reason and agreement details</span><textarea required minLength={10} maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
@@ -9394,7 +9394,7 @@ function RentalAmendmentModal({ rental, vehicles = [], lateFees = [], onPreview,
       <div className="rental-amendment-scroll" inert={checkingDeposit || reviewing || saving || Boolean(depositChoice) ? true : undefined}>
         <div className="rental-amendment-guardrail">
           <ShieldCheck size={19}/>
-          <span><strong>Availability, three-hour turnaround, payments, deposits, discounts, TollSpot history, and audit records remain protected.</strong> This does not write to Wheelbase availability.</span>
+          <span><strong>Availability, physical return, payments, deposits, discounts, TollSpot history, and audit records remain protected.</strong> This does not write to Wheelbase availability.</span>
         </div>
 
         <section className="rental-amendment-section">
@@ -12036,7 +12036,7 @@ function getAvailabilityBlockBlockedUntil(block) {
   return getTurnaroundBlockedUntil(blockEnd, block);
 }
 function getTurnaroundBlockedUntil(dueAt, item) {
-  return new Date(dueAt.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000);
+  return requiresPhysicalReturnLock(item) ? new Date(8640000000000000) : dueAt;
 }
 function rentalBlocksCalendarDay(rental, dayStart, dayEnd) {
   const bookedStart = parseRentMeCtDateTime(rental?.pickup_date, rental?.pickup_time);
@@ -12094,7 +12094,7 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId
     if (!start || !bookedEnd || !blockedUntil) return [];
     const type = rentalStatusToAvailabilityType(rental.status);
     const color = availabilityTypes[type]?.color || DEFAULT_AVAILABILITY_TYPES[type]?.color;
-    const title = `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. Next pickup after ${formatDateTime(blockedUntil)}.`;
+    const title = `${rental.profiles?.full_name || 'Client'} - ${prettyStatus(rental.status)}. Booked ${formatRentalDate(rental.pickup_date, rental.pickup_time)} to ${formatRentalDate(rental.return_date, rental.return_time)}. ${requiresPhysicalReturnLock(rental) ? 'Unavailable until admin-confirmed return.' : 'Reserved through ' + formatDateTime(blockedUntil) + '.'}`;
     const segments = [];
     if (start < nextDayStart && bookedEnd > dayStart) {
       segments.push({
@@ -12109,8 +12109,8 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId
     }
     if (blockedUntil > bookedEnd && bookedEnd < nextDayStart && blockedUntil > dayStart) {
       segments.push({
-        id: `rental-grace-${rental.id}`,
-        kind: 'grace',
+        id: `rental-possession-${rental.id}`,
+        kind: 'possession',
         sourceKind: 'rental',
         item: rental,
         dueAt: bookedEnd,
@@ -12118,7 +12118,7 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId
         ...toSegmentPosition(bookedEnd, blockedUntil),
         color: '#f4c95d',
         label: '',
-        title: `Three-hour turnaround after the ${formatTimeOnly(bookedEnd)} return. Available at ${formatTimeOnly(blockedUntil)}.`,
+        title: `Awaiting admin-confirmed return. Scheduled return: ${formatTimeOnly(bookedEnd)}. No automatic late charge.`,
       });
     }
     return segments;
@@ -12141,20 +12141,6 @@ function buildCalendarDaySegments({ rentals = [], blocks = [], dayIso, vehicleId
         color: availabilityTypes[block.block_type]?.color || DEFAULT_AVAILABILITY_TYPES[block.block_type]?.color || '#394852',
         label: calendarManualBlockLabel(block, dayIso),
         title: availabilityBlockTitle(block),
-      });
-    }
-    if (blockedUntil > bookedEnd && bookedEnd < nextDayStart && blockedUntil > dayStart) {
-      segments.push({
-        id: `block-grace-${block.id}`,
-        kind: 'grace',
-        sourceKind: 'manual-block',
-        item: block,
-        dueAt: bookedEnd,
-        standardAvailableAt,
-        ...toSegmentPosition(bookedEnd, blockedUntil),
-        color: '#f4c95d',
-        label: '',
-        title: `Three-hour turnaround after the ${formatTimeOnly(bookedEnd)} end time. Available at ${formatTimeOnly(blockedUntil)}.`,
       });
     }
     return segments;
@@ -12300,10 +12286,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
         const nextRisk = nextRental
           ? ` NEXT BOOKING AT RISK: ${formatRentalDate(nextRental.pickup_date, nextRental.pickup_time)}.`
           : '';
-        const graceEnd = returnState.graceEnds?.toLocaleString() || 'at the scheduled three-hour deadline';
-        items.push({ id: `overdue-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Late return — inventory hard-locked', subtitle: `${customer} • ${vehicle}`, detail: `Grace ended ${graceEnd}. Physical return and inspection are required before this car can be booked.${nextRisk}`, rental });
-      } else if (returnState.inGrace) {
-        items.push({ id: `grace-${rental.id}`, bucket: 'return_attention', severity: 'warning', title: 'Three-hour return grace active', subtitle: `${customer} • ${vehicle}`, detail: `Due ${formatRentalDate(rental.return_date, rental.return_time)}. Hard inventory lock begins ${returnState.graceEnds.toLocaleString()} unless the return is completed.`, rental });
+        items.push({ id: `overdue-${rental.id}`, bucket: 'return_attention', severity: 'critical', title: 'Late return — awaiting admin return', subtitle: `${customer} • ${vehicle}`, detail: `Due ${formatRentalDate(rental.return_date, rental.return_time)}. Physical return and inspection are required before this car can be booked. No automatic late charge.${nextRisk}`, rental });
       } else if (isDueSoon(rental.return_date, rental.return_time)) {
         items.push({ id: `due-${rental.id}`, bucket: 'return_attention', severity: 'warning', title: 'Return due soon', subtitle: `${customer} • ${vehicle}`, detail: `Due ${formatRentalDate(rental.return_date, rental.return_time)}`, rental });
       }
@@ -13392,21 +13375,9 @@ function prettySmsDeliveryStatus(delivery) {
 function getLateReturnState(returnDate, returnTime, status) {
   const normalizedStatus = String(status || '').toLowerCase();
   const due = parseRentMeCtDateTime(returnDate, returnTime);
-  const terminal = ['completed', 'cancelled'].includes(normalizedStatus);
-  const graceEnds = due ? new Date(due.getTime() + TURNAROUND_BUFFER_MINUTES * 60 * 1000) : null;
-  const now = new Date();
-  const reportedReturn = normalizedStatus === 'return_initiated';
-  const overdue = !terminal && (
-    normalizedStatus === 'overdue' ||
-    (['active', 'rented'].includes(normalizedStatus) && graceEnds && now >= graceEnds)
-  );
-  return {
-    due,
-    graceEnds,
-    inGrace: !terminal && ['active', 'rented'].includes(normalizedStatus) && due && graceEnds && now >= due && now < graceEnds,
-    overdue,
-    hardLocked: !terminal && (reportedReturn || overdue),
-  };
+  const hardLocked = ['active', 'rented', 'overdue', 'return_initiated'].includes(normalizedStatus);
+  const overdue = hardLocked && normalizedStatus !== 'return_initiated' && Boolean(due && new Date() >= due);
+  return { due, graceEnds: null, inGrace: false, overdue, hardLocked };
 }
 function requiresPhysicalReturnLock(rental) {
   return getLateReturnState(rental?.return_date, rental?.return_time, rental?.status).hardLocked;

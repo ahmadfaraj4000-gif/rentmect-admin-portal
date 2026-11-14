@@ -6,9 +6,9 @@ import { AGREEMENT_TEXT, AGREEMENT_VERSION } from '../src/rentalAgreement.js';
 const adminSource = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 
 test('admin uses the versioned late-return and 250-mile agreement', () => {
-  assert.equal(AGREEMENT_VERSION, 'rentmect-master-v2026-10-23-unreturned-keys-r1');
-  assert.match(AGREEMENT_TEXT, /At thirty \(30\) minutes after the scheduled return time/);
-  assert.match(AGREEMENT_TEXT, /more than two \(2\) hours after the scheduled return time/);
+  assert.equal(AGREEMENT_VERSION, 'rentmect-master-v2026-11-13-admin-return-r1');
+  assert.match(AGREEMENT_TEXT, /There is no automatic late-return fee or automatic additional rental-day charge/);
+  assert.match(AGREEMENT_TEXT, /until Company confirms its physical return/);
   assert.match(AGREEMENT_TEXT, /Two hundred fifty \(250\) miles per day are included/);
   assert.match(AGREEMENT_TEXT, /Mileage Included: 250 miles\/day/);
 });
