@@ -1,4 +1,6 @@
-import { AuditHistory, DocumentHistory } from './HistoryScreens.jsx';
+import { PortalInbox } from './PortalInbox.jsx';
+import { CustomerDirectory } from './CustomerDirectory.jsx';
+import { AuditHistory, DocumentHistory, MaintenanceHistory, PaymentActivity, EmailHistory, LazyHistoryDetail } from './HistoryScreens.jsx';
 import { MoneyInput } from './MoneyInput.jsx';
 import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
 import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
@@ -188,18 +190,18 @@ const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
 const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'tickets', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings', 'merchants']);
 const ADMIN_TAB_DOMAINS = {
   dashboard: ['snapshot'],
-  queue: ['customer-directory', 'core', 'workflow'],
-  payments: ['customer-directory', 'core', 'payments'],
-  calendar: ['customer-directory', 'core', 'calendar'],
-  'new-booking': ['customer-directory', 'core', 'calendar', 'settings'],
+  queue: ['operations', 'deposit-tasks'],
+  payments: [],
+  calendar: ['fleet', 'calendar'],
+  'new-booking': ['customer-directory', 'booking-inventory', 'calendar', 'booking-settings'],
   rentals: ['rental-list'],
-  customers: ['customer-directory', 'core', 'workflow', 'templates'],
-  vehicles: ['customer-directory', 'core', 'maintenance-history'],
+  customers: [],
+  vehicles: ['fleet'],
   documents: [],
-  emails: ['customer-directory', 'core', 'workflow', 'templates'],
+  emails: [],
   audit: [],
   settings: ['settings'],
-  tolls: ['customer-directory', 'core'],
+  tolls: [],
   tickets: [],
   merchants: [],
 };
@@ -650,6 +652,7 @@ function App() {
 
 
   const [editingVehicleId, setEditingVehicleId] = useState('');
+  const vehicleEditorRequestRef = useRef(0);
   const [editVehicleForm, setEditVehicleForm] = useState(null);
   const [vehiclePriceConfirmation, setVehiclePriceConfirmation] = useState(null);
   const [vehiclePriceConfirmationError, setVehiclePriceConfirmationError] = useState('');
@@ -905,7 +908,7 @@ function App() {
       // Customer records must be current whenever an admin opens either place
       // where a renter can be selected. Do not trust a session-long domain cache.
       void loadAdminDomain(domain, {
-        force: domain === 'customer-directory' && ['customers', 'new-booking'].includes(activeTab),
+        force: domain !== 'rental-list',
       });
     });
   }, [activeTab, isAdminUser]);
@@ -959,7 +962,7 @@ function App() {
       recoveryInFlight = true;
       lastRecoveryAt = now;
       try {
-        if (['audit', 'documents'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
+        if (['audit', 'documents', 'customers', 'payments', 'emails'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
         const domains = adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
         await Promise.all(domains.map((domain) => loadAdminDomain(domain, { force: true })));
       } finally {
@@ -968,7 +971,10 @@ function App() {
     };
 
     const scheduleDomainRefresh = (domain, rentalId = null) => {
-      if (activeTabRef.current === 'documents' && domain === 'workflow') {
+      if (activeTabRef.current === 'queue' && ['core','workflow','customer-directory'].includes(domain)) domain = 'operations';
+      if (['vehicles','calendar'].includes(activeTabRef.current) && domain === 'core') domain = 'fleet';
+      if (activeTabRef.current === 'new-booking' && domain === 'core') domain = 'booking-inventory';
+      if ((activeTabRef.current === 'documents' && domain === 'workflow') || (['customers','payments','emails'].includes(activeTabRef.current) && ['core','workflow','customer-directory','payments'].includes(domain))) {
         window.clearTimeout(refreshTimers.get('document-history'));
         refreshTimers.set('document-history', window.setTimeout(() => {
           if (document.visibilityState !== 'hidden') setHistoryRevision(value => value + 1);
@@ -1030,7 +1036,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stripe_reconciliation_issues' }, () => scheduleDomainRefresh('payments'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_action_tasks' }, () => {
         scheduleDomainRefresh('snapshot');
-        scheduleDomainRefresh('core');
+        scheduleDomainRefresh('deposit-tasks');
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_documents' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_messages' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
@@ -1208,7 +1214,7 @@ function App() {
       const readGeneration = domainInvalidationsRef.current.get('snapshot') || 0;
       const [snapshotResult, depositTasksResult] = await Promise.all([
         withReadRetry(() => supabase.rpc('get_admin_dashboard_snapshot'), 'Dashboard snapshot'),
-        withReadRetry(() => supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
+        withReadRetry(() => supabase.from('deposit_action_tasks').select('id,rental_id,deposit_amount,status,blockers,escalated_note,created_at,rentals(id,customer_name_snapshot,payment_provider,return_completed_at:inspection_completed_at,updated_at,profiles!rentals_user_id_profiles_fkey(full_name),vehicles(name))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
       ]);
       if (depositTasksResult.data) setDepositActionTasks(depositTasksResult.data);
       if (snapshotResult.error && /get_admin_dashboard_snapshot|schema cache|does not exist/i.test(snapshotResult.error.message || '')) {
@@ -1228,6 +1234,7 @@ function App() {
       if (force) return rentalWorkspaceRef.current?.refresh({ details: false });
       return; // The workspace owns initial/filter/page reads.
     }
+    const requestedTab = activeTabRef.current;
     requestedAdminDomainsRef.current.add(domain);
     if (domain === 'snapshot') return loadDashboardSnapshot({ force });
     if (!force && loadedAdminDomainsRef.current.has(domain)) return;
@@ -1238,19 +1245,22 @@ function App() {
     }
     setDataHealth((current) => ({ ...current, refreshing: true }));
     return freshDomainLoad(adminDomainLoadsRef.current, domain, force, async () => {
+      if (requestedTab !== activeTabRef.current) return;
       const readGeneration = domainInvalidationsRef.current.get(domain) || 0;
+      const readingTab = activeTabRef.current;
       let results = [];
       if (domain === 'customer-directory') {
         setCustomerDirectoryState((current) => ({ ...current, loading: true, error: '' }));
         const fetchProfiles = () => supabase
           .from('profiles')
-          .select('*')
+          .select('id,full_name,email,phone,phone_verified,phone_verified_at,identity_verification_status,date_of_birth,role,customer_status,blocked_customer')
           .is('customer_deleted_at', null)
           .order('created_at', { ascending: false });
         let directoryResult = await withRequestDeadline(fetchProfiles(), 'Customer directory');
         if (directoryResult.error) {
           directoryResult = await withRequestDeadline(fetchProfiles(), 'Customer directory retry', 12_000);
         }
+        if (readingTab !== activeTabRef.current) return;
         if (directoryResult.data) setProfiles(directoryResult.data);
         setCustomerDirectoryState({
           loading: false,
@@ -1260,6 +1270,45 @@ function App() {
           lastUpdated: directoryResult.error ? null : new Date().toISOString(),
         });
         results = [['Customer directory', directoryResult]];
+      } else if (domain === 'booking-inventory') {
+        const [fleet, bookings, holds] = await Promise.all([
+          supabase.from('vehicles').select('id,name,status,published,daily_rate,security_deposit,maintenance_lock_active').order('name'),
+          supabase.from('rentals').select('id,vehicle_id,status,pickup_date,pickup_time,return_date,return_time,inspection_completed_at').not('status','in','(completed,cancelled)'),
+          supabase.from('pending_bookings').select('id,vehicle_id,status,pickup_date,pickup_time,return_date,return_time,expires_at').eq('status','pending').gt('expires_at',new Date().toISOString()),
+        ]);
+        if (readingTab !== activeTabRef.current) return;
+        if(fleet.data) setVehicles(fleet.data); if(bookings.data) setRentals(bookings.data); if(holds.data) setPendingBookings(holds.data);
+        results = [['Booking fleet',fleet],['Booking schedule',bookings],['Booking holds',holds]];
+      } else if (domain === 'booking-settings') {
+        const [pricing,policy]=await Promise.all([
+          supabase.from('under_25_pricing_settings').select('*').eq('id',true).maybeSingle(),
+          supabase.rpc('get_admin_booking_policy'),
+        ]);
+        if (readingTab !== activeTabRef.current) return;
+        if(pricing.data) setUnder25Pricing(pricing.data); if(policy.data?.[0]) setBookingPolicy(policy.data[0]);
+        results=[['Under-25 pricing',pricing],['Booking rules',policy]];
+      } else if (domain === 'operations') {
+        const result = await withReadRetry(() => supabase.rpc('admin_operation_summaries'), 'Operations summaries');
+        if (readingTab !== activeTabRef.current) return;
+        if (result.data) {
+          setRentals(result.data.rentals); setDocuments(result.data.documents); setExtensionRequests(result.data.extensions);
+          setMessages(result.data.messages); setReports(result.data.reports);
+        }
+        results = [['Operations summaries', result]];
+      } else if (domain === 'deposit-tasks') {
+        const result = await withReadRetry(() => supabase.from('deposit_action_tasks').select('id,rental_id,deposit_amount,status,blockers,escalated_note,created_at,rentals(id,customer_name_snapshot,payment_provider,return_completed_at:inspection_completed_at,updated_at,profiles!rentals_user_id_profiles_fkey(full_name),vehicles(name))').neq('status','resolved').order('created_at'), 'Deposit actions');
+        if (readingTab !== activeTabRef.current) return;
+        if(result.data) setDepositActionTasks(result.data);
+        results = [['Deposit actions',result]];
+      } else if (domain === 'fleet') {
+        const [vehicleResult, scheduleResult] = await Promise.all([
+          withReadRetry(() => supabase.from('vehicles').select('id,name,brand,model,model_year,vehicle_type,plate_number,vin,status,published,daily_rate,security_deposit,current_mileage,original_mileage,maintenance_interval_miles,last_maintenance_mileage,next_maintenance_mileage,maintenance_lock_active,image_urls,features').order('created_at', { ascending: false }), 'Fleet summaries'),
+          withReadRetry(() => supabase.from('vehicle_maintenance_schedules').select('*').eq('active', true).order('service_type'), 'Maintenance summaries'),
+        ]);
+        if (readingTab !== activeTabRef.current) return;
+        if (vehicleResult.data) setVehicles(vehicleResult.data);
+        if (scheduleResult.data) setMaintenanceSchedules(scheduleResult.data);
+        results = [['Fleet summaries', vehicleResult], ['Maintenance summaries', scheduleResult]];
       } else if (domain === 'core') {
         const [vehiclesRes, rentalsRes, pendingBookingsRes, emergencyExceptionsRes, maintenanceSchedulesRes, depositTasksRes] = await Promise.all([
           withReadRetry(() => supabase.from('vehicles').select('*').order('created_at', { ascending: false }), 'Vehicles'),
@@ -1267,8 +1316,9 @@ function App() {
           withReadRetry(() => supabase.from('pending_bookings').select('*').neq('status', 'converted').order('created_at', { ascending: false }), 'Booking holds'),
           withReadRetry(() => supabase.from('rental_emergency_exceptions').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Emergency exceptions'),
           withReadRetry(() => supabase.from('vehicle_maintenance_schedules').select('*').order('service_type'), 'Maintenance schedules'),
-          withReadRetry(() => supabase.from('deposit_action_tasks').select('*, rentals(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
+          withReadRetry(() => supabase.from('deposit_action_tasks').select('id,rental_id,deposit_amount,status,blockers,escalated_note,created_at,rentals(id,customer_name_snapshot,payment_provider,return_completed_at:inspection_completed_at,updated_at,profiles!rentals_user_id_profiles_fkey(full_name),vehicles(name))').neq('status', 'resolved').order('created_at'), 'Deposit actions'),
         ]);
+        if (readingTab !== activeTabRef.current) return;
         if (vehiclesRes.data) setVehicles(vehiclesRes.data);
         if (rentalsRes.data) setRentals(rentalsRes.data);
         if (pendingBookingsRes.data) setPendingBookings(pendingBookingsRes.data);
@@ -1284,6 +1334,7 @@ function App() {
           withReadRetry(() => supabase.from('rental_extension_requests').select('*, rentals!rental_extension_requests_rental_id_fkey(*, vehicles(*), profiles!rentals_user_id_profiles_fkey(*))').order('created_at', { ascending: false }), 'Extensions'),
           withReadRetry(() => supabase.from('rental_step_completions').select('*').order('completed_at', { ascending: false }), 'Admin step completions'),
         ]);
+        if (readingTab !== activeTabRef.current) return;
         if (documentsRes.data) setDocuments(documentsRes.data);
         if (messagesRes.data) setMessages(messagesRes.data);
         if (reportsRes.data) setReports(reportsRes.data);
@@ -1300,6 +1351,7 @@ function App() {
           withReadRetry(() => supabase.from('stripe_reconciliation_issues').select('*').order('created_at', { ascending: false }).limit(500), 'Stripe reconciliation'),
           readFlexiblePaymentActivity(supabase),
         ]);
+        if (readingTab !== activeTabRef.current) return;
         if (depositAllocationsRes.data) setDepositAllocations(depositAllocationsRes.data);
         if (rentalPaymentsRes.data) setRentalPayments(rentalPaymentsRes.data);
         if (rentalRefundsRes.data) setRentalRefunds(rentalRefundsRes.data);
@@ -1320,11 +1372,13 @@ function App() {
           withReadRetry(() => supabase.from('email_templates').select('id,template_key,name,subject,text_body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Email templates'),
           withReadRetry(() => supabase.from('sms_templates').select('id,template_key,name,body,category,enabled').eq('category', 'manual').eq('enabled', true).order('name'), 'Text templates'),
         ]);
+        if (readingTab !== activeTabRef.current) return;
         if (emailRes.data) setCustomerEmailTemplates(emailRes.data);
         if (smsRes.data) setSmsTemplates(smsRes.data);
         results = [['Email templates', emailRes], ['Text templates', smsRes]];
       } else if (domain === 'calendar') {
-        const result = await withReadRetry(() => supabase.from('vehicle_availability_blocks').select('*, vehicles(*)').eq('active', true).order('start_date', { ascending: true }), 'Calendar blocks');
+        const result = await withReadRetry(() => supabase.from('vehicle_availability_blocks').select('id,vehicle_id,start_date,end_date,start_time,end_time,block_type,label,notes,active,vehicles(name)').eq('active', true).order('start_date', { ascending: true }), 'Calendar blocks');
+        if (readingTab !== activeTabRef.current) return;
         if (result.data) setAvailabilityBlocks(result.data);
         results = [['Calendar blocks', result]];
       } else if (domain === 'settings') {
@@ -1338,6 +1392,7 @@ function App() {
           withReadRetry(() => supabase.rpc('get_admin_booking_policy'), 'Booking rules'),
           withReadRetry(() => supabase.from('employee_permissions').select('*').order('category').order('label'), 'Employee permissions'),
         ]);
+        if (readingTab !== activeTabRef.current) return;
         if (discountsRes.data) setDiscountCodes(discountsRes.data);
         if (feesRes.data) setServiceFees(feesRes.data);
         if (promotionsRes.data) setSitePromotions(promotionsRes.data);
@@ -1349,10 +1404,12 @@ function App() {
         results = [['Discounts', discountsRes], ['Fees', feesRes], ['Promotions', promotionsRes], ['Under-25 pricing', pricingRes], ['Billing automation', automationRes], ['Booking page', bookingPageRes], ['Booking rules', bookingPolicyRes], ['Employee permissions', permissionsRes]];
       } else if (domain === 'audit') {
         const result = await withReadRetry(() => supabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(750), 'Audit log');
+        if (readingTab !== activeTabRef.current) return;
         if (result.data) setAuditLogs(result.data);
         results = [['Audit log', result]];
       } else if (domain === 'maintenance-history') {
         const result = await withReadRetry(() => supabase.from('vehicle_maintenance_service_logs').select('*').order('completed_at', { ascending: false }).limit(500), 'Maintenance history');
+        if (readingTab !== activeTabRef.current) return;
         if (result.data) setMaintenanceServiceLogs(result.data);
         results = [['Maintenance history', result]];
       }
@@ -1369,7 +1426,7 @@ function App() {
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
-    if (['audit', 'documents'].includes(activeTabRef.current) && !domains) {
+    if (['audit', 'documents', 'customers', 'payments', 'emails'].includes(activeTabRef.current)) {
       setHistoryRevision(value => value + 1);
       return;
     }
@@ -1383,7 +1440,8 @@ function App() {
       if (force) await rentalWorkspaceRef.current?.refresh();
       return;
     }
-    const requestedDomains = domains || adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
+    if (domains) domains.forEach(domain => loadedAdminDomainsRef.current.delete(domain));
+    const requestedDomains = adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
     // Existing views and drafts remain mounted while records refresh.
     await Promise.all(requestedDomains.map((domain) => loadAdminDomain(domain, { force })));
   }
@@ -2775,7 +2833,18 @@ function App() {
     notify('Customer deleted. Historical rental and payment records were retained.', 'success');
   }
 
-  function startEditVehicle(vehicle) {
+  async function startEditVehicle(summary) {
+    const request = ++vehicleEditorRequestRef.current;
+    const [vehicleResult, schedulesResult] = await Promise.all([
+      supabase.from('vehicles').select('*').eq('id', summary.id).single(),
+      supabase.from('vehicle_maintenance_schedules').select('*').eq('vehicle_id', summary.id).order('service_type'),
+    ]);
+    if (request !== vehicleEditorRequestRef.current || activeTabRef.current !== 'vehicles') return;
+    const error = vehicleResult.error || schedulesResult.error;
+    if (error) { notify(userFacingPortalError(error, 'Vehicle details could not load.'), 'error'); return; }
+    const vehicle = vehicleResult.data;
+    setVehicles(current => current.map(row => row.id === vehicle.id ? vehicle : row));
+    setMaintenanceSchedules(current => [...current.filter(row => row.vehicle_id !== vehicle.id), ...schedulesResult.data]);
     setEditingVehicleId(vehicle.id);
     setEditVehicleForm({
       name: vehicle.name || '',
@@ -2804,6 +2873,7 @@ function App() {
   }
 
   function cancelEditVehicle() {
+    vehicleEditorRequestRef.current++;
     setEditingVehicleId('');
     setEditVehicleForm(null);
   }
@@ -3617,6 +3687,11 @@ function App() {
 }
 
   async function openDocument(document) {
+    if (document?.id && !document.file_path && !document.storage_path && !document.file_url) {
+      const {data,error}=await supabase.from('rental_documents').select('*').eq('id',document.id).single();
+      if(error) { notify(userFacingPortalError(error,'Document could not load.'),'error'); return; }
+      document=data;
+    }
     const directUrl = document.file_url || document.document_url || document.public_url || document.url;
     const path = document.file_path || document.storage_path || document.path;
 
@@ -4330,14 +4405,20 @@ function App() {
         {canAccessAdminTab(activeTab) && <>
         {activeTab === 'dashboard' && <Dashboard canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} snapshot={dashboardSnapshot} dashboard={dashboard} vehicles={vehicles} rentals={rentals} maintenanceSchedules={maintenanceSchedules} emergencyExceptions={emergencyExceptions} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} depositTasks={canUsePermission('reports.financial') ? depositActionTasks : []} depositAllocations={canUsePermission('reports.financial') ? depositAllocations : []} onStripeRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? escalateDepositTask : null} onOpenRental={openRentalCard} />}
         {activeTab === 'queue' && <OperationsQueue queue={operationsQueue} updateRentalStatus={canUsePermission('rental.edit') ? updateRentalStatus : null} recordTestPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordTestPayment : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} recordExtensionPayment={canUsePermission('payment.collect') && canUsePermission('reports.financial') ? recordExtensionPayment : null} depositTasks={canUsePermission('reports.financial') ? depositActionTasks : []} rentals={rentals} depositAllocations={canUsePermission('reports.financial') ? depositAllocations : []} onStripeRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? releaseSecurityDeposit : null} onExternalRefund={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? recordExternalDepositRelease : null} onEscalate={canUsePermission('deposit.resolve') && canUsePermission('reports.financial') ? escalateDepositTask : null} onOpenRental={openRentalCard} />}
-        {activeTab === 'payments' && <PaymentsTab canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} revenueRefreshKey={paymentRevenueRevision} accountEmail={session.user.email} paymentEvents={paymentEvents} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={rentals} loadError={paymentLoadError} onOpenRental={openRentalCard} />}
+        {activeTab === 'payments' && <PaymentActivity client={supabase} revision={historyRevision} filter={paymentFilter} type={paymentTypeFilter}
+          render={activity => <PaymentsTab canViewFinancialSummary={canViewFinancialSummaryForEmail(session.user.email)} {...activity} revenueRefreshKey={historyRevision} accountEmail={session.user.email} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter} paymentTypeFilter={paymentTypeFilter} setPaymentTypeFilter={setPaymentTypeFilter} rentals={[]} onOpenRental={openRentalCard}/>}/>}
         {activeTab === 'tolls' && <TollsTab rentals={rentals} notify={notify} />}
         {activeTab === 'tickets' && <TicketResolution focusId={ticketFocusId} canFlagCustomer={canUsePermission('ticket.manage') && canUsePermission('customer.manage')} canManage={canUsePermission('ticket.manage')} canOpenRental={canAccessAdminTab('rentals')} refreshKey={ticketRefreshKey} onOpenRental={openRentalCard} />}
         {activeTab === 'calendar' && <FleetCalendar vehicles={vehicles} rentals={rentals} availabilityBlocks={availabilityBlocks} availabilityBlockForm={availabilityBlockForm} setAvailabilityBlockForm={setAvailabilityBlockForm} editingAvailabilityBlockId={editingAvailabilityBlockId} availabilitySaving={availabilitySaving} availabilityTypes={availabilityTypes} createAvailabilityBlock={createAvailabilityBlock} createAvailabilityPaintBlock={createAvailabilityPaintBlock} updateAvailabilityBlock={updateAvailabilityBlock} editAvailabilityBlock={editAvailabilityBlock} deleteAvailabilityBlock={deleteAvailabilityBlock} />}
         {activeTab === 'new-booking' && <ManualBooking manualBookingForm={manualBookingForm} setManualBookingForm={setManualBookingForm} profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} vehicles={vehicles} rentals={rentals} pendingBookings={pendingBookings} availabilityBlocks={availabilityBlocks} under25Pricing={under25Pricing} bookingPolicy={bookingPolicy} createManualBooking={createManualBooking} submitting={manualBookingSubmitting} />}
         {activeTab === 'rentals' && <Rentals onOpenReviewedRentalArchive={openReviewedRentalArchive} manager={rentalWorkspace} rentals={rentals} allRentals={rentalManagerRentals} focusRentalId={manualBookingFocusId} clearRentalFocus={() => setManualBookingFocusId('')} search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} updateRentalStatus={updateRentalStatus} updateRentalPaymentDeadline={canUsePermission('rental.edit') ? updateRentalPaymentDeadline : null} restoreCancelledRental={canUsePermission('rental.edit') ? restoreCancelledRental : null} completeRentalReturn={canUsePermission('rental.return') ? completeRentalReturn : null} releaseSecurityDeposit={canUsePermission('deposit.resolve') ? releaseSecurityDeposit : null} refundRentalPayment={canUsePermission('payment.refund') ? refundRentalPayment : null} adjustExternalRentalPayment={(canUsePermission('payment.refund') || canUsePermission('payment.collect')) ? adjustExternalRentalPayment : null} externalPaymentActions={externalPaymentActions} rentalRefunds={rentalRefunds} rentalPayments={rentalPayments} recordLocalDepositRelease={canUsePermission('deposit.resolve') ? recordLocalDepositRelease : null} depositAllocations={depositAllocations} recordTestPayment={canUsePermission('payment.collect') ? recordTestPayment : null} recordExtensionPayment={canUsePermission('payment.collect') ? recordExtensionPayment : null} cancelApprovedExtension={canUsePermission('rental.edit') ? cancelApprovedExtension : null} extensionRequests={extensionRequests} emergencyExceptions={emergencyExceptions} emergencyAuthorized={canUsePermission('override.emergency') && Boolean(profiles.find((profile) => profile.id === session?.user?.id)?.emergency_override_authorized)} activateRentalWithEmergencyException={canUsePermission('override.emergency') ? activateRentalWithEmergencyException : null} addEmergencyExceptionScope={canUsePermission('override.emergency') ? addEmergencyExceptionScope : null} resolveEmergencyExceptionScope={canUsePermission('override.emergency') ? resolveEmergencyExceptionScope : null} vehicles={vehicles} reports={reports} decideExtension={canUsePermission('rental.edit') ? decideExtension : null} sendManualReminder={canUsePermission('communications.send') ? sendManualReminder : null} openDocument={openDocument} markDocument={canUsePermission('rental.edit') ? markDocument : null} deleteDocument={canUsePermission('rental.edit') ? deleteDocument : null} documents={documents} documentsByRentalId={documentsByRentalId} rentalCharges={rentalCharges} serviceFees={serviceFees.filter((fee) => fee.active)} addRentalCharge={canUsePermission('charge.manage') ? addRentalCharge : null} waiveRentalCharge={canUsePermission('charge.manage') ? waiveRentalCharge : null} chargeRentalSavedCard={canUsePermission('charge.manage') ? chargeRentalSavedCard : null} recordExternalRentalCharge={canUsePermission('charge.manage') ? recordExternalRentalCharge : null} recordExternalTollPayment={(canUsePermission('charge.manage') || canUsePermission('payment.collect')) ? recordExternalTollPayment : null} previewRentalAmendment={canUsePermission('rental.edit') ? previewRentalAmendment : null} applyRentalAmendment={canUsePermission('rental.edit') ? applyRentalAmendment : null} previewManualRentalDiscount={canUsePermission('rental.discount') ? previewManualRentalDiscount : null} applyManualRentalDiscount={canUsePermission('rental.discount') ? applyManualRentalDiscount : null} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} sendBookingCompletionLink={canUsePermission('communications.send') ? sendBookingCompletionLink : null} uploadAdminBookingDocument={canUsePermission('rental.edit') ? uploadAdminBookingDocument : null} createAdminPaymentLink={canUsePermission('payment.collect') ? createAdminPaymentLink : null} createManualStripePaymentLink={canUsePermission('payment.collect') ? createManualStripePaymentLink : null} rentalStepCompletions={rentalStepCompletions} completeAdminRentalStep={canUsePermission('rental.edit') ? completeAdminRentalStep : null} signAdminRentalAgreement={canUsePermission('rental.edit') ? signAdminRentalAgreement : null} />}
-        {activeTab === 'customers' && <Customers profiles={profiles} customerDirectoryState={customerDirectoryState} refreshCustomerDirectory={() => loadAdminDomain('customer-directory', { force: true })} rentals={rentals} documentsByUserId={documentsByUserId} documents={documents} reports={reports} openDocument={openDocument} emailTemplates={customerEmailTemplates} smsTemplates={smsTemplates} notify={notify} setCustomerStatus={setCustomerStatus} updateCustomerProfile={updateCustomerProfile} deleteCustomerProfile={deleteCustomerProfile} />}
-        {activeTab === 'emails' && <ContactCenterTab profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
+        {activeTab === 'customers' && <CustomerDirectory client={supabase} revision={historyRevision} Panel={Panel}
+          renderDetails={(data, close, saved) => <CustomerDetailsModal {...data} openDocument={openDocument}
+            onUpdate={async (...args) => { const result = await updateCustomerProfile(...args); saved(result); return result; }}
+            onSetStatus={async (...args) => { const result = await setCustomerStatus(...args); if (result) saved({ customer_status: args[1], blocked_customer: args[1] === 'blocked', block_reason: args[2] }); return result; }}
+            onDelete={async (...args) => { await deleteCustomerProfile(...args); close(); saved(); }} onClose={close}/>}
+          renderContact={(data, close) => <CustomerContactModal {...data} notify={notify} onClose={close}/>}/>}
+        {activeTab === 'emails' && <ContactCenterTab revision={historyRevision} canSend={canUsePermission('communications.send')} profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <DocumentHistory client={supabase} revision={historyRevision} Panel={Panel} docLabel={docLabel}
@@ -4429,17 +4510,8 @@ function OperationsQueue({ queue, updateRentalStatus, recordTestPayment, openDoc
         </div>
         <div className="row-actions">
           <em>{item.severity}</em>
-          {item.bucket === 'return_attention' && item.rental && onOpenRental && <button type="button" onClick={() => onOpenRental(item.rental.id)}><FileText size={16}/> View rental</button>}
-          {item.rental && item.localPaymentAction && <small>Complete verification and document review in Rental Manager before recording payment.</small>}
-          {item.rental && item.nextStatus && updateRentalStatus && <button className="approve" onClick={() => updateRentalStatus(item.rental.id, item.nextStatus)}><CheckCircle2 size={16}/> {prettyStatus(item.nextStatus)}</button>}
-          {item.extensionInsurance && <button onClick={() => openDocument(item.extensionInsurance)}><FileText size={16}/> Open Insurance</button>}
-          {item.extensionInsurance && item.extensionInsurance.status !== 'approved' && markDocument && <button className="approve" onClick={() => markDocument(item.extensionInsurance.id, 'approved')}><CheckCircle2 size={16}/> Approve Insurance</button>}
-          {item.extension && item.extension.status === 'pending' && decideExtension && <button className="approve" disabled={item.extensionInsurance?.status !== 'approved'} title={item.extensionInsurance?.status !== 'approved' ? 'Approve the new extension insurance first.' : undefined} onClick={() => decideExtension(item.extension.id, true)}><CheckCircle2 size={16}/> Approve &amp; Notify Customer</button>}
-          {item.extension && item.extension.status === 'pending' && decideExtension && <button className="reject" onClick={() => decideExtension(item.extension.id, false)}><XCircle size={16}/> Decline</button>}
-          {item.extension && item.extension.status === 'approved_pending_payment' && recordExtensionPayment && <button className="approve" onClick={() => recordExtensionPayment(item.extension.id)}><CreditCard size={16}/> Record Payment</button>}
-          {item.document && <button onClick={() => openDocument(item.document)}><FileText size={16}/> Open</button>}
-          {item.document && markDocument && <button className="approve" onClick={() => markDocument(item.document.id, 'approved')}><CheckCircle2 size={16}/> Approve</button>}
-          {item.document && markDocument && <button className="reject" onClick={() => markDocument(item.document.id, 'rejected')}><XCircle size={16}/> Reject</button>}
+          {(item.rental?.id || item.document?.rental_id) && <button type="button" onClick={() => onOpenRental?.(item.rental?.id || item.document.rental_id)}><FileText size={16}/> Open rental to review</button>}
+          {!item.rental?.id && !item.document?.rental_id && item.document && <button onClick={() => openDocument(item.document)}>Open document</button>}
         </div>
       </div>)}
           {items.length > visibleItems.length && <p className="muted">Showing 5 of {items.length}. Use Rentals, Payments, or Messages for the full list.</p>}
@@ -4476,7 +4548,7 @@ function DepositActionPanel({ tasks = [], rentals = [], depositAllocations = [],
             <div className="row-actions">
               <em>{prettyStatus(task.status)}</em>
               {!blockers.length && hasStripe && onStripeRefund && <button type="button" className="approve" onClick={() => onOpenRental?.(rental.id)}><DollarSign size={15}/> Review Deposit</button>}
-              {!blockers.length && hasLocal && onExternalRefund && <button type="button" className="approve" onClick={() => setExternalRental(rental)}><Banknote size={15}/> Mark Returned Externally</button>}
+              {!blockers.length && hasLocal && onExternalRefund && <button type="button" className="approve" onClick={() => onOpenRental?.(rental.id)}><Banknote size={15}/> Mark Returned Externally</button>}
               <button type="button" onClick={() => onOpenRental?.(rental.id)}>Open rental</button>
               {task.status !== 'escalated' && onEscalate && <button type="button" onClick={() => setEscalationRental(rental)}>Escalate</button>}
             </div>
@@ -4556,20 +4628,20 @@ function DepositEscalationModal({ rental, onCancel, onConfirm }) {
   }}><header className="admin-modal-header"><div><small>Manager follow-up</small><strong>Escalate deposit task</strong><span>{rental.profiles?.full_name || 'Customer'}</span></div><button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close deposit escalation dialog"><X size={18}/></button></header><div className="portal-form"><label><span>Reason and next step</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} /></label></div><footer className="button-row end-row"><button type="button" onClick={onCancel}>Cancel</button><button className="approve" disabled={saving || !note.trim()}>{saving ? 'Saving…' : 'Escalate'}</button></footer></form></div>;
 }
 
-function PaymentsTab({ revenueRefreshKey = 0, canViewFinancialSummary = false, accountEmail = '', paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '', onOpenRental }) {
-  const collected = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.cashImpact || 0)), 0);
-  const refunded = paymentEvents.reduce((sum, event) => sum + Math.abs(Math.min(0, Number(event.cashImpact || 0))), 0);
-  const outstanding = paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
+function PaymentsTab({ activityTotals, activityLoading = false, reconciliationCount = 0, pageControls = null, revenueRefreshKey = 0, canViewFinancialSummary = false, accountEmail = '', paymentEvents, paymentFilter, setPaymentFilter, paymentTypeFilter, setPaymentTypeFilter, rentals, loadError = '', onOpenRental }) {
+  const collected = activityTotals?.collected ?? paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.cashImpact || 0)), 0);
+  const refunded = activityTotals?.refunded ?? paymentEvents.reduce((sum, event) => sum + Math.abs(Math.min(0, Number(event.cashImpact || 0))), 0);
+  const outstanding = activityTotals?.outstanding ?? paymentEvents.reduce((sum, event) => sum + Math.max(0, Number(event.outstandingAmount || 0)), 0);
   const depositsHeld = rentals.filter((rental) => ['held', 'adjustment_refund_due', 'release_pending'].includes(String(rental.deposit_status || '').toLowerCase()));
   const visibleEvents = paymentEvents.filter((event) => paymentEventMatchesFilter(event, paymentFilter, paymentTypeFilter));
   const openReconciliation = paymentEvents.filter((event) => event.type === 'reconciliation' && ['pending', 'failed'].includes(event.statusGroup));
 
   return <>
     {canViewFinancialSummary && <section className="metric-grid payments-metrics">
-      <Metric icon={DollarSign} label="Gross Collected" value={money(collected)} />
-      <Metric icon={ReceiptText} label="Refunded" value={money(refunded)} />
-      <Metric icon={Clock} label="Outstanding" value={money(outstanding)} danger={outstanding > 0} />
-      <Metric icon={ReceiptText} label="Deposits Held" value={money(depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
+      <Metric icon={DollarSign} label="Gross Collected" value={activityLoading ? 'Loading…' : loadError ? 'Unavailable' : money(collected)} />
+      <Metric icon={ReceiptText} label="Refunded" value={activityLoading ? 'Loading…' : loadError ? 'Unavailable' : money(refunded)} />
+      <Metric icon={Clock} label="Outstanding" value={activityLoading ? 'Loading…' : loadError ? 'Unavailable' : money(outstanding)} danger={outstanding > 0} />
+      <Metric icon={ReceiptText} label="Deposits Held" value={activityLoading ? 'Loading…' : loadError ? 'Unavailable' : money(activityTotals?.deposits ?? depositsHeld.reduce((sum, rental) => sum + Number(rental.deposit_held_amount || 0), 0))} />
       <PaymentRevenueCards accountEmail={accountEmail} refreshKey={revenueRefreshKey} onOpenRental={onOpenRental} reconciliation={openReconciliation}/>
     </section>}
     {!canViewFinancialSummary && openReconciliation.length > 0 && (
@@ -4578,6 +4650,8 @@ function PaymentsTab({ revenueRefreshKey = 0, canViewFinancialSummary = false, a
       </p>
     )}
     <Panel title="Payments" eyebrow="Payment Activity">
+      {reconciliationCount > 0 && <p className="form-error" role="alert">{reconciliationCount} Stripe transactions require reconciliation. Choose Reconciliation issues to review them.</p>}
+      {pageControls}
       {loadError && <p className="form-error" role="alert">Some payment sources could not be loaded: {loadError}</p>}
       <div className="payments-filter-bar">
         <div className="filter-pills" role="group" aria-label="Payment activity views">
@@ -4692,7 +4766,12 @@ function tollRentalCandidates(transaction, rentals = [], assignments = [], searc
     });
 }
 
-function TollsTab({ rentals = [], notify }) {
+function TollsTab({ notify }) {
+  const [rentals,setCandidateRentals]=useState([]);
+  const [candidateState,setCandidateState]=useState({loading:false,error:'',has_more:false});
+  const [candidateOffset,setCandidateOffset]=useState(0);
+  const [transactionOffset,setTransactionOffset]=useState(0);
+  const [transactionHasMore,setTransactionHasMore]=useState(false);
   const [transactions, setTransactions] = useState([]);
   const tollLoadsRef = useRef(new Map());
   const vehicleConfigDirtyRef = useRef(false);
@@ -4725,15 +4804,32 @@ function TollsTab({ rentals = [], notify }) {
     model_year: '',
   });
 
+  const candidateSearchText=rentalSearches[rentalReviewId] || '';
+  useEffect(()=>{setCandidateOffset(0);},[rentalReviewId,candidateSearchText]);
+  useEffect(()=>{
+    setCandidateRentals([]);setVehicleAssignments([]);
+    if(!rentalReviewId) return;
+    const controller=new AbortController();setCandidateState({loading:true,error:'',has_more:false});
+    const timer=setTimeout(()=>{
+      supabase.rpc('admin_toll_rental_candidates',{p_transaction_id:rentalReviewId,p_search:candidateSearchText,p_offset:candidateOffset}).abortSignal(controller.signal).then(({data,error})=>{
+        if(controller.signal.aborted) return;
+        if(error) {setCandidateState({loading:false,error:error.message,has_more:false});return;}
+        setCandidateRentals(data.rows);setVehicleAssignments(data.assignments);setCandidateState({loading:false,error:'',has_more:data.has_more});
+      });
+    },250);
+    return ()=>{clearTimeout(timer);controller.abort();};
+  },[rentalReviewId,candidateSearchText,candidateOffset]);
+  function readTollPage() {
+    let request=supabase.from('admin_tollspot_transactions').select('*').order('occurred_at',{ascending:false}).order('id',{ascending:false});
+    if(statusFilter==='open') request=request.in('status',['received','needs_review','matched']);
+    else if(statusFilter!=='all') request=request.eq('status',statusFilter);
+    return request.range(transactionOffset,transactionOffset+50);
+  }
   async function loadTollspotData({ silent = false } = {}) {
     if (!silent) setLoading(true);
     return freshDomainLoad(tollLoadsRef.current, 'tolls', true, async () => {
-      const [transactionsRes, runsRes, mappingsRes, fleetRes, assignmentsRes, transpondersRes] = await Promise.all([
-        withReadRetry(() => supabase
-          .from('admin_tollspot_transactions')
-          .select('*')
-          .order('occurred_at', { ascending: false })
-          .limit(500), 'Toll transactions'),
+      const [transactionsRes, runsRes, mappingsRes, fleetRes, transpondersRes] = await Promise.all([
+        withReadRetry(readTollPage, 'Toll transactions'),
         withReadRetry(() => supabase
           .from('tollspot_sync_runs')
           .select('*')
@@ -4748,22 +4844,19 @@ function TollsTab({ rentals = [], notify }) {
           .select('id,name,brand,model,plate_number,vin,status,published,tollspot_enabled,tollspot_vehicle_type,plate_state,plate_country,plate_assigned_at,model_year')
           .neq('id', '00000000-0000-4000-8000-000000000015')
           .order('name'), 'Toll fleet'),
-        withReadRetry(() => supabase
-          .from('rental_vehicle_assignments')
-          .select('rental_id,vehicle_id,assigned_from,assigned_until,source')
-          .order('assigned_from', { ascending: false }), 'Rental vehicle possession history'),
+
         withReadRetry(() => supabase.from('tollspot_transponder_mappings')
           .select('vehicle_id,transponder_number,verified_at').eq('active', true), 'Verified transponders'),
       ]);
-      const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error, assignmentsRes.error, transpondersRes.error].filter(Boolean);
+      const errors = [transactionsRes.error, runsRes.error, mappingsRes.error, fleetRes.error, transpondersRes.error].filter(Boolean);
       setLoadError(errors.map((error) => error.message).join(' '));
       if (transactionsRes.data) {
-        setTransactions(transactionsRes.data.filter((transaction) => String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'));
+        setTransactionHasMore(transactionsRes.data.length>50);
+        setTransactions(transactionsRes.data.slice(0,50).filter((transaction) => String(transaction.transaction_type || 'TOLLS').toUpperCase() === 'TOLLS'));
       }
       if (runsRes.data) setSyncRuns(runsRes.data);
       if (mappingsRes.data) setMappings(mappingsRes.data);
       if (transpondersRes.data) setVerifiedTransponders(transpondersRes.data);
-      if (assignmentsRes.data) setVehicleAssignments(assignmentsRes.data);
       if (fleetRes.data) {
         setFleet(fleetRes.data);
         setSelectedVehicleId((current) => current || fleetRes.data[0]?.id || '');
@@ -4797,7 +4890,7 @@ function TollsTab({ rentals = [], notify }) {
       document.removeEventListener('visibilitychange', refresh);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [transactionOffset,statusFilter]);
 
   useEffect(() => {
     const vehicle = fleet.find((item) => item.id === selectedVehicleId);
@@ -4982,9 +5075,10 @@ function TollsTab({ rentals = [], notify }) {
     <Panel title="Toll Attribution Queue" eyebrow="Vehicle + Customer Verification">
       <p className="muted">Every toll is visible. A customer charge is created only after the provider vehicle or verified transponder resolves to one fleet car and the toll time falls inside exactly one possession period.</p>
       <div className="filter-row tollspot-filter-row">
-        {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{prettyStatus(status)}</button>)}
+        {['open', 'matched', 'charge_created', 'paid', 'ignored', 'all'].map((status) => <button type="button" key={status} className={statusFilter === status ? 'active' : ''} onClick={() => {setStatusFilter(status);setTransactionOffset(0);setRentalReviewId('');}}>{prettyStatus(status)}</button>)}
       </div>
       {!visibleTransactions.length && <p className="muted">No TollSpot transactions in this view.</p>}
+      <div className="row-actions"><button disabled={loading || transactionOffset===0} onClick={()=>{setTransactionOffset(value=>Math.max(0,value-50));setRentalReviewId('');}}>Previous</button><span>{transactionOffset+1}–{transactionOffset+transactions.length}</span><button disabled={loading || !transactionHasMore} onClick={()=>{setTransactionOffset(value=>value+50);setRentalReviewId('');}}>Next</button></div>
       <div className="tollspot-transaction-list">
         {visibleTransactions.map((transaction) => {
           const localVehicle = fleetById.get(transaction.vehicle_id);
@@ -4992,7 +5086,7 @@ function TollsTab({ rentals = [], notify }) {
           const reviewOpen = rentalReviewId === transaction.id;
           const candidateSearch = rentalSearches[transaction.id] || '';
           const candidates = reviewOpen ? tollRentalCandidates(transaction, rentals, vehicleAssignments, candidateSearch) : [];
-          const displayedCandidates = candidates.slice(0, candidateSearch ? 50 : 12);
+          const displayedCandidates = candidates;
           const selectedCandidate = candidates.find((candidate) => candidate.rental.id === rentalSelections[transaction.id]);
           const canAssign = ['received', 'needs_review', 'matched'].includes(transaction.status);
           return <article key={transaction.id}>
@@ -5029,7 +5123,9 @@ function TollsTab({ rentals = [], notify }) {
                 <span>Car: {transaction.vehicle_name || localVehicle?.name || 'provider did not identify it'} • Route: {[transaction.entry_location, transaction.exit_location].filter(Boolean).join(' → ') || 'not supplied'}</span>
               </div>
               <label className="tollspot-rental-search"><span>Search every rental</span><input type="search" placeholder="Customer, email, phone, rental ID, vehicle, or plate" value={candidateSearch} onChange={(event) => setRentalSearches((current) => ({ ...current, [transaction.id]: event.target.value }))}/></label>
-              <small className="tollspot-candidate-help">Candidates are ranked by matching car, whether the toll falls inside the booked dates, and closeness to pickup/return. {candidateSearch ? `Showing ${displayedCandidates.length} search results.` : `Showing the ${Math.min(12, candidates.length)} closest of ${candidates.length} eligible rentals; search to find any other rental.`}</small>
+              <p>Ranked by recorded possession, vehicle and rental dates. Search all eligible rentals.</p>
+              {candidateState.error && <p role="alert">{candidateState.error}</p>}
+              <div className="row-actions"><button disabled={candidateState.loading || candidateOffset===0} onClick={()=>setCandidateOffset(value=>Math.max(0,value-50))}>Previous candidates</button><span>{candidateState.loading?'Loading candidates…':`${candidateOffset+1}–${candidateOffset+rentals.length}`}</span><button disabled={candidateState.loading || !candidateState.has_more} onClick={()=>setCandidateOffset(value=>value+50)}>More candidates</button></div>
               <div className="tollspot-rental-candidates">
                 {!displayedCandidates.length && <p className="muted">No eligible rentals match this search.</p>}
                 {displayedCandidates.map((candidate) => {
@@ -5904,7 +6000,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
   const age = adminCustomerAge(profile.date_of_birth);
   const identityResults = identityMatchResults(profile);
   const sortedRentals = [...rentals].sort((a, b) => new Date(b.created_at || b.pickup_date || 0) - new Date(a.created_at || a.pickup_date || 0));
-  const signedAgreements = sortedRentals.filter((rental) => Boolean(rental.agreement_snapshot));
+  const signedAgreements = sortedRentals.filter((rental) => Boolean(rental.agreement_signed || rental.agreement_signed_at || rental.agreement_snapshot));
   const isAdministrator = String(profile.role || '').toLowerCase() === 'admin';
 
   function updateEditField(field, value, maxLength = 500) {
@@ -6083,40 +6179,7 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
           <div className="customer-section-heading"><h3>Signed rental agreements</h3><span>{signedAgreements.length} stored</span></div>
           {signedAgreements.length === 0 && <p className="muted">No signed rental agreements are stored for this customer yet.</p>}
           <div className="customer-agreement-list">
-            {signedAgreements.map((rental) => {
-              const isOpen = openAgreementId === rental.id;
-              const signatureImage = extractSignatureImage(rental.agreement_snapshot);
-              const printableAgreement = String(rental.agreement_snapshot).replace(
-                /Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,
-                'Drawn Signature Image: embedded below',
-              );
-              return <article className="customer-agreement-record" key={rental.id}>
-                <div className="customer-agreement-summary">
-                  <div>
-                    <strong>{rental.vehicles?.name || 'Rental agreement'}</strong>
-                    <span>{formatRentalDate(rental.pickup_date, rental.pickup_time)} → {formatRentalDate(rental.return_date, rental.return_time)}</span>
-                    <small>
-                      Signed by {rental.agreement_signature_name || 'customer'}
-                      {rental.agreement_signed_at ? ` • ${new Date(rental.agreement_signed_at).toLocaleString()}` : ''}
-                      {rental.agreement_version ? ` • ${rental.agreement_version}` : ''}
-                    </small>
-                  </div>
-                  <div className="customer-agreement-actions">
-                    <button type="button" onClick={() => setOpenAgreementId(isOpen ? '' : rental.id)}><Eye size={15}/>{isOpen ? 'Hide copy' : 'Review copy'}</button>
-                    <button type="button" onClick={() => downloadAgreement(rental)}><FileSignature size={15}/>Download</button>
-                  </div>
-                </div>
-                {isOpen && <div className="customer-agreement-copy">
-                  <div className="customer-agreement-integrity">
-                    <span><strong>Agreement version</strong>{rental.agreement_version || 'Not recorded'}</span>
-                    <span><strong>Agreement hash</strong>{rental.agreement_hash || 'Not recorded'}</span>
-                    <span><strong>Electronic signature</strong>{signatureImage ? 'Electronic signature stored' : 'Typed signature stored'}</span>
-                  </div>
-                  <pre>{printableAgreement}</pre>
-                  {signatureImage && <div className="customer-agreement-signature"><strong>Stored electronic signature</strong><img src={signatureImage} alt={`Electronic signature for ${rental.agreement_signature_name || 'customer'}`}/></div>}
-                </div>}
-              </article>;
-            })}
+            {signedAgreements.map(rental => <CustomerAgreementCopy key={rental.id} rental={rental}/>)}
           </div>
         </section>
 
@@ -6142,6 +6205,30 @@ function CustomerDetailsModal({ profile, rentals, documents, reports, openDocume
       </footer>
     </section>
   </div>;
+}
+
+function CustomerAgreementCopy({ rental }) {
+  const [error,setError]=useState('');
+  const [downloading,setDownloading]=useState(false);
+  async function read(signal) {
+    let request=supabase.from('rentals').select('agreement_snapshot,agreement_signature_name,agreement_signed_at,agreement_version,agreement_hash').eq('id',rental.id).single();
+    if(signal) request=request.abortSignal(signal);
+    const {data,error}=await request;
+    if(error) throw error;
+    if(!data?.agreement_snapshot) throw new Error('No saved agreement copy is available for this rental.');
+    return {...rental,...data};
+  }
+  return <article className="customer-agreement-record"><div className="customer-agreement-summary"><div><strong>{rental.vehicles?.name || 'Rental agreement'}</strong>
+    <span>{formatRentalDate(rental.pickup_date,rental.pickup_time)} → {formatRentalDate(rental.return_date,rental.return_time)}</span>
+    <small>Signed by {rental.agreement_signature_name || 'customer'} • {rental.agreement_version}</small></div>
+    <button disabled={downloading} onClick={async()=>{setDownloading(true);setError('');try{downloadAgreement(await read());}catch(e){setError(e.message);}finally{setDownloading(false);}}}>Download</button></div>
+    {error && <p role="alert">{error}</p>}
+    <LazyHistoryDetail id={rental.id} read={read}>{data=>{
+      const signatureImage=extractSignatureImage(data.agreement_snapshot);
+      return <div className="customer-agreement-copy"><p>Agreement version: {data.agreement_version || 'Not recorded'} • Hash: {data.agreement_hash || 'Not recorded'}</p>
+        <pre>{data.agreement_snapshot.replace(/Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,'Drawn Signature Image: embedded below')}</pre>
+        {signatureImage && <img src={signatureImage} alt={`Electronic signature for ${data.agreement_signature_name || 'customer'}`}/>}</div>;
+    }}</LazyHistoryDetail></article>;
 }
 
 function AuditLog({ auditLogs = [] }) {
@@ -6229,7 +6316,7 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply, adminEmail, notify, onTemplatesChanged }) {
+function ContactCenterTab({ revision, canSend, profiles, rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply, adminEmail, notify, onTemplatesChanged }) {
   const [section, setSection] = useState('inbox');
   const [templateChannel, setTemplateChannel] = useState('email');
   const [templates, setTemplates] = useState([]);
@@ -6246,29 +6333,38 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
     name: '', templateId: '', subject: '', preheader: '', htmlBody: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', textBody: '', audienceType: 'marketing_opted_in', selectedUserIds: [], scheduledFor: '',
   });
 
-  const optedInProfiles = profiles.filter((profile) => profile.email && profile.email_marketing_opt_in && !profile.email_marketing_unsubscribed_at);
+  const [audience,setAudience] = useState([]);
+  const optedInProfiles = audience;
   async function loadEmailData(silent = false) {
+    if (section === 'inbox') { setLoadingEmails(false); return; }
     if (!silent) setLoadingEmails(true);
-    const [templatesRes, textTemplatesRes, campaignsRes, outboxRes, eventsRes] = await Promise.all([
-      withRequestDeadline(supabase.from('email_templates').select('*').order('category').order('name'), 'Email templates'),
-      withRequestDeadline(supabase.from('sms_templates').select('*').order('category').order('name'), 'Text templates'),
-      withRequestDeadline(supabase.from('email_campaigns').select('*').order('created_at', { ascending: false }).limit(100), 'Sent emails'),
-      withRequestDeadline(supabase.from('email_outbox').select('*').order('created_at', { ascending: false }).limit(100), 'Email outbox'),
-      withRequestDeadline(supabase.from('email_delivery_events').select('*').order('event_at', { ascending: false }).limit(200), 'Delivery events'),
-    ]);
-    const firstError = templatesRes.error || textTemplatesRes.error || campaignsRes.error || outboxRes.error || eventsRes.error;
-    if (firstError) notify(firstError.message);
-    if (templatesRes.data) setTemplates(templatesRes.data);
-    if (textTemplatesRes.data) setTextTemplates(textTemplatesRes.data);
-    if (campaignsRes.data) setCampaigns(campaignsRes.data);
-    if (outboxRes.data) setOutbox(outboxRes.data);
-    if (eventsRes.data) setEvents(eventsRes.data);
-    setLoadingEmails(false);
+    try {
+      const [emailResult,smsResult] = await Promise.all([
+        supabase.from('email_templates').select('id,name,subject,category,enabled,version,trigger_key,template_key').order('category').order('name'),
+        section === 'setup' ? supabase.from('sms_templates').select('id,name,body,category,enabled,version,template_key').order('category').order('name') : Promise.resolve({data:[],error:null}),
+      ]);
+      if (emailResult.error || smsResult.error) throw emailResult.error || smsResult.error;
+      setTemplates(emailResult.data); setTextTemplates(smsResult.data);
+    } catch(error) { notify(error.message,'error'); }
+    finally { setLoadingEmails(false); }
   }
-
+  useEffect(() => { void loadEmailData(); }, [section]);
   useEffect(() => {
-    loadEmailData();
-  }, []);
+    if(section !== 'emails') return;
+    const controller = new AbortController();
+    supabase.from('profiles').select('id,full_name,email').is('customer_deleted_at',null).eq('email_marketing_opt_in',true).is('email_marketing_unsubscribed_at',null).order('full_name').abortSignal(controller.signal)
+      .then(({data,error}) => { if(controller.signal.aborted) return; if(error) notify(error.message,'error'); else setAudience(data); });
+    return () => controller.abort();
+  }, [section]);
+  async function readEmailTemplate(id) {
+    const {data,error}=await supabase.from('email_templates').select('*').eq('id',id).single();
+    if(error) { notify(error.message,'error'); return null; }
+    return data;
+  }
+  async function openEmailTemplate(template) {
+    const data=await readEmailTemplate(template.id);
+    if(data) setEditingTemplate(data);
+  }
 
   async function invokeEmailAction(path, body) {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -6364,8 +6460,9 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
     }
   }
 
-  function useTemplate(templateId) {
-    const template = templates.find((item) => item.id === templateId);
+  async function useTemplate(templateId) {
+    const template = templateId ? await readEmailTemplate(templateId) : null;
+    if (templateId && !template) return;
     setComposer((current) => ({
       ...current,
       templateId,
@@ -6420,13 +6517,13 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
   return <section className="email-admin-shell">
     <div className="email-admin-header">
       <div><p className="eyebrow">Customer Communications</p><h2>Communications</h2><span>Reply to customers, send direct email or text, manage templates and automations, and review delivery.</span></div>
-      <div className="email-admin-health"><MessageCircle size={19}/><strong>{messages.filter((message) => !message.read_by_admin && message.sender_role !== 'admin').length}</strong><span>unread messages</span></div>
+
     </div>
     <div className="email-admin-tabs" role="tablist">
       {[['inbox', 'Inbox'], ['emails', 'Emails'], ['setup', 'Messaging Setup']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
     </div>
 
-    {section === 'inbox' && <CommunicationsInbox rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={onSelectThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} />}
+    {section === 'inbox' && <PortalInbox client={supabase} revision={revision} Panel={Panel} canSend={canSend} notify={notify}/>}
 
     {section === 'emails' && <>
       <div className="email-section-heading"><div><p className="eyebrow">Customer Lifecycle</p><h3>Automated Rental Emails</h3><span>Booking confirmations, payment notices, document updates, reminders, refunds, and cancellations.</span></div><span className="email-template-count">{automated.length} emails</span></div>
@@ -6434,7 +6531,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       {automated.map((template) => <article className="email-setting-card" key={template.id}>
         <div><span className={`email-status-dot ${template.enabled ? 'enabled' : ''}`}/><div><strong>{template.name}</strong><small>Email • Trigger: {prettyStatus(template.trigger_key || 'manual')}</small></div></div>
         <p>{template.subject}</p>
-        <div className="email-card-actions"><button className="secondary-btn" onClick={() => setEditingTemplate({ ...template })}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
+        <div className="email-card-actions"><button className="secondary-btn" onClick={() => openEmailTemplate(template)}><Pencil size={15}/> Edit</button><button className={template.enabled ? 'secondary-btn' : 'primary-btn'} onClick={() => toggleAutomation(template)}>{template.enabled ? 'Disable' : 'Enable'}</button></div>
       </article>)}
       {!automated.length && <p className="muted">No automated rental emails are installed.</p>}
       </div>
@@ -6456,7 +6553,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
           ? <button className="primary-btn" onClick={() => setEditingTemplate({ name: '', subject: '', preheader: '', html_body: '<h1>An update from Rent Me CT</h1><p>Hi {{customer_first_name}},</p><p>Write your message here.</p>', text_body: '', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Email Template</button>
           : <button className="primary-btn" onClick={() => setEditingTextTemplate({ name: '', body: 'Hi {{customer_first_name}}, ', enabled: true, category: 'manual', version: 0 })}><Plus size={16}/> Add Text Template</button>}
       </div>
-      {templateChannel === 'email' && <><p className="muted">Reusable one-to-one email templates for customer updates and reminders.</p><div className="email-template-list">{manual.map((template) => <button key={template.id} onClick={() => setEditingTemplate({ ...template })}><Mail size={18}/><span><strong>{template.name}</strong><small>{template.subject}</small></span><em>v{template.version}</em></button>)}{!manual.length && <p className="muted">No manual email templates yet.</p>}</div></>}
+      {templateChannel === 'email' && <><p className="muted">Reusable one-to-one email templates for customer updates and reminders.</p><div className="email-template-list">{manual.map((template) => <button key={template.id} onClick={() => openEmailTemplate(template)}><Mail size={18}/><span><strong>{template.name}</strong><small>{template.subject}</small></span><em>v{template.version}</em></button>)}{!manual.length && <p className="muted">No manual email templates yet.</p>}</div></>}
       {templateChannel === 'sms' && <><p className="muted">Reusable text templates. Variables such as {'{{customer_first_name}}'}, {'{{vehicle_name}}'}, and {'{{manage_booking_url}}'} are filled when sent.</p>
       <div className="email-template-list contact-text-template-list">
         {manualTexts.map((template) => <button key={template.id} onClick={() => setEditingTextTemplate({ ...template })}><MessageCircle size={18}/><span><strong>{template.name}</strong><small>{template.body}</small></span><em>v{template.version}</em></button>)}
@@ -6481,11 +6578,7 @@ function ContactCenterTab({ profiles, rentals, messages, selectedRental, onSelec
       <Panel title="Preview" eyebrow="Customer View"><iframe className="email-preview-frame" title="Email preview" sandbox="" srcDoc={composerPreview}/></Panel>
     </div>}
 
-    {section === 'emails' && <div className="email-history-grid">
-      <Panel title="Sent & Scheduled Emails" eyebrow="Custom Emails"><div className="email-history-list">{campaigns.map((campaign) => <article key={campaign.id}><span className={`email-history-status ${campaign.status}`}>{prettyStatus(campaign.status)}</span><div><strong>{campaign.name}</strong><small>{campaign.subject}</small></div><em>{campaign.sent_count || 0}/{campaign.recipient_count || 0} sent</em></article>)}{!campaigns.length && <p className="muted">No custom emails yet.</p>}</div></Panel>
-      <Panel title="Automated Queue" eyebrow="Transactional"><div className="email-history-list">{outbox.map((job) => <article key={job.id}><span className={`email-history-status ${job.status}`}>{prettyStatus(job.status)}</span><div><strong>{prettyStatus(job.email_type)}</strong><small>{job.recipient_email}</small></div><em>{job.sent_at ? new Date(job.sent_at).toLocaleString() : job.last_error || 'Queued'}</em></article>)}{!outbox.length && <p className="muted">No automated emails queued yet.</p>}</div></Panel>
-      <Panel title="Recent Provider Events" eyebrow="SendGrid"><div className="email-history-list">{events.slice(0, 50).map((event) => <article key={event.id}><span className={`email-history-status ${event.event_type}`}>{prettyStatus(event.event_type)}</span><div><strong>{event.email || 'Recipient unavailable'}</strong><small>{event.provider_message_id || 'SendGrid event'}</small></div><em>{new Date(event.event_at).toLocaleString()}</em></article>)}{!events.length && <p className="muted">Delivery events will appear after the SendGrid webhook is connected.</p>}</div></Panel>
-    </div>}
+    {section === 'emails' && <EmailHistory client={supabase} Panel={Panel} prettyStatus={prettyStatus}/>}
 
     {editingTemplate && <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingTemplate(null); }}>
       <form className="admin-modal email-template-modal" onSubmit={saveTemplate}>
@@ -7121,13 +7214,7 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
       {!sortedSchedules.length && <p className="muted">No maintenance milestones are installed for this vehicle yet.</p>}
     </div>
 
-    <details className="maintenance-history">
-      <summary>Service history ({serviceLogs.length})</summary>
-      <div className="maintenance-history-list">
-        {serviceLogs.slice(0, 20).map((log) => <article key={log.id}><div><strong>{prettyStatus(log.service_type)}</strong><span>{formatMiles(log.completed_mileage)} • {new Date(`${log.completed_at}T12:00:00`).toLocaleDateString()}</span></div><small>{log.notes || 'No service note'}</small></article>)}
-        {!serviceLogs.length && <p className="muted">Completed services will appear here.</p>}
-      </div>
-    </details>
+    <MaintenanceHistory client={supabase} vehicleId={vehicle.id} prettyStatus={prettyStatus} formatMiles={formatMiles}/>
 
     {completionSchedule && <div className="admin-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && setCompletionSchedule(null)}>
       <form className="admin-modal maintenance-action-modal" onSubmit={submitCompletion}>
@@ -12404,7 +12491,7 @@ function buildOperationsQueue({ rentals, documents, messages, reports, extension
     });
   });
   reports.filter((r) => paidRentalIds.has(r.rental_id || r.rentals?.id) && ['open', 'pending', 'new'].includes(String(r.status || 'open').toLowerCase())).forEach((report) => {
-    items.push({ id: `report-${report.id}`, bucket: 'return_attention', severity: 'critical', title: 'Open damage/incident report', subtitle: report.profiles?.full_name || report.user_id, detail: report.description || report.status || 'Open report' });
+    items.push({ id: `report-${report.id}`, bucket: 'return_attention', severity: 'critical', title: 'Open damage/incident report', subtitle: report.profiles?.full_name || report.user_id, detail: report.description || report.status || 'Open report', rental: rentals.find(r => r.id === report.rental_id) });
   });
   const rank = { critical: 0, warning: 1, info: 2 };
   return items.sort((a, b) => rank[a.severity] - rank[b.severity]);

@@ -38,7 +38,9 @@ test('manual refresh only reloads the current page, even after visiting other se
   assert.deepEqual(calls, [['snapshot', true]]);
   calls.length = 0;
   await vm.runInContext("loadAllData({silent:true, domains:['core','payments']})", context);
-  assert.deepEqual(calls, [['core', true], ['payments', true]]);
+  assert.deepEqual(calls, [['snapshot', true]]);
+  assert.equal(context.loadedAdminDomainsRef.current.has('core'), false);
+  assert.equal(context.loadedAdminDomainsRef.current.has('payments'), false);
 });
 
 test('realtime changes invalidate inactive pages without starting background downloads', () => {
