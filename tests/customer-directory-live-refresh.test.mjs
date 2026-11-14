@@ -5,9 +5,10 @@ import test from 'node:test';
 const source = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
 
 test('customer records use a dedicated retryable directory dataset', () => {
-  assert.match(source, /customers: \['customer-directory', 'core', 'workflow', 'templates'\]/);
+  assert.match(source, /customers: \[\]/);
+  assert.match(source, /<CustomerDirectory client=\{supabase\}/);
   assert.match(source, /Customer directory retry/);
-  assert.match(source, /force: domain === 'customer-directory' && \['customers', 'new-booking'\]\.includes\(activeTab\)/);
+  assert.match(source, /force: domain !== 'rental-list'/);
 });
 
 test('profile changes refresh the customer directory through the consolidated owner', () => {

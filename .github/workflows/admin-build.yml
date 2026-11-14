@@ -74,6 +74,7 @@ jobs:
           node tools/check-rental-navigation-browser.mjs
           node tools/check-collapsed-workflow-browser.mjs
           node tools/check-history-screens-browser.mjs
+          node tools/check-lazy-screens-browser.mjs
 
       - name: Build production assets
         run: npm run build

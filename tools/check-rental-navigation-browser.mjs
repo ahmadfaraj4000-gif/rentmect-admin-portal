@@ -87,7 +87,7 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     for (const origin of ['dashboard', 'queue']) for (let i = 0; i < 5; i++) {
       await page.goto('http://127.0.0.1:5197/' + folder.split('/').at(-1) + '/index.html?source=' + origin);
-      await page.getByRole('button', { name: 'View rental', exact: true }).nth(i).click();
+      await page.getByRole('button', { name: origin === 'queue' ? 'Open rental to review' : 'View rental', exact: true }).nth(i).click();
       await page.locator('[data-rental-id="overdue-' + i + '"]').waitFor();
       assert.equal(await page.locator('[data-rental-id]').count(), 1, 'Only the clicked rental card is rendered');
       assert.equal(await page.getByRole('button', { name: 'Show All Rentals' }).count(), 1);

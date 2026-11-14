@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8') + readFileSync(new URL('../src/HistoryScreens.jsx', import.meta.url), 'utf8');
 
 test('communications calls the customer email workspace Emails', () => {
   assert.match(source, /\['emails', 'Emails'\]/);
