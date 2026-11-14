@@ -15,8 +15,8 @@ export function PortalInbox({ client, revision, Panel, canSend, notify }) {
     <Panel title="Customer Inbox" eyebrow={`${state.unread ?? '…'} Unread`}>
       <input aria-label="Search conversations" value={search} maxLength={120} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations…"/>
       <PageControls state={state} offset={offset} setOffset={setOffset} refresh={()=>setRefresh(value=>value+1)}/>
-      <div className="communications-thread-list">{state.rows.map(row=><button key={row.user_id} className={`communications-thread ${selected?.user_id===row.user_id?'active':''}`} onClick={()=>setSelected(row)}>
-        <span><strong>{row.full_name || row.email}</strong><small>{row.preview}</small></span><em>{row.unread || new Date(row.latest_at).toLocaleDateString()}</em>
+      <div className="communications-thread-list">{state.rows.map(row=><button key={row.user_id} className={`communications-thread communications-thread--summary ${selected?.user_id===row.user_id?'active':''}`} onClick={()=>setSelected(row)}>
+        <span className="communications-thread-copy"><strong>{row.full_name || row.email}</strong><small>{row.preview}</small></span>{Number(row.unread)>0 ? <em className="communications-thread-unread" aria-label={`${row.unread} unread messages`}>{row.unread}</em> : <time className="communications-thread-date" dateTime={row.latest_at}>{new Date(row.latest_at).toLocaleDateString()}</time>}
       </button>)}</div>
     </Panel>
     {selected ? <PortalThread key={selected.user_id} client={client} thread={selected} revision={revision} Panel={Panel} canSend={canSend} notify={notify} onRead={()=>setRefresh(value=>value+1)} onClose={()=>setSelected(null)}/>
