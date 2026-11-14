@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { additionalDiscountRequest } from '../src/lib/manualDiscountPreview.js';
 
 const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const stripePaymentSource = await readFile(new URL('../src/StripeAllocatedPayment.jsx', import.meta.url), 'utf8');
@@ -13,7 +14,7 @@ test('every rental card exposes the reservation-only manual discount workflow', 
   assert.match(mainSource, /Dollar amount off/);
   assert.match(mainSource, /Percentage off/);
   assert.doesNotMatch(mainSource, /Desired final total/);
-  assert.match(mainSource, /Vehicle pricing for every other customer stays unchanged/);
+  assert.match(mainSource, /The new discount is added to it/);
 });
 
 test('the preview keeps deposits separate and explains paid credits', () => {
@@ -42,7 +43,15 @@ test('paid rental edits reopen only the remaining rental balance', () => {
 });
 
 test('fixed discounts are described as exact rental-price reductions', () => {
-  assert.match(mainSource, /Exact dollar amount to take off the rental price/);
-  assert.match(mainSource, /Rental discount/);
+  assert.match(mainSource, /Additional dollar amount off the rental price before tax/);
+  assert.match(mainSource, /Total rental discount/);
   assert.match(mainSource, /off rental/);
+});
+
+test('new discounts preserve the existing discount and percentage uses the current rental price', () => {
+  const rental = { manual_discount_amount: 129.20, rental_total: 1105.85 };
+  assert.deepEqual(additionalDiscountRequest(rental, { mode: 'fixed', value: 19.62 }), { mode: 'fixed', value: 148.82 });
+  assert.deepEqual(additionalDiscountRequest(rental, { mode: 'percentage', value: 10 }), { mode: 'fixed', value: 239.79 });
+  assert.deepEqual(additionalDiscountRequest(rental, { mode: 'remove' }), { mode: 'remove', value: 0 });
+  assert.throws(() => additionalDiscountRequest(rental, { mode: 'percentage', value: 101 }));
 });

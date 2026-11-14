@@ -4,7 +4,7 @@ import { CustomerDirectory } from './CustomerDirectory.jsx';
 import { AuditHistory, DocumentHistory, MaintenanceHistory, PaymentActivity, EmailHistory, LazyHistoryDetail } from './HistoryScreens.jsx';
 import { MoneyInput } from './MoneyInput.jsx';
 import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
-import { manualDiscountPreviewMatches } from './lib/manualDiscountPreview.js';
+import { manualDiscountPreviewMatches, additionalDiscountRequest } from './lib/manualDiscountPreview.js';
 import { RentalPricingHistory } from './RentalPricingHistory.jsx';
 import { ChargeScrollList } from './ChargeScrollList.jsx';
 import { typedSignatureImage } from './lib/typedSignature.js';
@@ -2467,23 +2467,23 @@ function App() {
 
   async function previewManualRentalDiscount(rental, form) {
     if (!requireStaffPermission('rental.discount', 'apply rental discounts')) return null;
+    const request = additionalDiscountRequest(rental, form);
     const { data, error } = await supabase.rpc('admin_preview_manual_rental_discount', {
-      p_rental_id: rental.id,
-      p_mode: form.mode,
-      p_value: Number(form.value || 0),
+      p_rental_id: rental.id, p_mode: request.mode, p_value: request.value,
     });
     if (error) throw error;
-    return data;
+    return { ...data, mode: form.mode, manual_discount_value: Number(form.value || 0), request };
   }
 
   async function applyManualRentalDiscount(rental, form, idempotencyKey) {
     if (!requireStaffPermission('rental.discount', 'apply rental discounts')) return false;
+    const request = additionalDiscountRequest(rental, form);
     const { data, error } = await supabase.functions.invoke('stripe-web-hook', {
       body: {
         action: 'admin_apply_manual_discount',
         rentalId: rental.id,
-        discountMode: form.mode,
-        discountValue: Number(form.value || 0),
+        discountMode: request.mode,
+        discountValue: request.value,
         reason: form.reason.trim(),
         idempotencyKey,
       },
@@ -8672,7 +8672,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
       {depositReviewRequired && balanceDue > 0 && recordExternalTollPayment && <button type="button" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Collect remaining balance'}</button>}
 
       {!depositReviewRequired && (flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" id={`take-payment-${rental.id}`} className="approve" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
-      {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> {Number(rental.manual_discount_amount || 0) > 0 ? 'Edit Discount' : 'Add Discount'}</button>}
+      {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> Add Discount</button>}
       <button type="button" onClick={() => { setDetailsExpanded(true); setPaymentBrowserOpen(true); }}><Pencil size={15}/> Edit Payment Details</button>
     </div>
 
@@ -10650,9 +10650,9 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
     + Number(rental.tax_amount || 0)
     + Number(rental.security_deposit || 0);
   const hasManualDiscount = Number(rental.manual_discount_amount || 0) > 0;
-  const [form, setForm, clearDraft] = useTaskDraft(`ManualRentalDiscountModal:${rental.id}`, {
-    mode: hasManualDiscount ? rental.manual_discount_type || 'fixed' : 'fixed',
-    value: hasManualDiscount ? Number(rental.manual_discount_value || rental.manual_discount_amount).toFixed(2) : '',
+  const [form, setForm, clearDraft] = useTaskDraft(`AdditionalRentalDiscountModal:${rental.id}`, {
+    mode: 'fixed',
+    value: '',
     reason: rental.manual_discount_reason || '',
   }, ['mode', 'value', 'reason']);
   const [preview, setPreview] = useState(null);
@@ -10718,7 +10718,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       <div className="admin-modal-header">
         <Tag size={22}/>
         <div>
-          <strong id={`manual-discount-title-${rental.id}`}>{hasManualDiscount ? 'Edit Manual Discount' : 'Add Manual Discount'}</strong>
+          <strong id={`manual-discount-title-${rental.id}`}>Add Manual Discount</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}</span>
         </div>
         <button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close discount dialog"><X size={18}/></button>
@@ -10727,7 +10727,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       <div className="manual-discount-current">
         <span>Current reservation total</span>
         <strong>{money(currentTotal)}</strong>
-        <small>Vehicle pricing for every other customer stays unchanged. Tolls and other additional charges remain separate.</small>
+        <small>{hasManualDiscount ? `Existing rental discount: ${money(rental.manual_discount_amount)}. The new discount is added to it.` : 'The discount applies to the rental price before tax.'} Tolls and other additional charges remain separate.</small>
       </div>
 
       <div className="manual-discount-mode" role="group" aria-label="Discount entry method">
@@ -10736,15 +10736,15 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       </div>
 
       {form.mode !== 'remove' && <label className="modal-field">
-        <span>{form.mode === 'percentage' ? 'Percentage to take off the rental price' : 'Exact dollar amount to take off the rental price'}</span>
+        <span>{form.mode === 'percentage' ? 'Additional percentage off the current rental price' : 'Additional dollar amount off the rental price before tax'}</span>
         <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><MoneyInput decimalMode={form.mode === 'percentage'} type="number" min="0.01" max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
       </label>}
 
       {previewing && <div className="manual-discount-preview loading">Calculating rental and CT tax…</div>}
       {previewValid && !previewing && <div className="manual-discount-preview" aria-live="polite">
-        <div><span>Entered discount</span><strong>{form.mode === 'remove' ? 'Remove existing discount' : preview.manual_discount_type === 'percentage' ? `${Number(preview.manual_discount_value || 0)}% off` : `${money(preview.manual_discount_value)} off`}</strong></div>
+        <div><span>Entered discount</span><strong>{form.mode === 'remove' ? 'Remove existing discount' : form.mode === 'percentage' ? `${numericValue}% additional` : `${money(numericValue)} additional`}</strong></div>
         <div><span>Rental before manual discount</span><strong>{money(preview.pre_manual_discount_rental_total)}</strong></div>
-        <div className="discount"><span>Rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
+        <div className="discount"><span>Total rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
         <div><span>Recalculated CT tax</span><strong>{money(preview.tax_amount)}</strong></div>
         <div><span>Refundable deposit (unchanged)</span><strong>{money(preview.security_deposit)}</strong></div>
         <div className="total"><span>New reservation total</span><strong>{money(preview.new_total)}</strong></div>
