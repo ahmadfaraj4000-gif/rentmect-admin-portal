@@ -8,7 +8,7 @@ export const rentalPageKey = ({ filter, search = '', focusId = '', offset = 0 })
 
 // Session-local cache. Responses for an old filter or closed record never replace
 // the visible state. Forced reads drain once more if a mutation arrived mid-read.
-export function createRentalWorkspace({ readList, readDetail, readDetails, hydrate, changed, now = Date.now, inline = false, observe }) {
+export function createRentalWorkspace({ readList, readDetail, readDetails, readChanges, hydrate, changed, now = Date.now, inline = false, observe }) {
   const pages = new Map();
   const details = new Map();
   const loads = new Map();
@@ -92,10 +92,10 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
       deferredList = true;
       return;
     }
-    if (!sameView) retained.clear();
+    if (!sameView) { retained.clear(); if (!inline && selectedId !== params.focusId) void open(''); }
     current = { ...params };
     const cached = pages.get(key);
-    if (switching) emit({ ...(!inline || !sameView ? { rows: [], total: cached?.data.total || 0 } : {}), offset: params.offset || 0, error: '' });
+    if (switching) emit({ ...(!sameView ? { rows: [], total: cached?.data.total || 0 } : {}), offset: params.offset || 0, error: '' });
     if (!inline && !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation) {
       emit({ ...cached.data, loading: false, error: '' });
       return;
@@ -108,7 +108,7 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
       try {
         const pageCached = !force && cached && now() - cached.at < RENTAL_CACHE_MS && cached.generation === generation;
         let data = pageCached
-          ? cached.data : await readList(params);
+          ? cached.data : await readList(params, { force, generation: readGeneration });
         if (disposed || rentalPageKey(current) !== key || readGeneration !== generation) return;
         if (token) {
           let cachedDetails = 0;
@@ -195,7 +195,7 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
       const index = state.rows.findIndex(row => row.id === id);
       if (index >= 0) retained.set(id, { row: state.rows[index], index, applied });
     },
-    clearRetained() { retained.clear(); pages.clear(); },
+    clearRetained() { retained.clear(); pages.clear(); if (!inline) void open(''); },
     getState: () => state,
     invalidate() { generation++; },
     setEditing(value) {
@@ -205,11 +205,35 @@ export function createRentalWorkspace({ readList, readDetail, readDetails, hydra
         void list(current, true);
       }
     },
-    async refresh({ rentalId = null, details: includeDetails = true } = {}) {
+    async refresh({ rentalId = null, rentalIds = null, details: includeDetails = true } = {}) {
       generation++;
-      // Counts/filter membership refresh independently of a committed save.
-      void list(current, true);
-      if (includeDetails && selectedId && (!rentalId || rentalId === selectedId)) await open(selectedId, true);
+      const ids = rentalIds || (rentalId ? [rentalId] : null);
+      const readGeneration = generation;
+      const params = current && { ...current };
+      const targeted = readChanges && ids?.length && params && !editing && !state.loading
+        && state.rows.length > 0 && state.rows.length <= 500 && !retained.size;
+      const refreshSummaries = async () => {
+        if (!targeted) return list(current, true);
+        try {
+          const data = await readChanges(params, ids, state.rows.map(row => row.id));
+          if (disposed || generation !== readGeneration || rentalPageKey(current) !== rentalPageKey(params)) return;
+          if (editing) { deferredList = true; return; }
+          if (!Array.isArray(data?.rows) || !Array.isArray(data.visible_ids)) throw new Error('Incomplete rental updates');
+          const byId = new Map(state.rows.map(row => [row.id, row]));
+          data.rows.forEach(row => byId.set(row.id, row));
+          if (data.visible_ids.some(id => !byId.has(id))) throw new Error('Incomplete rental summaries');
+          const rows = data.visible_ids.map(id => byId.get(id));
+          emit({ rows, counts: data.counts, total: data.total, serverRowCount: rows.length, error: '' });
+          if (selectedId && !data.visible_ids.includes(selectedId)) void open('');
+          pages.clear();
+        } catch {
+          // A missing endpoint during rollout or an incomplete delta falls back
+          // to authoritative summaries, never to bulk detail reads.
+          if (!disposed && generation === readGeneration) await list(current, true);
+        }
+      };
+      void refreshSummaries();
+      if (includeDetails && selectedId && (!ids || ids.includes(selectedId))) await open(selectedId, true);
     },
     dispose() { disposed = true; pages.clear(); details.clear(); },
   };

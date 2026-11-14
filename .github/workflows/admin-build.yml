@@ -71,6 +71,7 @@ jobs:
           node tools/check-deposit-review-browser.mjs
           node tools/check-deposit-handoff-browser.mjs
           node tools/check-rate-change-browser.mjs
+          node tools/check-rental-navigation-browser.mjs
 
       - name: Build production assets
         run: npm run build

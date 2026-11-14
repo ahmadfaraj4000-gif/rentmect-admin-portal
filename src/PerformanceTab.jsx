@@ -16,6 +16,10 @@ export function PerformanceReportView({ report, action, setAction }) {
   const releases = groups.filter(row => row.kind === 'release' && row.action === action);
   const max = Math.max(PERFORMANCE_ACTIONS[action].target, ...days.map(row => Number(row.latency_ms?.[1] || 0)));
   return <>
+    {report.health?.alerts?.length > 0 && <div className="form-error" role="alert"><strong>Performance alerts</strong><ul>{report.health.alerts.map((alert, i) => <li key={i}>{alert.kind === 'query_memory_pressure'
+      ? `Database queries wrote ${Math.round(alert.spill_bytes / 1048576)} MB of temporary files between checks. Review query memory pressure in Supabase.`
+      : `${PERFORMANCE_ACTIONS[alert.action]?.label || alert.action}: p95 ${duration(alert.p95_ms)} exceeds the ${duration(alert.target_ms)} target (${alert.samples} successful loads in the sampled hour).`}</li>)}</ul><small>Checked {new Date(report.health.recorded_at).toLocaleString()}. Query spills indicate pressure on query memory; they do not measure server RAM.</small></div>}
+    {(!report.health || Date.now() - Date.parse(report.health.recorded_at) > 2 * 60 * 60 * 1000) && <p role="status" className="muted">Database health monitoring has not reported within two hours. Check the scheduled monitor in Supabase.</p>}
     {!summary.length && <div className="performance-empty" role="status"><strong>No measurements for these filters yet.</strong><p>Use Rentals, Archive or Payments, then return here. Completed measurements upload during an idle period, no more than once a minute.</p></div>}
     <div className="performance-cards">{Object.entries(PERFORMANCE_ACTIONS).map(([key, info]) => {
       const row = summary.find(item => item.action === key);
