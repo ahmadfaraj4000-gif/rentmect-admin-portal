@@ -20,7 +20,14 @@ function App(){const[done,setDone]=useState(false);return done?<p role="status">
 const server = spawn(process.execPath, [root + '/node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5196', '--strictPort'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser;
 try {
-  await new Promise((ready, reject) => { server.stdout.on('data', d => { if (d.toString().includes('Local:')) ready(); }); server.on('error', reject); server.on('exit', () => reject(Error('Vite exited'))); });
+  // Vite suppresses its interactive Local banner in CI. Probe the actual server.
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    if (server.exitCode !== null) throw Error('Vite exited before the fixture was ready');
+    try { const response = await fetch('http://127.0.0.1:5196'); if (response.status < 500) break; } catch { /* Starting. */ }
+    if (Date.now() > deadline) throw Error('Vite fixture startup timed out');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
   browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL === 'chromium' ? undefined : process.env.PLAYWRIGHT_CHANNEL || 'chrome' });
   for (const viewport of [{ width: 1366, height: 768 }, { width: 800, height: 600 }, { width: 390, height: 720 }]) {
     const page = await browser.newPage({ viewport });
