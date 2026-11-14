@@ -11,7 +11,7 @@ export function CustomerDirectory({ client, revision, Panel, renderDetails, rend
   const [detail, setDetail] = useState({});
   const [retry, setRetry] = useState(0);
   const reload = () => setRefresh(value => value + 1);
-  useEffect(() => { const timer = setTimeout(() => { setQuery(search); setOffset(0); }, 300); return () => clearTimeout(timer); }, [search]);
+  useEffect(() => { if (search === query) return; const timer = setTimeout(() => { setQuery(search); setOffset(0); }, 300); return () => clearTimeout(timer); }, [search, query]);
   const state = useHistoryPage(async signal => {
     const { data, error } = await client.rpc('admin_customer_directory_page', { p_search: query, p_offset: offset }).abortSignal(signal);
     if (error) throw error;

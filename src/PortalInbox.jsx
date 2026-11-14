@@ -6,7 +6,7 @@ export function PortalInbox({ client, revision, Panel, canSend, notify }) {
   const [offset,setOffset] = useState(0);
   const [refresh,setRefresh] = useState(0);
   const [selected,setSelected] = useState(null);
-  useEffect(() => { const timer=setTimeout(() => { setQuery(search);setOffset(0); },300); return () => clearTimeout(timer); },[search]);
+  useEffect(() => { if (search === query) return; const timer=setTimeout(() => { setQuery(search);setOffset(0); },300); return () => clearTimeout(timer); },[search,query]);
   const state=useHistoryPage(async signal => {
     const { data,error }=await client.rpc('admin_communication_threads',{p_search:query,p_offset:offset}).abortSignal(signal);
     if(error) throw error; return data;
