@@ -1,0 +1,31 @@
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root=resolve('.'),folder=await mkdtemp(root+'/.booking-submit-check-');
+const source=await readFile('src/main.jsx','utf8');
+const field=source.split('\n').find(line=>line.includes('className="full-field vehicle-availability-field"'));
+const warning=source.split('\n').find(line=>line.includes('!submitting && selectedVehicleAvailability &&'));
+assert.ok(field&&warning,'Use the production booking availability controls');
+await writeFile(folder+'/index.html','<div id="root"></div><script type="module" src="./check.jsx"></script>');
+await writeFile(folder+'/check.jsx',`import React,{useState} from 'react';import{createRoot}from'react-dom/client';
+function App(){const[submitting,setSubmitting]=useState(false),[conflict,setConflict]=useState(false);window.submit=()=>setSubmitting(true);window.insertRental=()=>setConflict(true);window.reject=()=>setSubmitting(false);
+const manualBookingForm={vehicleId:'car'},reservationWindowReady=true,money=x=>'$'+x,update=()=>{},AlertTriangle=()=>null;
+const availability={available:!conflict,reason:'Reserved during selected time'},selectedVehicleAvailability=availability,vehicleChoices=[{vehicle:{id:'car',name:'Test car',daily_rate:94},availability}];
+return <><form>${field}${warning}</form></>};createRoot(document.getElementById('root')).render(<App/>);`);
+let browser,server;
+try{
+ server=await createServer({root,configFile:false,server:{port:0}});await server.listen();
+ browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});
+ const page=await browser.newPage();await page.goto(server.resolvedUrls.local[0]+folder.slice(root.length+1)+'/index.html');
+ const select=page.locator('select');await select.waitFor();assert.match(await select.locator('option:checked').textContent(),/Available/);
+ await page.evaluate(()=>{window.submit();window.insertRental()});
+ await page.waitForFunction(()=>document.querySelector('select').disabled);
+ assert.match(await select.locator('option:checked').textContent(),/Creating booking/);
+ assert.doesNotMatch(await select.locator('option:checked').textContent(),/Unavailable|Reserved/);
+ assert.equal(await page.locator('.vehicle-selection-warning').count(),0);
+ await page.evaluate(()=>window.reject());await page.locator('.vehicle-selection-warning').waitFor();
+ assert.match(await select.locator('option:checked').textContent(),/Unavailable.*Reserved/);
+ console.log('PASS: realtime reservation does not display a conflict during submit; actual conflicts remain visible after rejection.');
+}finally{await browser?.close();await server?.close();await rm(folder,{recursive:true,force:true});}
