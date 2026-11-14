@@ -21,7 +21,7 @@ try{
   assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.table).length),0);
   await page.getByRole('button',{name:'Details',exact:true}).first().click();await page.getByText('Opened 0',{exact:true}).waitFor();
   const reads=await page.evaluate(()=>window.calls.filter(c=>c.table));assert.equal(reads.length,4);assert.ok(reads.every(c=>c.id==='0'||c.user_id==='0'));
-  await page.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByText('51–52',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByText('51–52',{exact:true}).waitFor();await page.waitForTimeout(350);assert.equal(await page.getByText('51–52',{exact:true}).count(),1,'Initial search debounce must not reset page two');
   await page.getByRole('button',{name:'payments',exact:true}).click();await page.getByText('Total 9000',{exact:true}).waitFor();await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByText('51–52',{exact:true}).waitFor();assert.equal(await page.getByText('Total 9000',{exact:true}).count(),1);
   await page.getByRole('button',{name:'inbox',exact:true}).click();await page.getByText('Choose a conversation to read and reply.').waitFor();assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.table==='rental_messages').length),0);
   await page.locator('.communications-thread').first().click();await page.getByText('Private thread body',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.table==='rental_messages').length),1);

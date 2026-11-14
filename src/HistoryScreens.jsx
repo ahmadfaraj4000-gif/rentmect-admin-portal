@@ -52,7 +52,7 @@ export function AuditHistory({ client, revision = 0, Panel, prettyStatus, action
   const [query, setQuery] = useState(filters);
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
-  useEffect(() => { const timer = setTimeout(() => { setQuery(filters); setOffset(0); }, 300); return () => clearTimeout(timer); }, [filters]);
+  useEffect(() => { if (filters === query) return; const timer = setTimeout(() => { setQuery(filters); setOffset(0); }, 300); return () => clearTimeout(timer); }, [filters, query]);
   const key = JSON.stringify([query, offset]);
   const state = useHistoryPage(async signal => {
     const { data, error } = await client.rpc('admin_audit_history_page', {
