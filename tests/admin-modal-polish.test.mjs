@@ -6,7 +6,7 @@ const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('../src/final-overrides.css', import.meta.url), 'utf8');
 
 test('Agreement opens the styled in-app review instead of starting a browser download', () => {
-  assert.match(source, /onClick=\{\(\) => setAdminStepScope\('agreement'\)\}><FileSignature size=\{14\}\/> Agreement/);
+  assert.match(source, /onClick=\{\(\) => runCardAction\('step:agreement', \(\) => setAdminStepScope\('agreement'\)\)\}><FileSignature size=\{14\}\/> Agreement/);
   assert.doesNotMatch(source, /rental\.agreement_snapshot \? downloadAgreement\(rental\) : setAdminStepScope\('agreement'\)/);
   assert.match(source, /className=\{`admin-modal admin-step-modal \$\{scope === 'agreement' \? 'agreement-step-modal' : ''\}`\}/);
 });
