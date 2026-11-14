@@ -41,11 +41,11 @@ export function builtInLateFeeTemplates(rental) {
   return [
     {
       id: 'policy:late-return-fee',
-      name: 'Late return fee - 30 minutes',
+      name: 'Late return fee - admin approved',
       chargeType: 'late_fee',
       amount: LATE_RETURN_FEE_AMOUNT,
       taxable: true,
-      description: 'Late-return assessment after the 30-minute grace period.',
+      description: 'Manual late-return charge. Requires explicit administrator approval.',
     },
     {
       id: 'policy:late-rental-day',

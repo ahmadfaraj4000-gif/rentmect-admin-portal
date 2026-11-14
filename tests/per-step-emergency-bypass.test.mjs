@@ -49,8 +49,8 @@ test('eligible rentals expose the global emergency override', () => {
 });
 
 test('the in-office agreement uses the same canonical signed document as the customer portal', () => {
-  assert.equal(createHash('sha256').update(agreementSource).digest('hex'), '1365ba6520d4793fc5313be4677b8cff161f9c004524c044f086ba29ac8aa4a9');
-  assert.match(agreementSource, /rentmect-master-v2026-10-23-unreturned-keys-r1/);
+  assert.equal(createHash('sha256').update(agreementSource).digest('hex'), 'dd486cb45f18d397a7feb6c41ae268d55a7aca165ae2089afed22c2864db6085');
+  assert.match(agreementSource, /rentmect-master-v2026-11-13-admin-return-r1/);
   assert.match(agreementSource, /MASTER VEHICLE RENTAL AGREEMENT/);
   assert.match(source, /import \{ AGREEMENT_TEXT, AGREEMENT_VERSION \} from '\.\/rentalAgreement'/);
   assert.match(source, /return `\$\{details\}\\n\$\{AGREEMENT_TEXT\}`/);

@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-10-23-unreturned-keys-r1';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-13-admin-return-r1';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -52,9 +52,8 @@ Failure to maintain proper fuel levels may result in additional administrative o
 
 LATE RETURN, VEHICLE DISABLING, AND REACTIVATION POLICY
 Renter agrees to return the Vehicle on or before the agreed return date and time listed in the Rental Addendum.
-At thirty (30) minutes after the scheduled return time, if the Vehicle has not been returned and Company has not approved the delay, Renter shall be assessed a twenty-five dollar ($25) late return fee.
-If the Vehicle remains unreturned for more than two (2) hours after the scheduled return time without prior approval from Company, Renter shall also be assessed one (1) additional full rental day at the applicable daily rental rate, in addition to the twenty-five dollar ($25) late return fee.
-Company may send courtesy return reminders approximately twenty-four (24) hours and three (3) hours before the scheduled return time, with timing adjusted when necessary to keep delivery between 8:00 a.m. and 9:00 p.m. Eastern Time. Failure to receive, open, or read a reminder does not change Renter's scheduled return obligation or waive any automatic late-return charge.
+The Vehicle remains assigned to Renter until Company confirms its physical return. There is no automatic late-return fee or automatic additional rental-day charge. Any extension or additional charge must be explicitly approved by Company and recorded for the rental.
+Company may send courtesy return reminders approximately twenty-four (24) hours and three (3) hours before the scheduled return time, with timing adjusted when necessary to keep delivery between 8:00 a.m. and 9:00 p.m. Eastern Time. Failure to receive, open, or read a reminder does not change Renter's scheduled return obligation.
 Company further reserves the right to remotely disable or shut down the Vehicle where legally permitted and reasonably safe to do so, in compliance with all applicable federal, state, and local laws and regulations.
 Renter acknowledges and agrees that a fifty-dollar ($50) vehicle reactivation fee shall apply before the Vehicle may be re-enabled or returned to active rental status.
 Additional recovery, towing, repossession, administrative, transportation, storage, or enforcement fees may also apply where applicable.

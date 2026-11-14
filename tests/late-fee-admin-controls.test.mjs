@@ -29,7 +29,7 @@ test('late rental day uses the same contracted-total-per-billable-day pricing as
 test('built-in late fee choices are immediately priced and taxable', () => {
   const templates = builtInLateFeeTemplates(rental);
   assert.deepEqual(templates.map((template) => [template.name, template.amount, template.chargeType, template.taxable]), [
-    ['Late return fee - 30 minutes', 25, 'late_fee', true],
+    ['Late return fee - admin approved', 25, 'late_fee', true],
     ['Late return - additional rental day', 52.10, 'late_rental_day', true],
   ]);
 });

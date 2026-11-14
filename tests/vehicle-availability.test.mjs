@@ -77,7 +77,7 @@ test('availability notice exposes conflict times and the next booking to the adm
  const Notice=vm.runInNewContext(await getComponent('RentalAvailabilityNotice','AdminRentalExtensionModal'),helpers);
  const html=renderToStaticMarkup(React.createElement(Notice,{vehicleId:'car',availability:{ready:true,rows:[{vehicle_id:'car',available:false,
  conflicts:[{source_id:'r',reason:'Reserved rental',starts_at:'Oct 4 noon',ends_at:'Oct 10 noon'}],next_reservation:{starts_at:'Oct 4 noon',ends_at:'Oct 10 noon'}}]}}));
- assert.match(html,/Unavailable for these dates/);assert.match(html,/Next reservation: Oct 4 noon/);assert.match(html,/at least three hours/);
+ assert.match(html,/Unavailable for these dates/);assert.match(html,/Next reservation: Oct 4 noon/);assert.match(html,/physically returned before it can be released again/);
 });
 
 
