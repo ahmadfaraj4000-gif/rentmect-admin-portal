@@ -20,7 +20,7 @@ export function depositSettlementPreview(rental, allocations = [], charges = [])
 }
 
 export function needsDepositReview(rental) {
-  return rental.status === 'completed' && rental.ending_mileage != null
+  return rental.status === 'completed' && !rental.damage_deposit_hold && rental.ending_mileage != null
     && (Number(rental.deposit_held_amount || 0) > 0 || ['release_pending', 'adjustment_refund_due'].includes(rental.deposit_status))
     && !['waived', 'transferred', 'released'].includes(rental.deposit_status);
 }

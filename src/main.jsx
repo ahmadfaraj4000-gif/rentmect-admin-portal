@@ -1,3 +1,4 @@
+import { DamageCases } from './DamageCases.jsx';
 import { adminErrorMessage } from './lib/adminErrors.js';
 import { PortalInbox } from './PortalInbox.jsx';
 import { CustomerDirectory } from './CustomerDirectory.jsx';
@@ -199,7 +200,7 @@ const ADMIN_TAB_DOMAINS = {
   rentals: ['rental-list'],
   customers: [],
   vehicles: ['fleet'],
-  damage: ['damage-reports'],
+  damage: [],
   documents: [],
   emails: [],
   audit: [],
@@ -968,7 +969,7 @@ function App() {
       recoveryInFlight = true;
       lastRecoveryAt = now;
       try {
-        if (['audit', 'documents', 'customers', 'payments', 'emails'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
+        if (['audit', 'documents', 'customers', 'payments', 'emails', 'damage'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
         const domains = adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
         await Promise.all(domains.map((domain) => loadAdminDomain(domain, { force: true })));
       } finally {
@@ -979,9 +980,8 @@ function App() {
     const scheduleDomainRefresh = (domain, rentalId = null) => {
       if (activeTabRef.current === 'queue' && ['core','workflow','customer-directory'].includes(domain)) domain = 'operations';
       if (['vehicles','calendar'].includes(activeTabRef.current) && domain === 'core') domain = 'fleet';
-      if (activeTabRef.current === 'damage' && domain === 'workflow') domain = 'damage-reports';
       if (activeTabRef.current === 'new-booking' && domain === 'core') domain = 'booking-inventory';
-      if ((activeTabRef.current === 'documents' && domain === 'workflow') || (['customers','payments','emails'].includes(activeTabRef.current) && ['core','workflow','customer-directory','payments'].includes(domain))) {
+      if ((['documents','damage'].includes(activeTabRef.current) && domain === 'workflow') || (['customers','payments','emails'].includes(activeTabRef.current) && ['core','workflow','customer-directory','payments'].includes(domain))) {
         window.clearTimeout(refreshTimers.get('document-history'));
         refreshTimers.set('document-history', window.setTimeout(() => {
           if (document.visibilityState !== 'hidden') setHistoryRevision(value => value + 1);
@@ -1333,11 +1333,6 @@ function App() {
         if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
         if (depositTasksRes.data) setDepositActionTasks(depositTasksRes.data);
         results = [['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes], ['Deposit actions', depositTasksRes]];
-      } else if (domain === 'damage-reports') {
-        const result = await withReadRetry(() => supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Damage & incident cases');
-        if (readingTab !== activeTabRef.current) return;
-        if (result.data) setReports(result.data);
-        results = [['Damage & incident cases', result]];
       } else if (domain === 'workflow') {
         const [documentsRes, messagesRes, reportsRes, extensionsRes, stepCompletionsRes] = await Promise.all([
           withReadRetry(() => supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
@@ -1438,7 +1433,7 @@ function App() {
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
-    if (['audit', 'documents', 'customers', 'payments', 'emails'].includes(activeTabRef.current)) {
+    if (['audit', 'documents', 'customers', 'payments', 'emails', 'damage'].includes(activeTabRef.current)) {
       setHistoryRevision(value => value + 1);
       return;
     }
@@ -2792,8 +2787,8 @@ function App() {
     if (error) return notify(error.message);
     setReports((current) => current.map((report) => report.id === id ? data : report));
     refreshAfterSavedTask();
-    notify(payload.status === 'resolved' ? 'Report resolved. Reopen the rental return review to retry the deposit refund.' : 'Damage case updated.', 'success');
-    return true;
+    notify('Damage case updated.', 'success');
+    return data;
   }
 
   async function setCustomerStatus(userId, customerStatus, reason = '') {
@@ -4466,7 +4461,7 @@ function App() {
           renderContact={(data, close) => <CustomerContactModal {...data} notify={notify} onClose={close}/>}/>}
         {activeTab === 'emails' && <ContactCenterTab revision={historyRevision} canSend={canUsePermission('communications.send')} profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
-        {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
+        {activeTab === 'damage' && <DamageCases client={supabase} revision={historyRevision} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} renderEvidence={paths=><SavedReturnEvidence paths={paths}/>} onOpenRental={openRentalCard} onOpenArchive={openReviewedRentalArchive} canHold={canUsePermission('deposit.resolve')} />}
         {activeTab === 'documents' && <DocumentHistory client={supabase} revision={historyRevision} Panel={Panel} docLabel={docLabel}
           renderDocument={(document, refresh) => <Documents documents={[document]} openDocument={openDocument}
             markDocument={async (id, status) => { await markDocument(id, status); refresh(); }}
@@ -8508,7 +8503,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
     paymentStatus: rental.payment_status,
     formatMoney: money,
   });
-  const adminState = summaryOnly && rental.status !== 'cancelled' && (rental.payment_status !== 'paid' || rental.outstanding_charge)
+  const adminState = rental.damage_deposit_hold ? baseAdminState : summaryOnly && rental.status !== 'cancelled' && (rental.payment_status !== 'paid' || rental.outstanding_charge)
     ? { label: rental.status === 'completed' ? 'Returned · Balance due' : 'Payment Due', tone: 'payment-due', next: '' }
     : paymentAction
     ? { label: paymentAction.label, tone: balanceDue > 0.005 ? 'payment-due' : 'warning', next: paymentAction.next }
@@ -8739,7 +8734,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
 
       <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
         <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Refunded' : 'Deposit refund outstanding') : balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
-        <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(rentalOnlyBalanceDue)}</dd>{depositBalanceDue > 0 && <><dt>Security deposit still needed</dt><dd>{money(depositBalanceDue)}</dd></>}<dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd></dl>
+        <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(rentalOnlyBalanceDue)}</dd>{depositBalanceDue > 0 && <><dt>Security deposit still needed</dt><dd>{money(depositBalanceDue)}</dd></>}<dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd>{rental.damage_deposit_hold&&<><dt>Damage / incident hold</dt><dd>{rental.deposit_review_note||'Open case in Damage & Incident Cases'}</dd></>}</dl>
         <section className="rental-accounting-breakdown" aria-label="Full accounting breakdown"><h4>Full accounting breakdown</h4><dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
@@ -11083,75 +11078,6 @@ function DamageReportList({ reports = [] }) {
   </div>;
 }
 
-function DamageCases({ reports = [], updateDamageCase, setCustomerStatus }) {
-  const [filter, setFilter] = useState('open');
-  const cases = reports.filter((report) => {
-    if (filter === 'all') return true;
-    if (filter === 'blocked') return report.profiles?.blocked_customer || report.profiles?.customer_status === 'blocked';
-    if (filter === 'deposit_held') return Number(report.deposit_held_amount || 0) > 0 || report.rentals?.deposit_status === 'held';
-    if (filter === 'open') return ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase());
-    return String(report.status || 'open').toLowerCase() === filter;
-  });
-
-  return <Panel title="Damage & Incident Cases" eyebrow="Fleet Protection">
-    <div className="filter-pills">
-      {[
-        ['open', 'Open'],
-        ['deposit_held', 'Deposit Held'],
-        ['resolved', 'Resolved'],
-        ['blocked', 'Blocked Customers'],
-        ['all', 'All'],
-      ].map(([key, label]) => <button type="button" key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}</button>)}
-    </div>
-    <div className="table-list">
-      {cases.length === 0 && <p className="muted">No damage cases in this view.</p>}
-      {cases.map((report) => <DamageCaseRow key={report.id} report={report} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />)}
-    </div>
-  </Panel>;
-}
-
-function DamageCaseRow({ report, updateDamageCase, setCustomerStatus }) {
-  const [form, setForm] = useState({
-    description: report.description || '',
-    admin_notes: report.admin_notes || '',
-    estimated_cost: report.estimated_cost || '',
-    final_charge_amount: report.final_charge_amount || '',
-    deposit_held_amount: report.deposit_held_amount || '',
-  });
-  const blocked = report.profiles?.blocked_customer || report.profiles?.customer_status === 'blocked';
-
-  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
-
-  return <div className="data-row damage-case-card">
-    <div>
-      <strong>{report.rentals?.vehicles?.name || 'Vehicle'} • {prettyStatus(report.issue_type || report.report_type || 'Damage')}</strong>
-      <span>{report.profiles?.full_name || report.user_id || 'Customer'} • {prettyStatus(report.status || 'open')}</span>
-      <small>{report.rentals ? `${formatRentalDate(report.rentals.pickup_date, report.rentals.pickup_time)} → ${formatRentalDate(report.rentals.return_date, report.rentals.return_time)}` : 'No rental attached'}</small>
-      <SavedReturnEvidence paths={report.photo_paths}/>
-      <div className="damage-case-form">
-        <textarea value={form.description} maxLength="1000" onChange={(event) => update('description', limitText(event.target.value, 1000))} placeholder="Damage description" />
-        <textarea value={form.admin_notes} maxLength="1500" onChange={(event) => update('admin_notes', limitText(event.target.value, 1500))} placeholder="Admin notes, estimate details, customer communication..." />
-        <MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Estimated repair cost in USD." value={form.estimated_cost} onChange={(event) => update('estimated_cost', event.target.value)} placeholder="$0.00 estimated cost" />
-        <MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Final customer charge in USD." value={form.final_charge_amount} onChange={(event) => update('final_charge_amount', event.target.value)} placeholder="$0.00 final charge" />
-        <MoneyInput type="number" step="0.01" min="0" max={MONEY_MAX} inputMode="decimal" title="Deposit amount held in USD." value={form.deposit_held_amount} onChange={(event) => update('deposit_held_amount', event.target.value)} placeholder="$0.00 deposit held" />
-      </div>
-    </div>
-    <div className="row-actions">
-      <span className={`workflow-badge ${report.status === 'resolved' ? 'success' : 'danger'}`}>{prettyStatus(report.status || 'open')}</span>
-      {blocked && <span className="workflow-badge danger">Blocked</span>}
-      <button className="approve" onClick={() => updateDamageCase(report.id, {
-        description: form.description,
-        admin_notes: form.admin_notes,
-        estimated_cost: Number(form.estimated_cost || 0),
-        final_charge_amount: Number(form.final_charge_amount || 0),
-        deposit_held_amount: Number(form.deposit_held_amount || 0),
-      })}><CheckCircle2 size={15}/> Save Case</button>
-      <button onClick={() => updateDamageCase(report.id, { status: 'resolved' })}><CheckCircle2 size={15}/> Mark Resolved</button>
-      {report.user_id && <button className="reject" onClick={() => setCustomerStatus(report.user_id, 'blocked', form.admin_notes || form.description || 'Damage case')}><XCircle size={15}/> Block Customer</button>}
-      {report.user_id && blocked && <button onClick={() => setCustomerStatus(report.user_id, 'good', '')}><CheckCircle2 size={15}/> Unblock</button>}
-    </div>
-  </div>;
-}
 
 const ACTIVE_RETURN_RENTAL_KEY = 'rentmect_admin_active_return_rental';
 const RETURN_DRAFT_PREFIX = 'rentmect_admin_return_draft:';
@@ -12718,6 +12644,7 @@ function getMissingReleaseRequirements(releaseChecklist) {
 }
 
 function getAdminRentalState(rental, releaseChecklist) {
+  if (rental.damage_deposit_hold) return { label: 'Deposit held—damage/incident', tone: 'warning', next: 'Archived with deposit held. Review the linked damage case before returning funds.' };
   if (needsDepositReview(rental)) return { label: 'Deposit Review', tone: 'warning', next: 'Review charges and return the remaining deposit.' };
   if (rental.status === 'completed') return { label: 'Completed', tone: 'success', next: 'This rental is closed.' };
   if (rental.status === 'cancelled') return { label: 'Cancelled', tone: 'danger', next: 'This rental is cancelled.' };

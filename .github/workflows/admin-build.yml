@@ -69,6 +69,7 @@ jobs:
           node tools/check-ticket-flags-browser.mjs
           node tools/check-deposit-payment-browser.mjs
           node tools/check-deposit-review-browser.mjs
+          node tools/check-damage-cases-browser.mjs
           node tools/check-deposit-handoff-browser.mjs
           node tools/check-rate-change-browser.mjs
           node tools/check-rental-navigation-browser.mjs
