@@ -11101,7 +11101,7 @@ function DamageCases({ revision, updateDamageCase, setCustomerStatus }) {
         <LazyHistoryDetail id={report.id} read={async signal=>{
           const {data,error}=await supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').eq('id',report.id).abortSignal(signal).single();
           if(error) throw error; return data;
-        }}>{(detail,reload)=><DamageCaseRow key={`${detail.id}:${detail.status}:${detail.resolved_at||''}`} report={detail} updateDamageCase={async(id,updates)=>{const saved=await updateDamageCase(id,updates);if(saved)reload();return saved;}} setCustomerStatus={setCustomerStatus}/>}</LazyHistoryDetail>
+        }}>{detail=><DamageCaseRow key={`${detail.id}:${detail.status}:${detail.resolved_at||''}`} report={detail} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus}/>}</LazyHistoryDetail>
       </div>
     </article>)}</div>
   </Panel>;
