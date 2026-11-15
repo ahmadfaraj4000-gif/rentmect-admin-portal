@@ -12,7 +12,7 @@ test('Agreement opens the styled in-app review instead of starting a browser dow
 });
 
 test('Agreement files download only from the explicit in-app action', () => {
-  assert.match(source, /alreadySigned && <button type="button" className="secondary-btn" onClick=\{\(\) => downloadAgreement\(rental\)\}/);
+  assert.match(source, /alreadySigned && <button type="button" className="secondary-btn" disabled=\{busy\} onClick=\{\(\) => downloadAgreement\(rental\)\}/);
   assert.match(source, /Download Agreement/);
 });
 
