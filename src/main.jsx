@@ -189,7 +189,7 @@ const SYSTEM_VEHICLE_STATUSES = ['reserved', 'rented', 'on_road'];
 const MANUAL_CALENDAR_ACTION_KEYS = ['available', 'admin_hold', 'unavailable', 'maintenance'];
 const MANUAL_CALENDAR_BLOCK_TYPES = new Set(['admin_hold', 'unavailable', 'maintenance']);
 const SYSTEM_CALENDAR_DISPLAY_KEYS = ['reserved', 'on_road', 'extension_hold'];
-const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'tickets', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings', 'merchants']);
+const ADMIN_TAB_KEYS = new Set(['dashboard', 'queue', 'payments', 'tolls', 'tickets', 'calendar', 'new-booking', 'rentals', 'customers', 'vehicles', 'documents', 'emails', 'audit', 'settings', 'merchants', 'damage']);
 const ADMIN_TAB_DOMAINS = {
   dashboard: ['snapshot'],
   queue: ['operations', 'deposit-tasks'],
@@ -199,6 +199,7 @@ const ADMIN_TAB_DOMAINS = {
   rentals: ['rental-list'],
   customers: [],
   vehicles: ['fleet'],
+  damage: ['damage-reports'],
   documents: [],
   emails: [],
   audit: [],
@@ -211,6 +212,7 @@ const ADMIN_TAB_PERMISSION_KEYS = {
   dashboard: 'tab.dashboard', queue: 'tab.queue', payments: 'tab.payments', tolls: 'tab.tolls',
   tickets: 'tab.tickets',
   calendar: 'tab.calendar', 'new-booking': 'booking.create', rentals: 'tab.rentals', vehicles: 'tab.vehicles',
+  damage: 'customer.manage',
   customers: 'tab.customers', emails: 'tab.communications', documents: 'tab.rentals',
   audit: 'tab.audit', settings: 'tab.settings', merchants: 'merchant.manage',
 };
@@ -977,6 +979,7 @@ function App() {
     const scheduleDomainRefresh = (domain, rentalId = null) => {
       if (activeTabRef.current === 'queue' && ['core','workflow','customer-directory'].includes(domain)) domain = 'operations';
       if (['vehicles','calendar'].includes(activeTabRef.current) && domain === 'core') domain = 'fleet';
+      if (activeTabRef.current === 'damage' && domain === 'workflow') domain = 'damage-reports';
       if (activeTabRef.current === 'new-booking' && domain === 'core') domain = 'booking-inventory';
       if ((activeTabRef.current === 'documents' && domain === 'workflow') || (['customers','payments','emails'].includes(activeTabRef.current) && ['core','workflow','customer-directory','payments'].includes(domain))) {
         window.clearTimeout(refreshTimers.get('document-history'));
@@ -1330,6 +1333,11 @@ function App() {
         if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
         if (depositTasksRes.data) setDepositActionTasks(depositTasksRes.data);
         results = [['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes], ['Deposit actions', depositTasksRes]];
+      } else if (domain === 'damage-reports') {
+        const result = await withReadRetry(() => supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Damage & incident cases');
+        if (readingTab !== activeTabRef.current) return;
+        if (result.data) setReports(result.data);
+        results = [['Damage & incident cases', result]];
       } else if (domain === 'workflow') {
         const [documentsRes, messagesRes, reportsRes, extensionsRes, stepCompletionsRes] = await Promise.all([
           withReadRetry(() => supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
@@ -2783,7 +2791,9 @@ function App() {
       .single();
     if (error) return notify(error.message);
     setReports((current) => current.map((report) => report.id === id ? data : report));
-    notify('Damage case updated.', 'success');
+    refreshAfterSavedTask();
+    notify(payload.status === 'resolved' ? 'Report resolved. Reopen the rental return review to retry the deposit refund.' : 'Damage case updated.', 'success');
+    return true;
   }
 
   async function setCustomerStatus(userId, customerStatus, reason = '') {
@@ -4283,6 +4293,7 @@ function App() {
     { key: 'calendar', label: 'Calendar', icon: CalendarDays },
     { key: 'rentals', label: 'Rentals', icon: KeyRound },
     { key: 'vehicles', label: 'Vehicles', icon: Car },
+    { key: 'damage', label: 'Damage & Incident Cases', icon: ClipboardList },
     { key: 'customers', label: 'Customers', icon: UserRound },
     { key: 'merchants', label: 'Merchants', icon: ShieldCheck },
     { key: 'emails', label: 'Communications', icon: MessageCircle },
@@ -11078,6 +11089,7 @@ function DamageCases({ reports = [], updateDamageCase, setCustomerStatus }) {
     if (filter === 'all') return true;
     if (filter === 'blocked') return report.profiles?.blocked_customer || report.profiles?.customer_status === 'blocked';
     if (filter === 'deposit_held') return Number(report.deposit_held_amount || 0) > 0 || report.rentals?.deposit_status === 'held';
+    if (filter === 'open') return ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase());
     return String(report.status || 'open').toLowerCase() === filter;
   });
 
@@ -13353,7 +13365,7 @@ function auditActionLabel(action) {
   };
   return labels[action] || prettyStatus(String(action || 'activity').replaceAll('.', '_'));
 }
-function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', tickets:'Ticket Resolution', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings', merchants:'Merchants' })[tab] || 'Admin Portal'; }
+function tabTitle(tab) { return ({ dashboard:'Dashboard', queue:'Operations Queue', payments:'Payments', tolls:'Toll Operations', tickets:'Ticket Resolution', calendar:'Fleet Calendar', 'new-booking':'New Booking', rentals:'Rental Manager', customers:'Customers', vehicles:'Fleet Manager', damage:'Damage & Incident Cases', documents:'Document Review', emails:'Communications', audit:'Audit Log', settings:'Settings', merchants:'Merchants' })[tab] || 'Admin Portal'; }
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function manualDiscountDescriptor(rental) {
   if (rental?.manual_discount_type === 'percentage') return `${Number(rental.manual_discount_value || 0)}% off rental`;
