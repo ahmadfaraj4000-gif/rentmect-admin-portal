@@ -16,11 +16,12 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   const [state, setState] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState(null);
   const depositDue = state?.depositAllocationsEnabled ? (canCollectRent ? state.dueParts.depositDueCents : 0) : undefined;
   const due = state?.depositAllocationsEnabled ? (canCollectRent ? state.dueParts.rentalDueCents : 0) : canCollectRent ? Math.round(Number(rentalDue || 0) * 100) : 0;
+  const totalDueAmount = ((due + (depositDue || 0) + eligible.reduce((sum, c) => sum + chargeRemainingCents(c), 0)) / 100).toFixed(2);
   const initialAllocationsJson = JSON.stringify(Object.fromEntries(eligible.map(c => [c.id, (chargeRemainingCents(c) / 100).toFixed(2)])));
   const [tab, setTab] = useState(initialTab);
 
   const [form, setForm, clearDraft] = useTaskDraft(`flex-payment:${rental.id}`, {
-    amount: '0.00', depositAmount: '0.00', rentalAmount: (due / 100).toFixed(2), allocationsJson: initialAllocationsJson,
+    amount: totalDueAmount, depositAmount: '0.00', rentalAmount: (due / 100).toFixed(2), allocationsJson: initialAllocationsJson,
     funding: 'external', paymentMethod: 'cash_app', receivedDate: today(), receivedTime: '', reference: '', notes: '', receiptId: '', requestJson: '', confirmed: false,
   }, ['amount', 'depositAmount', 'rentalAmount', 'allocationsJson', 'funding', 'paymentMethod', 'receivedDate', 'receivedTime', 'reference', 'notes', 'receiptId', 'requestJson']);
   const dialog = useRef(null), submitLock = useRef(false);
@@ -36,11 +37,11 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   // Keep a submitted attempt intact; its reserved allocations must be recovered.
   useEffect(() => {
     setForm(f => f.receiptId || f.requestJson ? f : {
-      ...f, rentalAmount: (due / 100).toFixed(2), allocationsJson: initialAllocationsJson, confirmed: false,
+      ...f, amount: totalDueAmount, rentalAmount: (due / 100).toFixed(2), allocationsJson: initialAllocationsJson, confirmed: false,
     });
   }, []);
   useEffect(() => {
-    if (state?.depositAllocationsEnabled) setForm(f => f.receiptId || f.requestJson ? f : { ...f, rentalAmount: (due / 100).toFixed(2), depositAmount: ((depositDue || 0) / 100).toFixed(2), confirmed: false });
+    if (state?.depositAllocationsEnabled) setForm(f => f.receiptId || f.requestJson ? f : { ...f, amount: totalDueAmount, rentalAmount: (due / 100).toFixed(2), depositAmount: ((depositDue || 0) / 100).toFixed(2), confirmed: false });
   }, [Boolean(state?.depositAllocationsEnabled)]);
   useEffect(() => trackTaskDialog(), []);
   useEffect(() => { const prior = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = prior; }; }, []);

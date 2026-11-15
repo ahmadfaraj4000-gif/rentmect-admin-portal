@@ -23,9 +23,10 @@ try{
  await page.getByRole('button',{name:'Take Payment',exact:true}).click();
  await page.getByLabel('Amount toward security deposit',{exact:true}).waitFor();
  assert.equal(await page.getByLabel('Amount toward rental',{exact:true}).inputValue(),'78.70');
+ assert.equal(await page.getByRole('tabpanel',{name:'External payments'}).getByLabel('Payment amount',{exact:true}).inputValue(),'378.70');
  assert.equal(await page.getByLabel('Amount toward security deposit',{exact:true}).inputValue(),'300.00');
- assert.match(await page.getByRole('dialog').innerText(),/You selected \$378.70 to pay/);
- assert.doesNotMatch(await page.getByRole('dialog').innerText(),/Overallocated|Applied to rental|Rental balance after this payment/);
+ assert.match(await page.getByRole('dialog').innerText(),/Total selected to pay/);
+ assert.doesNotMatch(await page.getByRole('dialog').innerText(),/Overallocated|Applied to rental|You selected \$378.70 to pay/);
 
  await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
  assert.equal(await page.getByLabel('Stripe payment amount',{exact:true}).inputValue(),'378.70');
