@@ -27,6 +27,7 @@ import { depositDeductionOptions } from './lib/depositDeduction.js';
 import { ReturnEvidencePicker, SavedReturnEvidence } from './ReturnEvidence.jsx';
 import { needsReturnEvidenceReport } from './lib/returnEvidence.js';
 import { DepositReview } from './DepositReview.jsx';
+import { creditReturnHistory } from './lib/returnReview.js';
 import { depositSettlementPreview, needsDepositReview } from './lib/depositSettlement.js';
 import { tripStartIsLocked, replacementRentalForm } from './lib/rentalTripStart.js';
 import { freshDomainLoad } from './lib/freshDomainLoad.js';
@@ -8477,7 +8478,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
   const paidExtensions = rentalExtensions.filter((e) => e.request_kind === 'same_vehicle_extension' && e.status === 'activated' && e.payment_status === 'paid').reduce((sum, e) => sum + Number(e.payment_amount_cents != null ? e.payment_amount_cents / 100 : e.extension_total_amount || 0), 0);
   const paidAmount = Number(rentalAccount?.net_paid ?? Math.max(0, recordedPaymentAmount + paidRentalBalances + paidExtensions - recordedRentalRefunds - recordedExternalRefunds - cancelledDepositReturned));
   const currentInvoiceTotal = Number(rentalAccount?.invoice_total ?? Math.max(0, initialPaymentTotal - cancellationCredit));
-  const paymentHistory = [...buildRentalPaymentHistory(rental, rentalPayments, rentalCharges.filter(c => !c.flex_payment_receipt_id && !c.allocation_managed), rentalExtensions, initialPaymentTotal, externalPaymentActions, rentalRefunds, depositAllocations), ...receiptHistory(flexibleState?.receipts, flexibleState?.allocations)].sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const paymentHistory = [...buildRentalPaymentHistory(rental, rentalPayments, rentalCharges.filter(c => !c.flex_payment_receipt_id && !c.allocation_managed), rentalExtensions, initialPaymentTotal, externalPaymentActions, rentalRefunds, depositAllocations), ...receiptHistory(flexibleState?.receipts, flexibleState?.allocations), ...creditReturnHistory(flexibleState?.creditReturns)].sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
   const editableExternalPayments = paymentHistory.filter((payment) => payment.editable && payment.provider === 'external' && payment.amount > 0);
   const invoiceBalanceDue = Math.max(0, currentInvoiceTotal - paidAmount);
   const balanceDue = summaryOnly ? Number(summary.balance_due || 0) : Math.max(0, invoiceBalanceDue + outstandingAdditionalCharges);
@@ -8668,7 +8669,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
     {detailsExpanded && <div className="rental-card-expanded-content" id={`rental-expanded-details-${rental.id}`}>
 
     <div className="rental-card-payment-toolbar">
-      {depositReviewRequired && releaseSecurityDeposit && <button type="button" className="approve" onClick={() => setDepositReviewOpen(true)}><DollarSign size={15}/> Refund Deposit</button>}
+      {(depositReviewRequired || rental.status === 'completed') && releaseSecurityDeposit && <button type="button" className="approve" onClick={() => setDepositReviewOpen(true)}><DollarSign size={15}/> Return deposit &amp; credit</button>}
       {depositReviewRequired && balanceDue > 0 && recordExternalTollPayment && <button type="button" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Collect remaining balance'}</button>}
 
       {!depositReviewRequired && (flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" id={`take-payment-${rental.id}`} className="approve" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
@@ -8759,6 +8760,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
         {rental.payment_status !== 'paid' && rental.payment_due_at && <small className={`payment-deadline ${new Date(rental.payment_due_at).getTime() <= Date.now() ? 'expired' : ''}`}><Clock size={13}/> Due {new Date(rental.payment_due_at).toLocaleString()}</small>}
         <RentalRefundStatus rental={rental} refunds={rentalRefunds} />
         {depositReviewOpen && <DepositReview rental={rental} allocations={depositAllocations} charges={rentalCharges} balanceDue={balanceDue}
+          loadWorkspace={async () => { const {data,error}=await supabase.rpc('admin_return_workspace',{p_rental_id:rental.id}); if(error)throw error; return data; }}
           onClose={result => {
             setDepositReviewOpen(false);
             if (Number(result?.applied) > 0 && Number(result?.remaining) <= 0) onOpenReviewedRentalArchive?.(rental.id);
@@ -8783,9 +8785,8 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
           {!depositReviewRequired && canCloseoutFromDeposit && <button type="button" className="approve" onClick={() => setDepositCloseoutOpen(true)}><ShieldCheck size={15}/> Apply outstanding balance to deposit</button>}
           {!depositReviewRequired && depositSettlement && <button type="button" className="approve" onClick={() => setDepositSettlementOpen(true)}><DollarSign size={15}/> Apply charges &amp; refund remainder</button>}
           {cancellationDepositFlow && <button type="button" className="approve" onClick={() => setCancelModalOpen(true)}><DollarSign size={15}/> Cancel &amp; refund deposit</button>}
-          {canRefundRentalPayment && <button type="button" onClick={() => setRefundModalOpen(true)}><ReceiptText size={15}/> Refund</button>}
-          {!depositReviewRequired && canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
-          {!depositReviewRequired && canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => setExternalDepositOpen(true)}><DollarSign size={15}/> Record external deposit return</button>}
+          {rental.status !== 'completed' && !depositReviewRequired && canReleaseDeposit && balanceDue <= 0.005 && hasStripeDepositAllocation && <button type="button" className="approve" onClick={() => releaseSecurityDeposit(rental)}><DollarSign size={15}/> {rental.deposit_status === 'adjustment_refund_due' ? 'Refund Deposit Decrease' : 'Refund Deposit'}</button>}
+          {rental.status !== 'completed' && !depositReviewRequired && canReleaseDeposit && balanceDue <= 0.005 && hasLocalDepositAllocation && <button type="button" className="approve" onClick={() => setExternalDepositOpen(true)}><DollarSign size={15}/> Record external deposit return</button>}
         </div>
         {stripePaymentAttempts.length > 0 && <div className="stripe-attempt-block" role="status">
           <AlertTriangle size={17}/><span><strong>{stripePaymentAttempts.length} Stripe payment {stripePaymentAttempts.length === 1 ? 'attempt may' : 'attempts may'} block the deposit refund</strong><small>These attempts do not increase the balance due. When you click Refund Deposit, expired or abandoned attempts are reconciled and retired automatically. A genuinely open or processing Stripe payment will remain blocked and identify the attempt.</small>{stripePaymentAttempts.map((attempt) => <em key={attempt.id}>{prettyStatus(attempt.status)} · {money(attempt.total_amount)} · attempt {String(attempt.id).slice(0, 8)}</em>)}</span>

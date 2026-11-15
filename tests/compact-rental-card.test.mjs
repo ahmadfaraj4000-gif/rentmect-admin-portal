@@ -101,7 +101,8 @@ test('documents and financial actions remain reachable without permanent button 
   assert.match(source, /markDocument\(document\.id, 'rejected'\)/);
   assert.match(source, /deleteDocument\(document\)/);
   assert.match(source, />Take Payment<\/button>/);
-  assert.match(source, /> Refund<\/button>/);
+  assert.match(source, /Return deposit &amp; credit<\/button>/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => setRefundModalOpen\(true\)\}/);
   assert.match(source, /<RentalChargeManager ledger/);
 });
 

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import {creditReturnHistory} from '../src/lib/returnReview.js';
 import { chargePaid, chargeRemaining, receiptHistory } from '../src/lib/paymentAllocation.js';
 
 const source = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
@@ -9,7 +10,7 @@ const cancellationCalculation = source.slice(source.indexOf('  const cancellatio
 const calculation = source.slice(source.indexOf('  const additionalChargeTotal = trueAdditionalCharges'), source.indexOf('  const depositHeldAmount = depositAllocations.length'));
 function summary(charges = [], overrides = {}, recordedRentalRefunds = 0, rentalAccount = null, rentalExtensions = []) {
   const context = vm.createContext({
-    chargePaid, chargeRemaining, receiptHistory, flexibleState: null, summaryOnly: false, summary: {},
+    chargePaid, chargeRemaining, receiptHistory, creditReturnHistory, flexibleState: null, summaryOnly: false, summary: {},
     rental: { rental_total: 1079.14, tax_amount: 68.53, security_deposit: 300,
       paid_at: '2026-09-15', payment_amount_cents: 138492, ...overrides },
     trueAdditionalCharges: charges,
