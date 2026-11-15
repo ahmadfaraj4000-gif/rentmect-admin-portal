@@ -15,7 +15,8 @@ export function swapAvailabilityLabel(availability) {
 }
 
 export function swapAvailabilityStart(from, until, pickup, now = Date.now()) {
-  const first = Date.parse(pickup), end = Date.parse(until);
+  const first = Date.parse(pickup), end = Date.parse(until), start = Date.parse(from);
+  if (Number.isFinite(start) && start > first && start < end) return from;
   if (Number.isFinite(first) && first > now && first < end) return pickup;
   return swapTimeMessage(from, until, pickup, now) ? null : from;
 }

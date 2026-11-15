@@ -9300,7 +9300,7 @@ function AdminRentalExtensionModal({ rental, onPreview, onApply, onCancel }) {
 
 function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onExtend }) {
   const dialogRef = useDialogFocus(onCancel, { closeOnEscape: false });
-  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'now', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', outgoingMileage: '', incomingMileage: '', reason: '', handoverConfirmed: false }, ['outgoingMileage', 'incomingMileage', 'operation', 'vehicleId', 'timeMode', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
+  const [form, setForm, clearDraft] = useTaskDraft(`VehicleSwapModal:${rental.id}`, { operation: 'swap', vehicleId: '', timeMode: 'custom', effectiveAt: formatEasternDateTimeInput(new Date()), swapKind: 'emergency', dailyRate: '', outgoingMileage: '', incomingMileage: '', reason: '', handoverConfirmed: false }, ['outgoingMileage', 'incomingMileage', 'operation', 'vehicleId', 'effectiveAt', 'swapKind', 'dailyRate', 'reason']);
   const currentSwapTime = () => {
     const date = new Date();
     return `${formatEasternDateTimeInput(date)}:${String(date.getUTCSeconds()).padStart(2, '0')}`;
@@ -9366,16 +9366,16 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
           {availabilityFrom && <div className="wide"><RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} /></div>}
           <label><span>Swap reason</span><select value={form.swapKind} onChange={(e) => change('swapKind', e.target.value)}><option value="emergency">Emergency replacement</option><option value="maintenance">Maintenance replacement</option><option value="customer_request">Customer requested change</option></select></label>
           <label><span>When are the vehicles being exchanged?</span><select value={form.timeMode} onChange={e => change('timeMode', e.target.value)}><option value="now">Swap now</option><option value="custom">Enter actual swap time</option></select></label>
-          {form.timeMode === 'custom' && <label><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
-          {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><MoneyInput type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p>The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
-          <label className="checkbox-label"><input type="checkbox" checked={Boolean(form.handoverConfirmed)} onChange={e => change('handoverConfirmed', e.target.checked)} required/><span>I confirm the old vehicle has been physically received and the replacement is being handed over.</span></label>
+          {form.timeMode === 'custom' && <label className="wide"><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
+          {form.swapKind === 'customer_request' ? <label><span>Agreed daily rate from swap onward</span><MoneyInput type="number" min="0" max={MONEY_MAX} step="0.01" required value={form.dailyRate} onChange={(e) => change('dailyRate', e.target.value)}/></label> : <p className="wide swap-rate-note">The existing agreed prices continue through the booked return. An extension will be quoted separately.</p>}
+          <label className="checkbox-label wide swap-handover"><input type="checkbox" checked={Boolean(form.handoverConfirmed)} onChange={e => change('handoverConfirmed', e.target.checked)} required/><span>I confirm the old vehicle has been physically received and the replacement is being handed over.</span></label>
           <label><span>Outgoing vehicle return odometer</span><input type="number" min={returnMileageContext(rental).minimum} max={MILEAGE_MAX} step="1" required value={form.outgoingMileage} onChange={e => change('outgoingMileage', e.target.value)}/></label>
           <label><span>Replacement vehicle pickup odometer</span><input type="number" min={vehicles.find(v => v.id === form.vehicleId)?.current_mileage || 0} max={MILEAGE_MAX} step="1" required value={form.incomingMileage} onChange={e => change('incomingMileage', e.target.value)}/></label>
           <label className="wide"><span>Reason and agreement details</span><textarea required maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <p>{form.timeMode === 'custom' ? 'Use the time the vehicles were actually exchanged. Your entered time is kept when reopening this form.' : 'The swap time defaults to now. Choose a replacement vehicle and review the swap.'}</p>
         <p>Availability window: <strong>{formatEasternDateTime(availabilityFrom) || 'Select Swap now or enter a valid time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
-        <button type="button" disabled={busy || availability.loading || !availabilityFrom} onClick={availability.retry}>Recheck availability</button>
+        <button type="button" className="secondary-btn" disabled={busy || availability.loading || !availabilityFrom} onClick={availability.retry}>Recheck availability</button>
 
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong><p>Outgoing odometer: {formatMiles(Number(form.outgoingMileage))} · Replacement pickup: {formatMiles(Number(form.incomingMileage))}</p>
           {preview.periods.map((period, i) => <p key={i}>{formatEasternDateTime(period.from)} → {formatEasternDateTime(period.until)}: {money(period.old_rate)} → {money(period.new_rate)} per day</p>)}
@@ -9385,7 +9385,7 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
         </section>}
         {error && <p role="alert" className="form-error">{error}</p>}
       </div>
-      <footer className="rental-amendment-actions"><button type="button" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy || !availabilityReady} onClick={save}>{busy ? 'Saving…' : 'Confirm swap'}</button> : <button className="primary-btn" disabled={busy || !availabilityReady}>{busy ? 'Reviewing…' : 'Review swap'}</button>}</footer>
+      <footer className="rental-amendment-actions"><button type="button" className="secondary-btn" onClick={onCancel} disabled={busy}>Cancel</button>{preview ? <button type="button" className="primary-btn" disabled={busy || !availabilityReady} onClick={save}>{busy ? 'Saving…' : 'Confirm swap'}</button> : <button className="primary-btn" disabled={busy || !availabilityReady}>{busy ? 'Reviewing…' : 'Review swap'}</button>}</footer>
     </form>
   </div>;
 }

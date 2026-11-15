@@ -78,6 +78,7 @@ jobs:
           node tools/check-lazy-screens-browser.mjs
           node tools/check-booking-submit-browser.mjs
           node tools/test-rental-amendment-browser.mjs
+          node tools/check-swap-layout-browser.mjs
 
       - name: Build production assets
         run: npm run build
