@@ -25,3 +25,5 @@
 .damage-case-dialog .admin-modal-header { flex-shrink:0; }
 .damage-case-dialog .damage-case-body { flex:1 1 auto; min-height:0; }
 .damage-case-dialog .damage-case-actions { flex:0 0 auto; max-height:35dvh; overflow:auto; }
+.admin-modal.damage-case-dialog[role="dialog"] { display:flex!important; flex-direction:column!important; max-height:calc(100dvh - 32px)!important; overflow:hidden!important; min-height:0!important; }
+.damage-case-dialog .damage-case-body { overflow-y:auto!important; }
