@@ -2021,10 +2021,15 @@ function App() {
   async function releaseSecurityDeposit(rental, settlement = null) {
     if (!requireStaffPermission('deposit.resolve', 'resolve security deposits')) return false;
     if (!rental?.id) return false;
-    if (settlement?.hold) {
-      const { error } = await supabase.rpc('admin_hold_deposit_review', { p_rental_id: rental.id, p_note: settlement.reason, p_follow_up_at: easternDateTimeInputToIso(settlement.followUp) });
+    if (settlement?.resumeHold) {
+      const { error } = await supabase.rpc('admin_resume_deposit_review', { p_rental_id: rental.id });
       if (error) { notify(error.message, 'error'); return false; }
-      refreshAfterSavedTask(); notify('Deposit held for review.', 'success'); return true;
+      refreshAfterSavedTask(); notify('Deposit review reopened. Resolve any remaining cases before refunding.', 'success'); return true;
+    }
+    if (settlement?.hold) {
+      const { error } = await supabase.rpc('admin_retain_rental_deposit', { p_rental_id: rental.id, p_note: settlement.reason });
+      if (error) { notify(error.message, 'error'); return false; }
+      refreshAfterSavedTask(); openReviewedRentalArchive(rental.id); notify('Deposit kept. Returned rental archived and deposit review recorded.', 'success'); return true;
     }
     if (settlement && (!settlement.review || settlement.chargeIds?.length > 0) && !requireStaffPermission('charge.manage', 'apply deposits to charges')) return false;
     const amount = Number(settlement?.expectedRefund ?? rental.deposit_held_amount ?? rental.security_deposit ?? 0);
@@ -8734,7 +8739,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
 
       <aside className="rental-card-financial" aria-labelledby={`rental-finances-${rental.id}`}>
         <div className="rental-card-section-heading"><div><small>Financial control</small><h4 id={`rental-finances-${rental.id}`}>Payment Summary</h4></div><span className={balanceDue > 0 ? 'balance-due' : 'balance-clear'}>{cancelledBeforePickup ? (rental.deposit_status === 'released' ? 'Refunded' : 'Deposit refund outstanding') : balanceDue > 0 ? `${money(balanceDue)} due` : 'Paid'}</span></div>
-        <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(rentalOnlyBalanceDue)}</dd>{depositBalanceDue > 0 && <><dt>Security deposit still needed</dt><dd>{money(depositBalanceDue)}</dd></>}<dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd>{rental.damage_deposit_hold&&<><dt>Damage / incident hold</dt><dd>{rental.deposit_review_note||'Open case in Damage & Incident Cases'}</dd></>}</dl>
+        <dl className="rental-card-compact-summary"><dt className="summary-balance">Balance due</dt><dd className="summary-balance">{money(balanceDue)}</dd><dt>Rental outstanding</dt><dd>{money(rentalOnlyBalanceDue)}</dd>{depositBalanceDue > 0 && <><dt>Security deposit still needed</dt><dd>{money(depositBalanceDue)}</dd></>}<dt>Additional charges outstanding</dt><dd>{money(outstandingAdditionalCharges)}</dd>{(flexiblePaymentsEnabled || flexibleState) && <><dt>Available customer credit</dt><dd>{flexibleReadError ? 'Unavailable — retry' : flexibleState ? money(flexibleState.availableCreditCents / 100) : 'Loading…'}</dd></>}<dt>Security deposit held</dt><dd>{money(depositHeldAmount)}</dd>{rental.damage_deposit_hold&&<><dt>Deposit kept · reviewed</dt><dd>{rental.deposit_review_note||'Open case in Damage & Incident Cases'}</dd></>}</dl>
         <section className="rental-accounting-breakdown" aria-label="Full accounting breakdown"><h4>Full accounting breakdown</h4><dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
@@ -8771,6 +8776,7 @@ function RentalRow({ summaryOnly = false, summary = {}, onRequestDetails, onRequ
             setDepositReviewOpen(false);
             if (Number(result?.applied) > 0 && Number(result?.remaining) <= 0) onOpenReviewedRentalArchive?.(rental.id);
           }} onConfirm={details => releaseSecurityDeposit(rental, details)}
+          onResume={() => releaseSecurityDeposit(rental, { resumeHold: true })}
           onHold={(reason, followUp) => releaseSecurityDeposit(rental, { hold: true, reason, followUp })}
           onExternalReturn={recordLocalDepositRelease ? () => { setDepositReviewOpen(false); setExternalDepositOpen(true); } : null} />}
         {depositSettlementOpen && depositSettlement && <DepositChargeSettlementModal preview={depositSettlement}
@@ -12644,7 +12650,7 @@ function getMissingReleaseRequirements(releaseChecklist) {
 }
 
 function getAdminRentalState(rental, releaseChecklist) {
-  if (rental.damage_deposit_hold) return { label: 'Deposit held—damage/incident', tone: 'warning', next: 'Archived with deposit held. Review the linked damage case before returning funds.' };
+  if (rental.damage_deposit_hold) return { label: 'Deposit kept · reviewed', tone: 'warning', next: 'Returned and archived with deposit kept. See the review note in rental details.' };
   if (needsDepositReview(rental)) return { label: 'Deposit Review', tone: 'warning', next: 'Review charges and return the remaining deposit.' };
   if (rental.status === 'completed') return { label: 'Completed', tone: 'success', next: 'This rental is closed.' };
   if (rental.status === 'cancelled') return { label: 'Cancelled', tone: 'danger', next: 'This rental is cancelled.' };

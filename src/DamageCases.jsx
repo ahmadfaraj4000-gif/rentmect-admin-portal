@@ -34,13 +34,13 @@ function CaseDialog({id,client,canHold,updateDamageCase,setCustomerStatus,render
   else {const response=await client.rpc('admin_damage_case_action',{p_report_id:id,p_action:kind,p_note:form.admin_notes});if(response.error)throw response.error;result=response.data;}
   if(!result)throw new Error('The change was not saved. Check the error and retry.');
   onChanged();if(result.id===id)populate(result);else setReload(v=>v+1);
-  setMessage(kind==='hold'?'Deposit held. This rental is in Archive, marked “Deposit held—damage/incident”.':kind==='resolve'?'Case resolved and its deposit hold cleared. Reopen the rental to review the refund; other open cases or unpaid balances may still apply.':kind==='block'?'Customer blocked. The same blocked status is saved in Customers.':kind==='unblock'?'Customer unblocked in Customers.':'Case saved.');
+  setMessage(kind==='hold'?'Deposit held. This rental is in Archive, marked “Deposit kept · reviewed”.':kind==='resolve'?'Case resolved. Reopen the rental to review its deposit; an independent rental hold, other open cases or unpaid balances may still apply.':kind==='block'?'Customer blocked. The same blocked status is saved in Customers.':kind==='unblock'?'Customer unblocked in Customers.':'Case saved.');
  }catch(e){setError(e.message||'Unable to save. Please retry.');}finally{setBusy('');}}
  return createPortal(<div className="admin-modal-backdrop damage-case-backdrop"><section className="admin-modal damage-case-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="damage-case-title" tabIndex={-1} onKeyDown={e=>{if(e.key==='Escape'&&!busy)onClose();if(e.key==='Tab'){const nodes=[...dialog.current.querySelectorAll('button,input,textarea,a')].filter(n=>!n.disabled&&n.getClientRects().length);const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}}}>
  <header className="admin-modal-header"><div><h2 id="damage-case-title">Damage & incident case</h2>{detail&&<span>{detail.rentals?.vehicles?.name||'Vehicle'} · {detail.profiles?.full_name||'Customer'}</span>}</div><button disabled={Boolean(busy)} onClick={onClose} aria-label="Close case">×</button></header>
  <div className="damage-case-body" aria-busy={loading||Boolean(busy)}>
  {loading?<p role="status">Loading case details…</p>:detail&&<>
- <div className="damage-case-flags"><span className="damage-case-status">{label(detail.status)}</span>{detail.deposit_hold_active&&<strong>Deposit held—damage/incident</strong>}{blocked&&<strong>Customer blocked</strong>}</div>
+ <div className="damage-case-flags"><span className="damage-case-status">{label(detail.status)}</span>{(detail.deposit_hold_active||detail.rentals?.damage_deposit_hold)&&<strong>Deposit kept · reviewed</strong>}{blocked&&<strong>Customer blocked</strong>}</div>
  <p>{detail.rentals?`${detail.rentals.pickup_date} – ${detail.rentals.return_date}`:'No rental attached'}</p>
  {renderEvidence(detail.photo_paths)}
  <fieldset disabled={Boolean(busy)}><label htmlFor="case-description">Description<textarea id="case-description" rows={3} value={form.description} maxLength={1000} onChange={e=>setForm({...form,description:e.target.value})}/></label>
@@ -55,9 +55,9 @@ function CaseDialog({id,client,canHold,updateDamageCase,setCustomerStatus,render
  <footer className="damage-case-actions">
  {detail&&!loading&&<><button disabled={Boolean(busy)} onClick={()=>action('save')}>{busy==='save'?'Saving…':'Save case'}</button>
  <button disabled={Boolean(busy)||detail.status==='resolved'} onClick={()=>action('resolve')}>{busy==='resolve'?'Resolving…':'Mark resolved'}</button>
- {canHold&&<button disabled={Boolean(busy)||!detail.rental_id||!form.admin_notes.trim()||detail.deposit_hold_active} onClick={()=>action('hold')}>{busy==='hold'?'Holding…':'Hold deposit'}</button>}
+ {canHold&&<button disabled={Boolean(busy)||!detail.rental_id||!form.admin_notes.trim()||(detail.deposit_hold_active||detail.rentals?.damage_deposit_hold)} onClick={()=>action('hold')}>{busy==='hold'?'Holding…':'Hold deposit'}</button>}
  {detail.user_id&&<button className={blocked?'':'reject'} disabled={Boolean(busy)} onClick={()=>action(blocked?'unblock':'block')}>{busy==='block'||busy==='unblock'?'Saving…':blocked?'Unblock customer':'Block customer'}</button>}
- {detail.rental_id&&<button disabled={Boolean(busy)} onClick={()=>{onClose();(detail.deposit_hold_active?onOpenArchive:onOpenRental)(detail.rental_id);}}>{detail.deposit_hold_active?'View archived rental':'View rental / refund'}</button>}</>}
+ {detail.rental_id&&<button disabled={Boolean(busy)} onClick={()=>{onClose();((detail.deposit_hold_active||detail.rentals?.damage_deposit_hold)?onOpenArchive:onOpenRental)(detail.rental_id);}}>{(detail.deposit_hold_active||detail.rentals?.damage_deposit_hold)?'View archived rental':'View rental / refund'}</button>}</>}
  <button disabled={Boolean(busy)} onClick={onClose}>Close</button>
  </footer>
  </section></div>,document.body);
