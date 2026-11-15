@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {PageControls,useHistoryPage} from './HistoryScreens.jsx';
 import './damage-cases.css';
+import {CaseEvidence} from './CaseEvidence.jsx';
 const label=value=>String(value||'open').replaceAll('_',' ');
 export function DamageCases({client,revision,updateDamageCase,setCustomerStatus,renderEvidence,onOpenRental,onOpenArchive,canHold}) {
  const [filter,setFilter]=useState('open'),[offset,setOffset]=useState(0),[refresh,setRefresh]=useState(0),[selected,setSelected]=useState(null);
@@ -24,7 +25,7 @@ function CaseDialog({id,client,canHold,updateDamageCase,setCustomerStatus,render
  const [detail,setDetail]=useState(null),[form,setForm]=useState({}),[loading,setLoading]=useState(true),[busy,setBusy]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[reload,setReload]=useState(0);
  const dialog=useRef(null);
  function populate(data){setDetail(data);setForm({description:data.description||'',admin_notes:data.admin_notes||'',estimated_cost:data.estimated_cost||0,final_charge_amount:data.final_charge_amount||0});}
- useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');client.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').eq('id',id).abortSignal(controller.signal).single().then(({data,error})=>{if(controller.signal.aborted)return;if(error)setError(error.message);else populate(data);setLoading(false);}).catch(error=>{if(!controller.signal.aborted){setError(error.message||'Unable to load case details.');setLoading(false);}});return()=>controller.abort();},[id,reload]);
+ useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');client.from('vehicle_reports').select('id,user_id,rental_id,status,description,admin_notes,estimated_cost,final_charge_amount,deposit_hold_active,profiles(full_name,blocked_customer,customer_status),rentals(id,pickup_date,return_date,damage_deposit_hold,vehicles(name))').eq('id',id).abortSignal(controller.signal).single().then(({data,error})=>{if(controller.signal.aborted)return;if(error)setError(error.message);else populate(data);setLoading(false);}).catch(error=>{if(!controller.signal.aborted){setError(error.message||'Unable to load case details.');setLoading(false);}});return()=>controller.abort();},[id,reload]);
  useEffect(()=>{const old=document.activeElement,overflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.current?.focus();return()=>{document.body.style.overflow=overflow;old?.focus?.();};},[]);
  const blocked=detail?.profiles?.blocked_customer||detail?.profiles?.customer_status==='blocked';
  async function action(kind){setBusy(kind);setError('');setMessage('');try{
@@ -42,7 +43,7 @@ function CaseDialog({id,client,canHold,updateDamageCase,setCustomerStatus,render
  {loading?<p role="status">Loading case details…</p>:detail&&<>
  <div className="damage-case-flags"><span className="damage-case-status">{label(detail.status)}</span>{(detail.deposit_hold_active||detail.rentals?.damage_deposit_hold)&&<strong>Deposit kept · reviewed</strong>}{blocked&&<strong>Customer blocked</strong>}</div>
  <p>{detail.rentals?`${detail.rentals.pickup_date} – ${detail.rentals.return_date}`:'No rental attached'}</p>
- {renderEvidence(detail.photo_paths)}
+ <CaseEvidence client={client} reportId={id} onBusy={value=>setBusy(value?'photos':'')}/>
  <fieldset disabled={Boolean(busy)}><label htmlFor="case-description">Description<textarea id="case-description" rows={3} value={form.description} maxLength={1000} onChange={e=>setForm({...form,description:e.target.value})}/></label>
  <label>Case notes / deposit hold reason<textarea rows={3} value={form.admin_notes} maxLength={1500} onChange={e=>setForm({...form,admin_notes:e.target.value})}/></label>
  <div className="damage-case-amounts"><label>Estimated repair cost<input type="number" min="0" step="0.01" value={form.estimated_cost} onChange={e=>setForm({...form,estimated_cost:e.target.value})}/></label><label>Final charge estimate<input type="number" min="0" step="0.01" value={form.final_charge_amount} onChange={e=>setForm({...form,final_charge_amount:e.target.value})}/></label></div>
