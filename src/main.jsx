@@ -15,7 +15,7 @@ import { FlexibleReceivePayment } from './FlexibleReceivePayment.jsx';
 import { RentalLedger, RentalReceiptDialog } from './RentalLedger.jsx';
 import { chargeRemaining, chargePaid, receiptHistory, flexibleCashEvents, readFlexiblePaymentActivity } from './lib/paymentAllocation.js';
 import { groupPaymentHistory, receivedDateLabel } from './lib/externalPayment.js';
-import { swapTimeMessage, swapAvailabilityLabel } from './lib/rentalSwapTime.js';
+import { swapTimeMessage, swapAvailabilityLabel, swapAvailabilityStart } from './lib/rentalSwapTime.js';
 import { eligibleExternalTolls, buildTollPayment, tollCents } from './lib/externalTollPayment.js';
 import Merchants from './Merchants.jsx';
 import { rentalCalendarMinutes } from './rentalBillingTime.js';
@@ -9321,8 +9321,9 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
     });
     return () => { active = false; };
   }, [rental.id]);
+  const availabilityFrom = swapAvailabilityStart(effectiveIso, returnIso, pickupIso);
   const availability = useVehicleAvailability(supabase, rental.id,
-    timeProblem ? null : effectiveIso, returnIso);
+    availabilityFrom, returnIso);
   const availabilityReady = !timeProblem && availability.ready && availability.rows.some((row) => row.vehicle_id === form.vehicleId && row.available);
   const [preview, setPreview] = useState(null);
   const reviewRef = useRef(null);
@@ -9361,8 +9362,8 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
         {rateContext && <p>Current agreed rate: <strong>{money(rateContext.daily_rate)}/day</strong>.{form.vehicleId && <> Replacement standard rate: <strong>{money(vehicles.find(v => v.id === form.vehicleId)?.daily_rate)}/day</strong>.</>}</p>}
         {timeProblem && <div role="alert" className="form-error swap-time-warning"><p>{timeProblem}</p>{onExtend && effectiveIso && returnIso && new Date(effectiveIso) >= new Date(returnIso) && <button type="button" className="secondary-btn" disabled={busy} onClick={onExtend}>Update return date</button>}</div>}
         <fieldset disabled={busy} className="rental-amendment-grid vehicle-swap-fields">
-          <label className="wide"><span>Replacement vehicle</span><select required value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">Choose vehicle</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : swapAvailabilityLabel(availability)}</option>)}</select></label>
-          {!timeProblem && <div className="wide"><RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} /></div>}
+          <label className="wide"><span>Replacement vehicle</span><select required disabled={!availability.ready} value={form.vehicleId} onChange={(e) => change('vehicleId', e.target.value)}><option value="">{availability.loading ? 'Checking vehicles…' : availability.error ? 'Availability check failed — retry below' : !availabilityFrom ? 'Set a valid exchange time first' : 'Choose vehicle'}</option>{vehicles.filter((v) => v.id !== rental.vehicle_id && v.is_active !== false && v.id !== '00000000-0000-4000-8000-000000000015').map((v) => <option key={v.id} value={v.id}>{v.name} — {availability.ready ? (availability.rows.find((row) => row.vehicle_id === v.id)?.available ? 'Available' : 'Unavailable') : swapAvailabilityLabel(availability)}</option>)}</select></label>
+          {availabilityFrom && <div className="wide"><RentalAvailabilityNotice availability={availability} vehicleId={form.vehicleId} /></div>}
           <label><span>Swap reason</span><select value={form.swapKind} onChange={(e) => change('swapKind', e.target.value)}><option value="emergency">Emergency replacement</option><option value="maintenance">Maintenance replacement</option><option value="customer_request">Customer requested change</option></select></label>
           <label><span>When are the vehicles being exchanged?</span><select value={form.timeMode} onChange={e => change('timeMode', e.target.value)}><option value="now">Swap now</option><option value="custom">Enter actual swap time</option></select></label>
           {form.timeMode === 'custom' && <label><span>Actual swap time (Eastern)</span><input type="datetime-local" step="1" required value={form.effectiveAt} onChange={(e) => change('effectiveAt', e.target.value)}/></label>}
@@ -9373,8 +9374,8 @@ function VehicleSwapModal({ rental, vehicles, onPreview, onApply, onCancel, onEx
           <label className="wide"><span>Reason and agreement details</span><textarea required maxLength={1000} value={form.reason} onChange={(e) => change('reason', e.target.value)}/></label>
         </fieldset>
         <p>{form.timeMode === 'custom' ? 'Use the time the vehicles were actually exchanged. Your entered time is kept when reopening this form.' : 'The swap time defaults to now. Choose a replacement vehicle and review the swap.'}</p>
-        <p>Checking availability from <strong>{formatEasternDateTime(effectiveIso) || 'Select Swap now or enter a valid time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
-        <button type="button" disabled={busy || availability.loading} onClick={availability.retry}>Recheck availability</button>
+        <p>Availability window: <strong>{formatEasternDateTime(availabilityFrom) || 'Select Swap now or enter a valid time'}</strong> through <strong>{formatRentalDate(rental.return_date, rental.return_time)}</strong>.</p>
+        <button type="button" disabled={busy || availability.loading || !availabilityFrom} onClick={availability.retry}>Recheck availability</button>
 
         {preview && <section ref={reviewRef} className="rental-amendment-preview" aria-live="polite"><strong>Review financial effect</strong><p>Outgoing odometer: {formatMiles(Number(form.outgoingMileage))} · Replacement pickup: {formatMiles(Number(form.incomingMileage))}</p>
           {preview.periods.map((period, i) => <p key={i}>{formatEasternDateTime(period.from)} → {formatEasternDateTime(period.until)}: {money(period.old_rate)} → {money(period.new_rate)} per day</p>)}
