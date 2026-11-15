@@ -46,7 +46,7 @@ const getComponent=async(name,next)=>{
  const code=source.slice(source.indexOf(`function ${name}(`),source.indexOf(`function ${next}(`));
  return (await transformWithOxc(`${code};${name};`,'availability.jsx',{jsx:{runtime:'classic'}})).code;
 };
-const helpers={React,returnMileageContext,MILEAGE_MAX:9999999,formatMiles:String,swapTimeMessage:()=>'',swapAvailabilityLabel:()=>'Checking availability…',useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
+const helpers={React,returnMileageContext,MILEAGE_MAX:9999999,formatMiles:String,swapTimeMessage:()=>'',swapAvailabilityStart:x=>x,swapAvailabilityLabel:()=>'Checking availability…',useTaskDraft:(_key,initial)=>[typeof initial==='function'?initial():initial,()=>{},()=>{}],useDialogFocus:()=>({current:null}),useRef:()=>({current:null}),useEffect:()=>{},
  useState:(initial)=>[typeof initial==='function'?initial():initial,()=>{}],crypto:{randomUUID:()=> 'fixture'},supabase:{},
  money:(v)=>String(v),Car:()=>null,CalendarClock:()=>null,X:()=>null,MoneyInput:"input",MONEY_MAX:100000,calendarTimeOptions:()=>['9:00 AM'],
  formatRentalDate:(d,t)=>`${d} ${t}`,formatEasternDateTime:(v)=>v,formatEasternDateTimeInput:()=> '2026-10-24T16:21',easternDateTimeInputToIso:()=> '2026-10-24T20:21:00Z',
@@ -59,7 +59,7 @@ test('swap options allow inspecting unavailable vehicles while review stays bloc
  const html=renderToStaticMarkup(React.createElement(Swap,{rental,vehicles:[{id:'free',name:'Free car'},{id:'busy',name:'Booked car'}]}));
  assert.match(html,/<option value="free">Free car — Available<\/option>/);
  assert.match(html,/<option value="busy">Booked car — Unavailable<\/option>/);
- assert.match(html,/Checking availability from/);
+ assert.match(html,/Availability window:/);
  assert.match(html,/2026-10-24T20:21:00Z/);
  assert.match(html,/Recheck availability/);
  assert.match(html,/<button class="primary-btn" disabled="">Review swap<\/button>/);
@@ -101,4 +101,16 @@ test('selecting a blocked replacement exposes its reason without allowing review
  assert.match(html,/three-hour turnaround protected/);
  assert.match(html,/Oct 24 1:03 PM/);
  assert.match(html,/<button class="primary-btn" disabled="">Review swap<\/button>/);
+});
+
+
+test('swap vehicle selection waits for availability and exposes check failures', async () => {
+ for (const state of [{ready:false,loading:true,rows:[]},{ready:false,error:'offline',rows:[]}]) {
+  const Swap=vm.runInNewContext(await getComponent('VehicleSwapModal','RentalAmendmentModal'),{
+   ...helpers,useVehicleAvailability:()=>state});
+  const html=renderToStaticMarkup(React.createElement(Swap,{rental,vehicles:[{id:'free',name:'Free car'}]}));
+  assert.match(html,/<select required="" disabled="">/);
+  assert.match(html,/<button class="primary-btn" disabled="">Review swap<\/button>/);
+  assert.match(html,state.loading ? /Checking availability/ : /Availability check failed/);
+ }
 });

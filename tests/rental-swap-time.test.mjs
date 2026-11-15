@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { swapTimeMessage, swapAvailabilityLabel } from '../src/lib/rentalSwapTime.js';
+import { swapTimeMessage, swapAvailabilityLabel, swapAvailabilityStart } from '../src/lib/rentalSwapTime.js';
 const source=readFileSync(new URL('../src/main.jsx',import.meta.url),'utf8');
 const code=source.slice(source.indexOf('function formatEasternDateTimeInput('),source.indexOf('function bookingProviderLabel('));
 const parse=vm.runInNewContext(code+';easternDateTimeInputToIso;', {Intl,Date});
@@ -26,4 +26,12 @@ test('loading and failed availability never instruct the user to choose another 
  assert.equal(swapAvailabilityLabel({loading:true}),'Checking availability…');
  assert.equal(swapAvailabilityLabel({error:'offline'}),'Availability check failed');
  assert.equal(swapAvailabilityLabel({}),'Availability not checked');
+});
+
+test('future pickups still check the actual booked interval without allowing a physical swap',()=>{
+ const now=Date.parse('2026-11-14T20:00Z'),pickup='2026-11-24T14:00Z',end='2026-11-26T14:00Z',start='2026-11-14T20:00Z';
+ assert.equal(swapAvailabilityStart(start,end,pickup,now),pickup);
+ assert.match(swapTimeMessage(start,end,pickup,now),/pickup is still in the future/);
+ assert.equal(swapAvailabilityStart(start,'2026-11-13T14:00Z','2026-11-01T14:00Z',now),null);
+ assert.equal(swapAvailabilityStart(start,end,'2026-11-01T14:00Z',now),start);
 });
