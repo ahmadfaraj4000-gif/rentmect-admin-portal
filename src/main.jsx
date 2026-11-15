@@ -1,7 +1,7 @@
 import { adminErrorMessage } from './lib/adminErrors.js';
 import { PortalInbox } from './PortalInbox.jsx';
 import { CustomerDirectory } from './CustomerDirectory.jsx';
-import { AuditHistory, DocumentHistory, MaintenanceHistory, PaymentActivity, EmailHistory, LazyHistoryDetail } from './HistoryScreens.jsx';
+import { AuditHistory, DocumentHistory, MaintenanceHistory, PaymentActivity, EmailHistory, LazyHistoryDetail, useHistoryPage, PageControls } from './HistoryScreens.jsx';
 import { MoneyInput } from './MoneyInput.jsx';
 import { returnMileageContext, returnCustomerAction } from './lib/rentalMileage.js';
 import { manualDiscountPreviewMatches, additionalDiscountRequest } from './lib/manualDiscountPreview.js';
@@ -199,7 +199,7 @@ const ADMIN_TAB_DOMAINS = {
   rentals: ['rental-list'],
   customers: [],
   vehicles: ['fleet'],
-  damage: ['damage-reports'],
+  damage: [],
   documents: [],
   emails: [],
   audit: [],
@@ -968,7 +968,7 @@ function App() {
       recoveryInFlight = true;
       lastRecoveryAt = now;
       try {
-        if (['audit', 'documents', 'customers', 'payments', 'emails'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
+        if (['audit', 'documents', 'customers', 'payments', 'emails', 'damage'].includes(activeTabRef.current)) setHistoryRevision(value => value + 1);
         const domains = adminRefreshDomains(ADMIN_TAB_DOMAINS, activeTabRef.current);
         await Promise.all(domains.map((domain) => loadAdminDomain(domain, { force: true })));
       } finally {
@@ -979,9 +979,8 @@ function App() {
     const scheduleDomainRefresh = (domain, rentalId = null) => {
       if (activeTabRef.current === 'queue' && ['core','workflow','customer-directory'].includes(domain)) domain = 'operations';
       if (['vehicles','calendar'].includes(activeTabRef.current) && domain === 'core') domain = 'fleet';
-      if (activeTabRef.current === 'damage' && domain === 'workflow') domain = 'damage-reports';
       if (activeTabRef.current === 'new-booking' && domain === 'core') domain = 'booking-inventory';
-      if ((activeTabRef.current === 'documents' && domain === 'workflow') || (['customers','payments','emails'].includes(activeTabRef.current) && ['core','workflow','customer-directory','payments'].includes(domain))) {
+      if ((['documents','damage'].includes(activeTabRef.current) && domain === 'workflow') || (['customers','payments','emails'].includes(activeTabRef.current) && ['core','workflow','customer-directory','payments'].includes(domain))) {
         window.clearTimeout(refreshTimers.get('document-history'));
         refreshTimers.set('document-history', window.setTimeout(() => {
           if (document.visibilityState !== 'hidden') setHistoryRevision(value => value + 1);
@@ -1333,11 +1332,6 @@ function App() {
         if (maintenanceSchedulesRes.data) setMaintenanceSchedules(maintenanceSchedulesRes.data);
         if (depositTasksRes.data) setDepositActionTasks(depositTasksRes.data);
         results = [['Vehicles', vehiclesRes], ['Rentals', rentalsRes], ['Booking holds', pendingBookingsRes], ['Emergency exceptions', emergencyExceptionsRes], ['Maintenance schedules', maintenanceSchedulesRes], ['Deposit actions', depositTasksRes]];
-      } else if (domain === 'damage-reports') {
-        const result = await withReadRetry(() => supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Damage & incident cases');
-        if (readingTab !== activeTabRef.current) return;
-        if (result.data) setReports(result.data);
-        results = [['Damage & incident cases', result]];
       } else if (domain === 'workflow') {
         const [documentsRes, messagesRes, reportsRes, extensionsRes, stepCompletionsRes] = await Promise.all([
           withReadRetry(() => supabase.from('rental_documents').select('*, profiles!rental_documents_user_id_profiles_fkey(*), rentals(*, vehicles(*))').order('created_at', { ascending: false }), 'Documents'),
@@ -1438,7 +1432,7 @@ function App() {
   }
 
   async function loadAllData({ silent = false, domains = null, force = true } = {}) {
-    if (['audit', 'documents', 'customers', 'payments', 'emails'].includes(activeTabRef.current)) {
+    if (['audit', 'documents', 'customers', 'payments', 'emails', 'damage'].includes(activeTabRef.current)) {
       setHistoryRevision(value => value + 1);
       return;
     }
@@ -4466,7 +4460,7 @@ function App() {
           renderContact={(data, close) => <CustomerContactModal {...data} notify={notify} onClose={close}/>}/>}
         {activeTab === 'emails' && <ContactCenterTab revision={historyRevision} canSend={canUsePermission('communications.send')} profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
-        {activeTab === 'damage' && <DamageCases reports={reports} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
+        {activeTab === 'damage' && <DamageCases revision={historyRevision} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />}
         {activeTab === 'documents' && <DocumentHistory client={supabase} revision={historyRevision} Panel={Panel} docLabel={docLabel}
           renderDocument={(document, refresh) => <Documents documents={[document]} openDocument={openDocument}
             markDocument={async (id, status) => { await markDocument(id, status); refresh(); }}
@@ -11083,30 +11077,33 @@ function DamageReportList({ reports = [] }) {
   </div>;
 }
 
-function DamageCases({ reports = [], updateDamageCase, setCustomerStatus }) {
+function DamageCases({ revision, updateDamageCase, setCustomerStatus }) {
   const [filter, setFilter] = useState('open');
-  const cases = reports.filter((report) => {
-    if (filter === 'all') return true;
-    if (filter === 'blocked') return report.profiles?.blocked_customer || report.profiles?.customer_status === 'blocked';
-    if (filter === 'deposit_held') return Number(report.deposit_held_amount || 0) > 0 || report.rentals?.deposit_status === 'held';
-    if (filter === 'open') return ['open', 'pending', 'new'].includes(String(report.status || 'open').toLowerCase());
-    return String(report.status || 'open').toLowerCase() === filter;
-  });
-
-  return <Panel title="Damage & Incident Cases" eyebrow="Fleet Protection">
+  const [offset, setOffset] = useState(0);
+  const [refresh, setRefresh] = useState(0);
+  const state = useHistoryPage(async signal => {
+    const { data, error } = await supabase.rpc('admin_damage_cases_page', { p_filter: filter, p_offset: offset }).abortSignal(signal);
+    if (error) throw error;
+    return data;
+  }, `${filter}:${offset}`, `${revision}:${refresh}`);
+  return <Panel title="Case reports" eyebrow="Fleet Protection">
     <div className="filter-pills">
-      {[
-        ['open', 'Open'],
-        ['deposit_held', 'Deposit Held'],
-        ['resolved', 'Resolved'],
-        ['blocked', 'Blocked Customers'],
-        ['all', 'All'],
-      ].map(([key, label]) => <button type="button" key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}</button>)}
+      {[['open','Open'],['deposit_held','Deposit Held'],['resolved','Resolved'],['blocked','Blocked Customers'],['all','All']].map(([key,label]) =>
+        <button type="button" key={key} className={filter===key?'active':''} onClick={()=>{setFilter(key);setOffset(0);}}>{label}</button>)}
     </div>
-    <div className="table-list">
-      {cases.length === 0 && <p className="muted">No damage cases in this view.</p>}
-      {cases.map((report) => <DamageCaseRow key={report.id} report={report} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} />)}
-    </div>
+    <PageControls state={state} offset={offset} setOffset={setOffset} pageSize={25} refresh={()=>setRefresh(value=>value+1)}/>
+    {state.loading&&<p role="status">Loading cases…</p>}
+    {!state.loading&&!state.error&&!state.rows.length&&<p className="muted">No cases on this page. Choose another filter or return to the previous page.</p>}
+    <div className="table-list">{state.rows.map(report=><article className="data-row" key={report.id}>
+      <div><strong>{report.vehicle_name||'Vehicle'} · {prettyStatus(report.issue_type||report.report_type)}</strong>
+        <span>{report.full_name||'Customer'} · {prettyStatus(report.status||'open')}</span>
+        <small>{new Date(report.created_at).toLocaleString()}</small>
+        <LazyHistoryDetail id={report.id} read={async signal=>{
+          const {data,error}=await supabase.from('vehicle_reports').select('*, profiles(*), rentals(*, vehicles(*))').eq('id',report.id).abortSignal(signal).single();
+          if(error) throw error; return data;
+        }}>{(detail,reload)=><DamageCaseRow key={`${detail.id}:${detail.status}:${detail.resolved_at||''}`} report={detail} updateDamageCase={async(id,updates)=>{const saved=await updateDamageCase(id,updates);if(saved)reload();return saved;}} setCustomerStatus={setCustomerStatus}/>}</LazyHistoryDetail>
+      </div>
+    </article>)}</div>
   </Panel>;
 }
 

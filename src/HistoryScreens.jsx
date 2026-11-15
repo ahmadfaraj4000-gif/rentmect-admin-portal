@@ -17,11 +17,11 @@ export function useHistoryPage(read, key, revision) {
   return state;
 }
 
-export function PageControls({ state, offset, setOffset, refresh }) {
+export function PageControls({ state, offset, setOffset, refresh, pageSize = 50 }) {
   return <div className="row-actions">
-    <button disabled={state.loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</button>
+    <button disabled={state.loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Previous</button>
     <span>{state.loading ? 'Loading…' : state.rows.length ? `${offset + 1}–${offset + state.rows.length}` : 'No matching records'}</span>
-    <button disabled={state.loading || !state.has_more} onClick={() => setOffset(offset + 50)}>Next</button>
+    <button disabled={state.loading || !state.has_more} onClick={() => setOffset(offset + pageSize)}>Next</button>
     <button disabled={state.loading} onClick={refresh}>Refresh</button>
     {state.error && <p role="alert" className="form-error">{state.error}</p>}
   </div>;
