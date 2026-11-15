@@ -10123,3 +10123,8 @@ input[type="radio"] {
 .vehicle-swap-fields .swap-handover input { flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; margin: 2px 0 0; }
 .vehicle-swap-fields .swap-handover span { line-height: 1.5; }
 @media (max-width: 640px) { .vehicle-swap-fields { grid-template-columns: minmax(0, 1fr); } }
+
+/* The discount form owns its scroll; override the shared modal clipping rule. */
+.admin-modal.manual-discount-modal[role="dialog"] { overflow-y: auto !important; overflow-x: hidden !important; }
+.manual-discount-mode { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+@media (max-width: 520px) { .manual-discount-mode { grid-template-columns: 1fr !important; } }

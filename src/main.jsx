@@ -10700,7 +10700,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
   useEffect(() => {
     setPreview(null);
     setPreviewing(false);
-    if (form.mode !== 'remove' && (!Number.isFinite(numericValue) || numericValue <= 0)) {
+    if (form.mode !== 'remove' && (!Number.isFinite(numericValue) || (form.mode === 'target' ? form.value === '' || numericValue < 0 : numericValue <= 0))) {
       setPreview(null);
       return undefined;
     }
@@ -10767,21 +10767,28 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       <div className="manual-discount-mode" role="group" aria-label="Discount entry method">
         <button type="button" className={form.mode === 'fixed' ? 'active' : ''} onClick={() => setForm((current) => ({ ...current, mode: 'fixed', value: '' }))}>Dollar amount off</button>
         <button type="button" className={form.mode === 'percentage' ? 'active' : ''} onClick={() => setForm((current) => ({ ...current, mode: 'percentage', value: '' }))}>Percentage off</button>
+        <button type="button" className={form.mode === 'target' ? 'active' : ''} onClick={() => setForm(current => ({ ...current, mode: 'target', value: '' }))}>Desired balance due</button>
       </div>
+      {form.mode === 'target' && <p className="modal-hint">Enter the total you want the client to owe, including tax, unpaid deposit and additional charges, after recorded payments. We calculate the rental discount; the deposit and separate charges stay unchanged.</p>}
 
       {form.mode !== 'remove' && <label className="modal-field">
-        <span>{form.mode === 'percentage' ? 'Additional percentage off the current rental price' : 'Additional dollar amount off the rental price before tax'}</span>
-        <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><MoneyInput decimalMode={form.mode === 'percentage'} type="number" min="0.01" max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
+        <span>{form.mode === 'target' ? 'Desired balance due, including tax' : form.mode === 'percentage' ? 'Additional percentage off the current rental price' : 'Additional dollar amount off the rental price before tax'}</span>
+        <div className="money-input-shell"><span>{form.mode === 'percentage' ? '%' : '$'}</span><MoneyInput aria-label={form.mode === 'target' ? 'Desired balance due, including tax' : 'Discount amount'} decimalMode={form.mode === 'percentage'} type="number" min={form.mode === 'target' ? '0' : '0.01'} max={form.mode === 'percentage' ? '100' : MONEY_MAX} step="0.01" inputMode="decimal" value={form.value} placeholder={form.mode === 'percentage' ? '10' : '50.00'} onFocus={(event) => event.target.select()} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} autoFocus required /></div>
       </label>}
 
       {previewing && <div className="manual-discount-preview loading">Calculating rental and CT tax…</div>}
       {previewValid && !previewing && <div className="manual-discount-preview" aria-live="polite">
-        <div><span>Entered discount</span><strong>{form.mode === 'remove' ? 'Remove existing discount' : form.mode === 'percentage' ? `${numericValue}% additional` : `${money(numericValue)} additional`}</strong></div>
+        <div><span>Entered discount</span><strong>{form.mode === 'target' ? `Target balance: ${money(numericValue)}` : form.mode === 'remove' ? 'Remove existing discount' : form.mode === 'percentage' ? `${numericValue}% additional` : `${money(numericValue)} additional`}</strong></div>
         <div><span>Rental before manual discount</span><strong>{money(preview.pre_manual_discount_rental_total)}</strong></div>
         <div className="discount"><span>Total rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
         <div><span>Recalculated CT tax</span><strong>{money(preview.tax_amount)}</strong></div>
         <div><span>Refundable deposit (unchanged)</span><strong>{money(preview.security_deposit)}</strong></div>
         <div className="total"><span>New reservation total</span><strong>{money(preview.new_total)}</strong></div>
+        {form.mode === 'target' && <>
+          <div><span>Payments already applied</span><strong>{money(preview.net_paid)}</strong></div>
+          <div><span>Additional charges due (unchanged)</span><strong>{money(preview.additional_charges_due)}</strong></div>
+          <div className="total"><span>New balance due</span><strong>{money(preview.total_balance_due)}</strong></div>
+        </>}
         <small>Total savings including tax: {money(preview.total_savings)}</small>
       </div>}
 
