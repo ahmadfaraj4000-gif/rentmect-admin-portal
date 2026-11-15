@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {depositReviewPreview} from '../src/lib/returnReview.js';
+const deposit=(id,provider,amount)=>({id,payment_provider:provider,amount_held:amount,amount_applied:0,amount_released:0});
+const charge=(amount)=>({id:'c',status:'pending',total_amount:amount});
+test('300 deposit + 50 credit - 80 additional charges returns 270',()=>{const p=depositReviewPreview([deposit('a','stripe',300)],[charge(80)],['c'],[{id:'b',remaining:5000,payment_provider:'local',payment_method:'cash_app'}]);assert.equal(p.refund,27000);assert.deepEqual(p.returns.map(a=>a.refund),[22000,5000]);});
+test('mixed sources stay separate and only remaining allocations are refundable',()=>{const p=depositReviewPreview([{...deposit('s','stripe',200),amount_released:50},deposit('e','local',100)],[charge(120)],['c']);assert.deepEqual(p.returns.map(a=>[a.payment_provider,a.deduction,a.refund]),[['local',10000,0],['stripe',2000,13000]]);});
+test('credit covers charges beyond deposit; insufficient funds never produce negative refund',()=>{for(const [total,refund] of [[325,2500],[400,0]]){const p=depositReviewPreview([deposit('a','local',300)],[charge(total)],['c'],[{id:'b',remaining:5000,payment_provider:'stripe'}]);assert.equal(p.refund,refund);assert.equal(p.applied,Math.min(total*100,35000));}});
+test('unselected charges and excluded credit are not consumed',()=>{const p=depositReviewPreview([deposit('a','local',300)],[charge(100)],[],[{id:'b',remaining:5000}],false);assert.equal(p.applied,0);assert.equal(p.refund,30000);assert.equal(p.credit,0);});

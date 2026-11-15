@@ -149,3 +149,10 @@
 }
 .rental-receipt-dialog .payment-history-actions > button:hover { background: #222 !important; }
 .rental-receipt-dialog .payment-history-actions > button:focus-visible { outline: 3px solid #226c4c; outline-offset: 3px; }
+.return-source-list { margin-block: 20px; }
+.return-source-row { display: flex; justify-content: space-between; gap: 20px; padding: 16px; border: 1px solid var(--border, #d7e2dd); border-radius: 12px; margin-block: 10px; background: #f6f9f7; }
+.return-source-row small { display: block; margin-top: 5px; color: #52665b; }
+.return-source-row dl { display: grid; grid-template-columns: auto auto; gap: 6px 20px; margin: 0; }
+.return-source-row dd { text-align: right; margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.deposit-review-fields legend { font-weight: 700; margin-bottom: 14px; }
+@media(max-width:600px) { .return-source-row { flex-direction: column; } }

@@ -1,46 +1,45 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import './rental-ledger.css';
 import {trackTaskDialog} from './lib/taskDraft.js';
 import {chargeRemainingCents} from './lib/paymentAllocation.js';
-const money = cents => (cents/100).toLocaleString('en-US',{style:'currency',currency:'USD'});
-export function depositReviewPreview(allocations,charges,selected) {
- const sources=allocations.map(a=>({...a,remaining:Math.max(0,Math.round(Number(a.amount_held||0)*100)-Math.round(Number(a.amount_applied||0)*100)-Math.round(Number(a.amount_released||0)*100))})).filter(a=>a.remaining>0).sort((a,b)=>Number(b.payment_provider==='local')-Number(a.payment_provider==='local')||a.id.localeCompare(b.id));
- const held=sources.reduce((s,a)=>s+a.remaining,0),chargesTotal=charges.filter(c=>selected.includes(c.id)).reduce((s,c)=>s+chargeRemainingCents(c),0);
- let toApply=Math.min(held,chargesTotal);
- const returns=sources.map(a=>{const deduction=Math.min(toApply,a.remaining);toApply-=deduction;return {...a,deduction,refund:a.remaining-deduction};});
- return {held,chargesTotal,applied:Math.min(held,chargesTotal),refund:Math.max(0,held-chargesTotal),returns};
-}
-export function DepositReview({rental,allocations,charges,balanceDue,onClose,onConfirm,onExternalReturn,onHold}) {
- const eligible=charges.filter(c=>!['rental_amendment','rental_installment'].includes(c.charge_type)&&chargeRemainingCents(c)>0);
- const [selected,setSelected]=useState(eligible.map(c=>c.id)),[reason,setReason]=useState('Return reviewed; selected charges checked against the deposit.');
+import {depositReviewPreview} from './lib/returnReview.js';
+export {depositReviewPreview} from './lib/returnReview.js';
+const money=cents=>(cents/100).toLocaleString('en-US',{style:'currency',currency:'USD'});
+const sourceLabel=a=>a.payment_provider==='stripe'?'Stripe · original payment':`External · ${(a.payment_method||'method not recorded').replaceAll('_',' ')}`;
+export function DepositReview({rental,balanceDue,onClose,onConfirm,onHold,loadWorkspace}) {
+ const [workspace,setWorkspace]=useState(null),[loading,setLoading]=useState(true),[selected,setSelected]=useState([]),[includeCredit,setIncludeCredit]=useState(true);
+ const [reason,setReason]=useState('Return inspected; selected charges checked against deposit and credit.');
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState(null),[hold,setHold]=useState(false),[followUp,setFollowUp]=useState('');
- const [key]=useState(()=>crypto.randomUUID());const request=useRef(null),dialog=useRef(null);
+ const [method,setMethod]=useState(''),[reference,setReference]=useState(''),[paid,setPaid]=useState(false);
+ const request=useRef(null),dialog=useRef(null),key=useRef(crypto.randomUUID());
  useEffect(()=>trackTaskDialog(),[]);
- const preview=depositReviewPreview(allocations,eligible,selected);
+ async function load(){setLoading(true);setError('');try{const data=await loadWorkspace();setWorkspace(data);setIncludeCredit(data.credits.length>0);setSelected(data.charges.map(c=>c.id));if(data.resume){key.current=data.resume.id;const r=data.resume.request;request.current={review:true,idempotencyKey:data.resume.id,chargeIds:r.chargeIds,expectedHeld:r.expectedHeld,expectedApplied:r.expectedCharges,reason:r.reason,includeCredit:r.includeCredit,expectedCreditCents:r.expectedCreditCents};setReason(r.reason);}}catch(e){setError(e.message);}finally{setLoading(false);}}
+ useEffect(()=>{load();const old=document.activeElement,overflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.current?.focus();return()=>{document.body.style.overflow=overflow;old?.focus?.();};},[rental.id]);
+ const charges=workspace?.charges||[],preview=depositReviewPreview(workspace?.allocations||[],charges,selected,workspace?.credits||[],includeCredit);
  const dueAfter=Math.max(0,Math.round(balanceDue*100)-preview.applied);
- useEffect(()=>{const old=document.activeElement,overflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.current?.focus();return()=>{document.body.style.overflow=overflow;old?.focus?.();};},[]);
- const close=()=>onClose(result);
- async function confirm(){setBusy(true);setError('');try{request.current??={review:true,idempotencyKey:key,chargeIds:selected,expectedHeld:preview.held/100,expectedApplied:preview.chargesTotal/100,reason};const saved=await onConfirm(request.current);if(saved)setResult(saved);else setError('Deposit review was not completed. Refresh the rental before trying again.');}catch(e){setError(e.message);}finally{setBusy(false);}}
- return createPortal(<div className="admin-modal-backdrop rental-ledger-dialog-backdrop"><section className="admin-modal flexible-payment-dialog deposit-review-dialog" role="dialog" aria-modal="true" aria-label="Refund Deposit" tabIndex={-1} ref={dialog} onKeyDown={e=>{if(e.key==='Escape'&&!busy)close();if(e.key==='Tab'){const items=[...dialog.current.querySelectorAll('button,input,textarea,select')].filter(n=>!n.disabled&&n.getClientRects().length),first=items[0],last=items.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}}}>
- <header className="admin-modal-header"><div><strong>Refund Deposit</strong><span>{rental.profiles?.full_name||'Customer'} · {rental.vehicles?.name}</span></div><button type="button" disabled={busy} onClick={close} aria-label="Close deposit review">×</button></header>
- <div className="payment-dialog-scroll">
- {rental.deposit_review_note&&<p className="deposit-review-note">{rental.deposit_review_note}{rental.deposit_review_follow_up_at&&<> · Follow up {new Date(rental.deposit_review_follow_up_at).toLocaleString()}</>}</p>}
- {result?<div role="status"><p><strong>{money(Math.round(result.applied*100))} applied to charges.</strong></p>{result.refundError?<p role="alert">Deductions are saved. Refund not completed: {result.refundError}</p>:result.refund?<p>Stripe refund {result.refund.status==='released'?'completed':'processing'}.</p>:null}{result.externalRemaining>0&&<p>{money(Math.round(result.externalRemaining*100))} remains to be returned externally. {result.refundError?'It stays held until the blockers are resolved.':'Record it after returning the money.'}</p>}{!result.refund&&result.externalRemaining<=0&&result.remaining<=0&&<p>The deposit has been fully applied. No refund remains.</p>}
- {result.refundError&&<button type="button" className="approve" disabled={busy} onClick={confirm}>Retry remaining refund</button>}
- {result.externalRemaining>0&&!result.refundError&&onExternalReturn&&<button type="button" disabled={busy} onClick={onExternalReturn}>Record external deposit return</button>}
- </div>:<>
- <p>Review the return and select the charges to deduct. Nothing is applied or refunded until you confirm.</p>
- <fieldset disabled={busy||Boolean(request.current)} className="deposit-review-fields">
- {eligible.map(c=><label className="deposit-review-charge" key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>setSelected(e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span>{c.name}</span><strong>{money(chargeRemainingCents(c))}</strong></label>)}
- <dl className="allocation-review"><dt>Deposit held</dt><dd>{money(preview.held)}</dd><dt>Apply to selected charges</dt><dd>{money(preview.applied)}</dd><dt>{preview.refund===0?'Deposit left after deductions':dueAfter>0?'Deposit remaining on hold':'Refund to customer'}</dt><dd>{money(preview.refund)}</dd>{dueAfter>0&&<><dt>Customer balance after deductions</dt><dd>{money(dueAfter)}</dd></>}</dl>
- {preview.returns.map(a=><p key={a.id}>{a.payment_provider==='stripe'?'Original Stripe payment':'External deposit'}: {money(a.deduction)} to apply{a.refund>0&&<> · {money(a.refund)} {dueAfter>0?'to hold':'to return'}</>}</p>)}
- {preview.refund===0?<p>No deposit left to refund.{dueAfter>0&&<> Customer still owes {money(dueAfter)}.</>}</p>:dueAfter>0&&<p>The remaining customer balance must be resolved before returning the deposit remainder.</p>}
+ async function confirm(external=false){setBusy(true);setError('');try{request.current??={review:true,idempotencyKey:key.current,chargeIds:selected,expectedHeld:preview.held/100,expectedApplied:preview.chargesTotal/100,includeCredit,expectedCreditCents:preview.credit,reason};const saved=await onConfirm({...request.current,...(external?{recordExternalReturn:true,expectedExternalCents:Math.round(result.externalRemaining*100),paymentMethod:method,paymentReference:reference}:{})});if(saved)setResult(saved);else setError('Return not completed. Retry this review to reconcile its saved progress.');}catch(e){setError(e.message);}finally{setBusy(false);}}
+ return createPortal(<div className="admin-modal-backdrop rental-ledger-dialog-backdrop"><section className="admin-modal flexible-payment-dialog deposit-review-dialog" role="dialog" aria-modal="true" aria-labelledby="return-review-title" tabIndex={-1} ref={dialog} onKeyDown={e=>{if(e.key==='Escape'&&!busy)onClose(result);if(e.key==='Tab'){const items=[...dialog.current.querySelectorAll('button,input,textarea,select')].filter(n=>!n.disabled&&n.getClientRects().length),first=items[0],last=items.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}}}>
+ <header className="admin-modal-header"><div><strong id="return-review-title">Return deposit &amp; credit</strong><span>{rental.profiles?.full_name||'Customer'} · {rental.vehicles?.name}</span></div><button type="button" disabled={busy} onClick={()=>onClose(result)} aria-label="Close return review">×</button></header>
+ <div className="payment-dialog-scroll" aria-busy={busy||loading}>
+ {loading?<p role="status">Loading deposit sources, credit and unpaid charges…</p>:!workspace?<button onClick={load}>Retry loading account</button>:result?<>
+ <div role="status"><strong>{money(Math.round(result.applied*100))} applied to selected charges.</strong>{result.refund&&<p>Stripe deposit return: {result.refund.status==='released'?'completed':'processing'}.</p>}{result.creditReturns?.map(c=><p key={c.source_receipt_id}>{c.provider==='stripe'?'Stripe':'External'} credit return · {money(Number(c.refund_cents))} · {c.status}</p>)}</div>
+ {result.refundError&&<><p role="alert">{result.refundError}</p><button disabled={busy} onClick={()=>confirm()}>Retry remaining return</button></>}
+ {result.externalRemaining>0&&!result.refundError&&<fieldset disabled={busy} className="deposit-review-fields"><legend>Return {money(Math.round(result.externalRemaining*100))} externally</legend><p>Return the money using the agreed method, then record it here.</p><label>Payout method<input value={method} onChange={e=>setMethod(e.target.value)} placeholder="Cash, Venmo, Cash App…" maxLength={80}/></label><label>Reference (optional)<input value={reference} onChange={e=>setReference(e.target.value)} maxLength={200}/></label><label className="deposit-review-charge"><input type="checkbox" checked={paid} onChange={e=>setPaid(e.target.checked)}/>I have returned this amount to the customer.</label><button className="approve" disabled={!paid||method.trim().length<2} onClick={()=>confirm(true)}>Record external return</button></fieldset>}
+ </>:request.current?<><p>A previous review is saved. Continue it to reconcile any remaining Stripe or external return without applying deductions again.</p><button disabled={busy} className="approve" onClick={()=>confirm()}>Continue saved return</button></>:<>
+ <p>Select unpaid charges to deduct. Review the amount returning through each payment source before confirming.</p>
+ <fieldset disabled={busy} className="deposit-review-fields">
+ <legend>Outstanding additional charges · {money(charges.reduce((n,c)=>n+chargeRemainingCents(c),0))}</legend>
+ {!charges.length&&<p>No unpaid additional charges.</p>}
+ {charges.map(c=><label className="deposit-review-charge" key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>setSelected(e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span>{c.name}</span><strong>{money(chargeRemainingCents(c))}</strong></label>)}
+ <label className="deposit-review-charge"><input type="checkbox" checked={includeCredit} onChange={e=>setIncludeCredit(e.target.checked)}/><span>Include available customer credit</span><strong>{money((workspace.credits||[]).reduce((n,c)=>n+c.remaining,0))}</strong></label>
+ <dl className="allocation-review"><dt>Allocated deposit remaining</dt><dd>{money(preview.held)}</dd><dt>Available credit included</dt><dd>{money(preview.credit)}</dd><dt>Selected charge deductions</dt><dd>−{money(preview.applied)}</dd><dt>{dueAfter>0?'Remaining funds on hold':'Return to customer'}</dt><dd>{money(preview.refund)}</dd>{dueAfter>0&&<><dt>Balance still owed after deductions</dt><dd>{money(dueAfter)}</dd></>}</dl>
+ <div className="return-source-list"><h3>Return by payment source</h3>{preview.returns.map(a=><div className="return-source-row" key={`${a.kind}-${a.id}`}><div><strong>{a.kind==='credit'?'Customer credit':'Allocated deposit'}</strong><small>{sourceLabel(a)}</small><small>Source {a.stripe_payment_intent_id?.slice(-8)||a.id.slice(-8)}</small></div><dl><dt>Available</dt><dd>{money(a.remaining)}</dd><dt>Charges</dt><dd>−{money(a.deduction)}</dd><dt>{dueAfter>0?'On hold':'Return'}</dt><dd>{money(a.refund)}</dd></dl></div>)}</div>
+ {dueAfter>0&&<p role="status">The remaining balance must be resolved before money is returned.</p>}
  <label>Review note<textarea value={reason} onChange={e=>setReason(e.target.value)} maxLength={1000}/></label>
  {hold&&<label>Follow-up date and time (Eastern)<input type="datetime-local" value={followUp} onChange={e=>setFollowUp(e.target.value)}/></label>}
- </fieldset>
- </>}
+ </fieldset></>}
  {error&&<p role="alert">{error}</p>}
- <div className="modal-actions">{result?<button type="button" onClick={close}>Done</button>:<><button type="button" disabled={busy} onClick={close}>Cancel</button><button type="button" disabled={busy||reason.trim().length<1||Boolean(request.current)} onClick={async()=>{if(!hold){setHold(true);return;}setBusy(true);try{if(await onHold(reason,followUp))onClose();}catch(e){setError(e.message);}finally{setBusy(false);}}}>{hold?'Save hold':'Hold for review'}</button>{!hold&&<button type="button" className="approve" disabled={busy||reason.trim().length<1||preview.held<=0||(dueAfter>0&&preview.applied===0)} onClick={confirm}>{busy?'Processing…':preview.applied>0?`Apply ${money(preview.applied)}${preview.refund===0?' to charges':dueAfter>0?' & hold remainder':` & refund ${money(preview.refund)}`}`:`Refund ${money(preview.refund)}`}</button>}</>}</div>
+ <div className="modal-actions"><button disabled={busy} onClick={()=>onClose(result)}>{result?'Done':'Cancel'}</button>{workspace&&!loading&&!result&&!request.current&&<><button disabled={busy||reason.trim().length<1} onClick={async()=>{if(!hold){setHold(true);return;}setBusy(true);try{if(await onHold(reason,followUp))onClose();}catch(e){setError(e.message);}finally{setBusy(false);}}}>{hold?'Save hold':'Hold for review'}</button>{!hold&&<button className="approve" disabled={busy||reason.trim().length<1||preview.held+preview.credit<=0||(dueAfter>0&&preview.applied===0)} onClick={()=>confirm()}>{busy?'Processing…':preview.refund===0?`Apply ${money(preview.applied)} to charges`:dueAfter>0?`Apply ${money(preview.applied)} & hold remainder`:`Confirm return ${money(preview.refund)}`}</button>}</>}</div>
  </div></section></div>,document.body);
 }
