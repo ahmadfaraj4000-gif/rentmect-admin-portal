@@ -35,3 +35,9 @@ test('future pickups still check the actual booked interval without allowing a p
  assert.equal(swapAvailabilityStart(start,'2026-11-13T14:00Z','2026-11-01T14:00Z',now),null);
  assert.equal(swapAvailabilityStart(start,end,'2026-11-01T14:00Z',now),start);
 });
+
+test('availability follows the chosen time even when a future handover cannot be recorded',()=>{
+ const start='2026-11-25T17:00Z',end='2026-11-26T14:00Z',pickup='2026-11-24T14:00Z',now=Date.parse('2026-11-14T20:00Z');
+ assert.equal(swapAvailabilityStart(start,end,pickup,now),start);
+ assert.notEqual(swapTimeMessage(start,end,pickup,now),'');
+});
