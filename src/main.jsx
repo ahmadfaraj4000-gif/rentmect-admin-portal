@@ -1,3 +1,4 @@
+import { agreementCopy } from './lib/agreementCopy.js';
 import { DamageCases } from './DamageCases.jsx';
 import { adminErrorMessage } from './lib/adminErrors.js';
 import { PortalInbox } from './PortalInbox.jsx';
@@ -9789,6 +9790,24 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [insuranceItems, setInsuranceItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [emailStatus, setEmailStatus] = useState('');
+  const emailSending = useRef(false);
+  async function emailAgreement() {
+    if (emailSending.current) return;
+    emailSending.current = true; setBusy(true); setError(''); setEmailStatus('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Please sign in again.');
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-emails/agreement`, {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rentalId: rental.id }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.sent) throw new Error(result.error || 'Could not email the agreement.');
+      setEmailStatus(`Agreement emailed to ${result.recipient}.`);
+    } catch (e) { setError(e.message || 'Could not email the agreement.'); }
+    finally { emailSending.current = false; setBusy(false); }
+  }
   const stripeAmount = stepDraft.stripeAmount;
   const setStripeAmount = value => setStepDraft(current => ({ ...current, stripeAmount: typeof value === 'function' ? value(current.stripeAmount) : value }));
   const previousAmountDueRef = useRef(Number(amountDue || 0));
@@ -9966,7 +9985,8 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
         <span><strong>Emergency only</strong> This bypasses only {label.toLowerCase()}, remains auditable, and does not release the vehicle by itself.</span>
         <button type="button" className="emergency-exception-action" disabled={busy} onClick={onBypass}><AlertTriangle size={15}/> Bypass only {label}</button>
       </div>}
-      <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>{alreadySigned ? 'Close' : 'Cancel'}</button>{alreadySigned && <button type="button" className="secondary-btn" onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Download Agreement</button>}{!alreadySigned && <button type="submit" className="approve" disabled={busy || (scope === 'agreement' && (!agreementReviewed || !agreementChecked || signatureName.trim().length < 2 || !signatureImage))}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button>}</div>
+      {emailStatus && <p role="status">{emailStatus}</p>}
+      <div className="modal-actions"><button type="button" onClick={onCancel} disabled={busy}>{alreadySigned ? 'Close' : 'Cancel'}</button>{alreadySigned && <button type="button" className="secondary-btn" disabled={busy} onClick={emailAgreement}><Mail size={15}/>{busy ? 'Sending…' : 'Email Agreement'}</button>}{alreadySigned && <button type="button" className="secondary-btn" disabled={busy} onClick={() => downloadAgreement(rental)}><FileSignature size={15}/> Download Agreement</button>}{!alreadySigned && <button type="submit" className="approve" disabled={busy || (scope === 'agreement' && (!agreementReviewed || !agreementChecked || signatureName.trim().length < 2 || !signatureImage))}>{busy ? 'Saving…' : scope === 'agreement' ? 'Save Signed Agreement' : `Mark ${label} Complete`}</button>}</div>
     </form>
   </div>, globalThis.document.body);
 }
@@ -13433,14 +13453,12 @@ function extractSignatureImage(snapshot = '') {
 }
 function downloadAgreement(rental) {
   if (!rental?.agreement_snapshot) return;
-  const signatureImage = extractSignatureImage(rental.agreement_snapshot);
-  const printableText = String(rental.agreement_snapshot).replace(/Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/, 'Drawn Signature Image: embedded below');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Rent Me CT Agreement</title><style>body{font-family:Arial,sans-serif;color:#172033;line-height:1.5;padding:32px;max-width:900px;margin:auto}pre{white-space:pre-wrap;font-family:inherit}.signature{margin-top:24px;border:1px solid #d6dee8;border-radius:10px;padding:16px}.signature img{max-width:420px;width:100%;height:auto;display:block}</style></head><body><pre>${escapeHtml(printableText)}</pre>${signatureImage ? `<div class="signature"><strong>Electronic Signature</strong><img src="${signatureImage}" alt="Electronic renter signature"></div>` : ''}</body></html>`;
+  const { html, filename } = agreementCopy(rental);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `rent-me-ct-agreement-${rental.id || 'signed'}.html`;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
