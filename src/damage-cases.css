@@ -1,0 +1,27 @@
+.damage-case-list { display:grid; gap:10px; margin-top:16px; }
+.damage-case-summary { display:grid; grid-template-columns:minmax(180px,1fr) auto auto auto; align-items:center; gap:18px; padding:16px 20px; border:1px solid #d8e2dd; border-radius:12px; background:#fff; }
+.damage-case-summary strong,.damage-case-summary div span { display:block; }
+.damage-case-summary div span { color:#64756d; margin-top:4px; }
+.damage-case-summary time { color:#64756d; font-size:.88rem; }
+.damage-case-status { display:inline-block; border-radius:20px; padding:5px 11px; background:#edf3ef; color:#314c3f; text-transform:capitalize; font-size:.85rem; font-weight:600; }
+.damage-case-dialog { width:min(760px,calc(100vw - 24px))!important; max-height:calc(100dvh - 32px); padding:0!important; display:flex; flex-direction:column; overflow:hidden; color:#24352d; background:#fff; }
+.damage-case-dialog h2 { margin:0; font-size:1.25rem; }
+.damage-case-body { padding:20px 24px; overflow:auto; min-height:0; }
+.damage-case-body fieldset { border:0; padding:0; margin:18px 0 0; display:grid; gap:16px; min-width:0; }
+.damage-case-body label { display:grid; gap:7px; font-weight:600; }
+.damage-case-body input,.damage-case-body textarea { box-sizing:border-box; width:100%; border:1px solid #cbd8d0; border-radius:8px; padding:11px 12px; color:#24352d!important; -webkit-text-fill-color:#24352d!important; background:#fff!important; font:inherit; resize:vertical; }
+.damage-case-amounts { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.damage-case-flags { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.damage-case-actions { padding:16px 24px; border-top:1px solid #d8e2dd; display:flex; gap:8px; flex-wrap:wrap; background:#f6f9f7; }
+.damage-case-actions button { min-height:42px; }
+.damage-case-feedback { padding:12px; border-radius:8px; background:#edf6f0; color:#24573d; }
+@media(max-width:650px) { .damage-case-summary { grid-template-columns:1fr auto; gap:10px; padding:14px; }.damage-case-summary time { grid-column:1; }.damage-case-summary button { grid-column:2;grid-row:2; }.damage-case-summary .damage-case-status { justify-self:end; }.damage-case-body { padding:16px; }.damage-case-actions { padding:12px; }.damage-case-amounts { grid-template-columns:1fr; } }
+.damage-case-dialog button { border:1px solid #cbd8d0; border-radius:8px; padding:10px 14px; background:#fff; color:#30483c; font:inherit; font-weight:600; cursor:pointer; }
+.damage-case-dialog button:hover { background:#edf3ef; }
+.damage-case-dialog button:disabled { opacity:.5; cursor:not-allowed; }
+.damage-case-actions button:first-child { background:#17623f; color:#fff; border-color:#17623f; }
+.damage-case-dialog button.reject { background:#fff0ef; color:#a82e29; border-color:#e5b7b4; }
+.damage-case-dialog .admin-modal-header button { font-size:22px; min-width:42px; }
+.damage-case-dialog .admin-modal-header { flex-shrink:0; }
+.damage-case-dialog .damage-case-body { flex:1 1 auto; min-height:0; }
+.damage-case-dialog .damage-case-actions { flex:0 0 auto; max-height:35dvh; overflow:auto; }
