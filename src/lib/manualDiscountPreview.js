@@ -8,6 +8,10 @@ export function manualDiscountPreviewMatches(preview, rentalId, mode, value) {
 export function additionalDiscountRequest(rental, form) {
   if (form.mode === 'remove') return { mode: 'remove', value: 0 };
   const value = Number(form.value);
+  if (form.mode === 'target') {
+    if (form.value === '' || !Number.isFinite(value) || value < 0) throw new Error('Enter a valid desired balance.');
+    return { mode: 'target', value };
+  }
   if (!Number.isFinite(value) || value <= 0 || (form.mode === 'percentage' && value > 100)) throw new Error('Enter a valid discount amount.');
   const extra = form.mode === 'percentage'
     ? Math.round(Number(rental.rental_total || 0) * value) / 100

@@ -80,6 +80,7 @@ jobs:
           node tools/test-rental-amendment-browser.mjs
           node tools/check-swap-layout-browser.mjs
           node tools/check-emergency-scroll-browser.mjs
+          node tools/check-discount-scroll-browser.mjs
 
       - name: Build production assets
         run: npm run build
