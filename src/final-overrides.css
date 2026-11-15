@@ -8274,7 +8274,7 @@ input[type="radio"] {
 }
 
 /* Keep the emergency-release form isolated from broad admin-modal input rules. */
-.emergency-exception-modal {
+.admin-modal.emergency-exception-modal {
   grid-template-columns: minmax(0, 1fr) !important;
   width: min(680px, calc(100vw - 28px)) !important;
   max-width: min(680px, calc(100vw - 28px)) !important;
@@ -8389,7 +8389,7 @@ input[type="radio"] {
     padding: 8px !important;
   }
 
-  .emergency-exception-modal {
+  .admin-modal.emergency-exception-modal {
     width: 100% !important;
     max-width: none !important;
     max-height: calc(100dvh - 16px) !important;
