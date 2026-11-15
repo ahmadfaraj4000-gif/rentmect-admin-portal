@@ -156,3 +156,10 @@
 .return-source-row dd { text-align: right; margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
 .deposit-review-fields legend { font-weight: 700; margin-bottom: 14px; }
 @media(max-width:600px) { .return-source-row { flex-direction: column; } }
+
+.return-outcome { padding:20px; margin:18px 0; border:1px solid #c5ded1; border-radius:12px; background:#eef8f2; }
+.return-outcome>span { display:block; font-weight:600; }
+.return-outcome>strong { display:block; font-size:2rem; font-variant-numeric:tabular-nums; margin:8px 0; color:#216749; }
+.return-outcome p { margin:8px 0 0; line-height:1.5; }
+.return-outcome-due { background:#fff5ed; border-color:#ecd3bf; }
+.return-outcome-due>strong { color:#9a4726; }
