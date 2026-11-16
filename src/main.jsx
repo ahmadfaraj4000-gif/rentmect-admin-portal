@@ -2733,7 +2733,7 @@ function App() {
     });
     if (error) return notify(error.message);
     refreshAfterSavedTask();
-    notify(`${schedule.label} recorded at ${formatMiles(mileage)}. The next milestone and calendar lock were recalculated.`, 'success');
+    notify(`${schedule.label} recorded at ${formatMiles(mileage)}. The next maintenance reminder was recalculated.`, 'success');
     return true;
   }
 
@@ -2754,7 +2754,7 @@ function App() {
       p_warning_days: parseOptionalPositiveInteger(updates.warning_days) ?? 0,
       p_last_service_mileage: lastServiceMileage,
       p_last_service_at: updates.last_service_at || null,
-      p_lock_when_due: updates.lock_when_due !== false,
+      p_lock_when_due: false,
       p_active: updates.active !== false,
       p_notes: updates.notes?.trim() || null,
     });
@@ -5441,7 +5441,7 @@ function FleetCalendar({ vehicles, rentals, availabilityBlocks, availabilityBloc
     <div className="calendar-toolbar">
       <div>
         <strong>{days[0]?.label} - {days[days.length - 1]?.label}</strong>
-        <span>Live customer bookings, checkout holds, admin bookings, manual blocks, and vehicle maintenance locks. Times are Eastern; cars that are out stay unavailable until an admin confirms return.</span>
+        <span>Live customer bookings, checkout holds, admin bookings, manual blocks, and vehicle status. Times are Eastern; cars that are out stay unavailable until an admin confirms return.</span>
       </div>
       <div className="calendar-date-navigation">
         <button type="button" className="secondary-btn" onClick={() => moveCalendarDays(-14)} aria-label="Previous two weeks">← 2 weeks</button>
@@ -7229,12 +7229,12 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
     <div className={`maintenance-lock-banner ${vehicle.maintenance_lock_active ? 'locked' : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date() ? 'overridden' : 'clear'}`}>
       {vehicle.maintenance_lock_active ? <AlertTriangle size={21}/> : <ShieldCheck size={21}/>}
       <div>
-        <strong>{vehicle.maintenance_lock_active ? 'Automatically locked from new bookings' : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date() ? 'Temporary maintenance override active' : 'No active maintenance lock'}</strong>
+        <strong>{vehicle.maintenance_lock_active ? 'Maintenance lock active' : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date() ? 'Temporary maintenance override active' : 'Maintenance reminders only'}</strong>
         <span>{vehicle.maintenance_lock_active
           ? vehicle.maintenance_lock_reason || 'Required service is due.'
           : vehicle.maintenance_override_until && new Date(vehicle.maintenance_override_until) > new Date()
             ? `${vehicle.maintenance_override_reason || 'Admin override'} • expires ${new Date(vehicle.maintenance_override_until).toLocaleString()}`
-            : `Current odometer ${formatMiles(vehicle.current_mileage)}. Every active milestone is enforced automatically.`}</span>
+            : `Current odometer ${formatMiles(vehicle.current_mileage)}. Active milestones notify the admin when service is due; they do not lock the vehicle.`}</span>
       </div>
       {vehicle.maintenance_lock_active && <button type="button" className="reject" onClick={() => setOverrideOpen(true)}>Emergency Override</button>}
     </div>
@@ -7295,7 +7295,6 @@ function MaintenanceCommandCenter({ vehicle, schedules, serviceLogs, completeMai
           </div>
           <label><span>Notes</span><textarea maxLength="1000" value={editingSchedule.notes || ''} onChange={(event) => setEditingSchedule({ ...editingSchedule, notes: event.target.value })}/></label>
           <div className="form-row compact">
-            <label className="checkbox-pill"><input type="checkbox" checked={editingSchedule.lock_when_due !== false} onChange={(event) => setEditingSchedule({ ...editingSchedule, lock_when_due: event.target.checked })}/> Auto-lock when due</label>
             <label className="checkbox-pill"><input type="checkbox" checked={editingSchedule.active !== false} onChange={(event) => setEditingSchedule({ ...editingSchedule, active: event.target.checked })}/> Active milestone</label>
           </div>
         </div>
