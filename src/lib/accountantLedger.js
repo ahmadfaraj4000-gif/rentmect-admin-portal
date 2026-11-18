@@ -1,3 +1,4 @@
+import { addTaxWorkpapers } from './taxWorkpapers.js';
 import ExcelJS from 'exceljs';
 import { calculatePaymentRevenue } from './paymentRevenue.js';
 
@@ -63,6 +64,7 @@ export function buildAccountantLedger(data) {
     ws.headerFooter.oddFooter = '&LRent Me CT   |   '+name+'&RPage &P of &N';
     return ws;
   }
+  addTaxWorkpapers({workbook,sheet,year:Number(day(asOf).slice(0,4)),report,fees,day,feeBreakdown});
   const months = new Map();
   for (const event of report.events) {
     const month = day(event.date)?.slice(0,7);
@@ -107,7 +109,8 @@ export function buildAccountantLedger(data) {
     ['Rental ID','Extension ID','Created (ET)','Type','Status','Payment status','Rental','Tax','Deposit','Total'],
     [39,39,15,26,24,18,15,15,15,15],revenue.extensions.map(e=>[e.rental_id,e.id,day(e.created_at),label(e.request_kind),label(e.status),label(e.payment_status),num(e.extension_rental_amount),num(e.extension_tax_amount),num(e.extension_deposit_amount),num(e.extension_total_amount)]),7);
   sheet('Revenue detail','Signed revenue recognized per entry. Sales tax can be estimated proportionally when the original receipt lacks a breakdown.',
-    ['Rental ID','Source record','Revenue date (ET)','Net revenue (USD)'],[39,88,19,20],report.events.map(e=>[e.rentalId,e.id,day(e.date),dollars(e.net)]),4);
+    ['Rental ID','Source record','Revenue date (ET)','Net revenue (USD)','Receipt gross','Deposit portion','Tax portion'],[39,88,19,20,18,18,18],
+    report.events.map(e=>[e.rentalId,e.id,day(e.date),dollars(e.net), ...[e.gross,e.deposit,e.tax].map(cents=> cents == null ? null : dollars(cents))]),4);
   sheet('Review','Records requiring reconciliation. Missing dates or refund classifications can affect reported revenue.',
     ['Rental ID','Record ID','Date (ET)','Amount (USD)','Reason'],[39,50,15,18,72],[
       ...report.reviewItems.map(i=>[i.rentalId,i.recordId,day(i.date),i.amount,i.reason]),
