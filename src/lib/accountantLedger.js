@@ -71,9 +71,8 @@ export function buildAccountantLedger(data) {
   const feeRows = fees.map(fee => ({ fee, amounts:feeBreakdown(fee) }));
   const feeSum = (index, filter = () => true) => feeRows.filter(({fee}) => filter(fee)).reduce((sum,{amounts}) => sum + Math.round(amounts[index]*100),0)/100;
   const openLate = fee => ['late_fee','late_rental_day'].includes(fee.charge_type);
-  sheet('Overview','Revenue follows the portal’s receipt and refund calculations. Review flagged records before closing the books.',
+  sheet('Overview',`Revenue follows the portal’s receipt and refund calculations. Records flagged for review: ${report.reviewItems.length + transactions.filter(t => t.type === 'reconciliation' && ['failed','pending'].includes(t.statusGroup)).length}.`,
     ['Measure','Amount (USD)','Basis'],[38,19,83],[
-      ['Revenue records for review',report.reviewItems.length,'See Review for receipt or refund issues that may affect the figures below.'],
       ['Month-to-date revenue',report.month,report.monthLabel+' • excludes sales tax and refundable deposits'],
       ['Year-to-date revenue',report.year,report.yearLabel+' • before business expenses and processor fees'],
       ['Additional fees outstanding',feeSum(5),'Current unpaid fee balances across all rentals'],
