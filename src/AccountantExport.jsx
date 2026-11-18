@@ -27,7 +27,7 @@ export function AccountantExport({ client }) {
       setBusy(false);
     }
   }
-  return <div className="row-actions"><button className="secondary-btn" type="button" disabled={busy} onClick={download}>
-    {busy ? 'Preparing ledger…' : 'Download accountant ledger (.xlsx)'}</button>
-    {error && <span role="alert">{error}</span>}</div>;
+  return <div className="accountant-export"><button className="secondary-btn" type="button" disabled={busy} onClick={download}>
+    {busy ? 'Preparing ledger…' : 'Export accountant ledger'}</button>
+    {error && <span className="form-error" role="alert">{error}</span>}</div>;
 }

@@ -10128,3 +10128,44 @@ input[type="radio"] {
 .admin-modal.manual-discount-modal[role="dialog"] { overflow-y: auto !important; overflow-x: hidden !important; }
 .manual-discount-mode { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 @media (max-width: 520px) { .manual-discount-mode { grid-template-columns: 1fr !important; } }
+
+.payments-activity-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-bottom: 20px;
+}
+
+.payments-activity-heading h3 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.accountant-export {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.payments-pagination {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-line);
+}
+
+@media (max-width: 600px) {
+  .payments-activity-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .payments-pagination .row-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}

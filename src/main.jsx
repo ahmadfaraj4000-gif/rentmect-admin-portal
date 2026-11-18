@@ -4697,10 +4697,12 @@ function PaymentsTab({ activityTotals, activityLoading = false, reconciliationCo
         Urgent: {openReconciliation.length} Stripe {openReconciliation.length === 1 ? 'transaction requires' : 'transactions require'} reconciliation. No captured payment or refund in this list should be treated as fully coordinated until its status is resolved.
       </p>
     )}
-    <Panel title="Payments" eyebrow="Payment Activity">
-      {canViewFinancialSummary && <AccountantExport client={supabase} />}
+    <section className="panel" aria-labelledby="payments-activity-heading">
+      <header className="payments-activity-heading">
+        <h3 id="payments-activity-heading">Payment activity</h3>
+        {canViewFinancialSummary && <AccountantExport client={supabase} />}
+      </header>
       {reconciliationCount > 0 && <p className="form-error" role="alert">{reconciliationCount} Stripe transactions require reconciliation. Choose Reconciliation issues to review them.</p>}
-      {pageControls}
       {loadError && <p className="form-error" role="alert">Some payment sources could not be loaded: {loadError}</p>}
       <div className="payments-filter-bar">
         <div className="filter-pills" role="group" aria-label="Payment activity views">
@@ -4751,7 +4753,8 @@ function PaymentsTab({ activityTotals, activityLoading = false, reconciliationCo
           </div>
         ))}
       </div>
-    </Panel>
+      {pageControls && <footer className="payments-pagination">{pageControls}</footer>}
+    </section>
   </>;
 }
 
