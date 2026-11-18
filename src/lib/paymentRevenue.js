@@ -16,7 +16,7 @@ const dateKey = (date) => {
 };
 const referenceKeys = (row) => [row.stripe_payment_intent_id && `intent:${row.stripe_payment_intent_id}`, row.stripe_checkout_session_id && `session:${row.stripe_checkout_session_id}`].filter(Boolean);
 
-export function calculatePaymentRevenue(data = {}, now = new Date()) {
+export function calculatePaymentRevenue(data = {}, now = new Date(), includeLedger = false) {
   const { rentals = [], payments = [], charges = [], extensions = [], refunds = [], externalActions = [], applications = [], allocations = [], allocatedReceipts = [], allocatedEntries = [] } = data;
   const flexibleExtraIds = new Set(allocatedEntries.filter(a => !['rental_amendment', 'rental_installment'].includes(a.charge_type)).map(a => a.charge_id));
   const today = dateKey(now);
@@ -177,7 +177,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
     allocatedTax.set(row.charge_id, previous + gross);
     const id = `allocation:${row.receipt_id}:${row.charge_id}`;
     add({ id, rentalId: receipt.rental_id, date: receipt.received_date || receipt.posted_at, gross, deposit: 0, tax }, {});
-    if (receipt.status === 'refunded') events.push({ rentalId: receipt.rental_id, date: receipt.refunded_at, net: -(gross - tax) });
+    if (receipt.status === 'refunded') events.push({ id: `refund:${id}`, rentalId: receipt.rental_id, date: receipt.refunded_at, net: -(gross - tax) });
   }
   for (const row of applications) {
     const charge = byCharge.get(row.charge_id);
@@ -213,7 +213,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
     if (previous + amount > taxableReceipt + 1) { issue(row, 'Refunds exceed the non-deposit receipt.'); return; }
     // Cumulative rounding makes two partial refunds equal a single full refund.
     const net = (value) => taxableReceipt > 0 ? Math.round(value * source.net / taxableReceipt) : 0;
-    events.push({ rentalId: row.rental_id, date, net: -(net(previous + amount) - net(previous)) });
+    events.push({ id: `refund:${row.id}`, rentalId: row.rental_id, date, net: -(net(previous + amount) - net(previous)) });
     refunded.set(source.id, previous + amount);
   };
   const alias = (id) => receiptAliases.get(id);
@@ -256,7 +256,7 @@ export function calculatePaymentRevenue(data = {}, now = new Date()) {
       : key.slice(0, 7) === today.slice(0, 7) ? ['month', 'year'] : ['year'];
     return { ...item, periods };
   }).filter((item) => item.periods.length);
-  return { month: monthCents / 100, year: yearCents / 100, monthLabel: new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', year: 'numeric' }).format(now), yearLabel: today.slice(0, 4), monthKey: today.slice(0, 7), issues: periodIssues };
+  return { ...(includeLedger ? { events, reviewItems: issues } : {}), month: monthCents / 100, year: yearCents / 100, monthLabel: new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', year: 'numeric' }).format(now), yearLabel: today.slice(0, 4), monthKey: today.slice(0, 7), issues: periodIssues };
 }
 
 export const REVENUE_TABLES = {

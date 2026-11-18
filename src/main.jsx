@@ -1,3 +1,4 @@
+import { AccountantExport } from './AccountantExport.jsx';
 import { agreementCopy } from './lib/agreementCopy.js';
 import { DamageCases } from './DamageCases.jsx';
 import { adminErrorMessage } from './lib/adminErrors.js';
@@ -4697,6 +4698,7 @@ function PaymentsTab({ activityTotals, activityLoading = false, reconciliationCo
       </p>
     )}
     <Panel title="Payments" eyebrow="Payment Activity">
+      {canViewFinancialSummary && <AccountantExport client={supabase} />}
       {reconciliationCount > 0 && <p className="form-error" role="alert">{reconciliationCount} Stripe transactions require reconciliation. Choose Reconciliation issues to review them.</p>}
       {pageControls}
       {loadError && <p className="form-error" role="alert">Some payment sources could not be loaded: {loadError}</p>}

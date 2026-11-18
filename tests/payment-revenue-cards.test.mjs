@@ -60,6 +60,7 @@ test('Payments preserves all four original indicators and adds two, behind the e
   const transformed = await transformWithOxc(source, 'payments.jsx', { jsx: { runtime: 'classic' } });
   const env = vm.createContext({ React, DollarSign: () => null, ReceiptText: () => null, Clock: () => null,
     Metric: ({ label, value }) => React.createElement('div', { className: 'metric-card' }, label, value),
+    supabase: {}, AccountantExport: () => React.createElement('button', null, 'Download accountant ledger'),
     PaymentRevenueCards: ({ accountEmail }) => canViewRevenue(accountEmail) ? React.createElement(context.RevenueCardsView, { report: example }) : null,
     Panel: ({ children }) => React.createElement('section', null, children), money: (value) => `$${value}`, paymentEventMatchesFilter: () => true });
   vm.runInContext(transformed.code, env);
@@ -68,7 +69,8 @@ test('Payments preserves all four original indicators and adds two, behind the e
   assert.equal((html.match(/class="metric-card/g) || []).length, 6);
   for (const label of ['Gross Collected', 'Refunded', 'Outstanding', 'Deposits Held']) assert.ok(html.includes(label));
   const other = renderToStaticMarkup(React.createElement(env.PaymentsTab, { ...props, canViewFinancialSummary: false, accountEmail: 'other@example.com' }));
-  assert.doesNotMatch(other, /Made This|payments-metrics/);
+  assert.match(html, /Download accountant ledger/);
+  assert.doesNotMatch(other, /Made This|payments-metrics|Download accountant ledger/);
 });
 
 test('one clear review note replaces duplicate alarms, and older refunds do not label October as incomplete', () => {
