@@ -1,8 +1,8 @@
 const cashReceiptDate = row => row.payment_received_date || row.paid_at;
 // Cash-based revenue reporting, separate from the existing cash/deposit cards.
 // All arithmetic is in cents. Never use updated_at as a receipt date.
-export const REVENUE_ACCOUNT = 'anconamgt@aol.com';
-export const canViewRevenue = (email) => String(email || '').trim().toLowerCase() === REVENUE_ACCOUNT;
+const revenueAccounts = new Set(['anconamgt@aol.com', 'jennifer@rentmect.com']);
+export const canViewRevenue = (email) => revenueAccounts.has(String(email || '').trim().toLowerCase());
 const cents = (value) => Math.round(Number(value || 0) * 100);
 const positive = (value) => Math.max(0, cents(value));
 const paid = (status) => ['paid', 'partially_paid', 'succeeded', 'refunded', 'partially_refunded'].includes(String(status || '').toLowerCase());

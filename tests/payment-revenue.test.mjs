@@ -17,9 +17,10 @@ const report = (data) => {
 };
 const charge = (overrides = {}) => ({ id: 'late', rental_id: 'r', charge_type: 'late_fee', status: 'paid', amount: 20, total_amount: 21.27, tax_amount: 1.27, payment_amount_cents: 2127, paid_at: october, ...overrides });
 
-test('only the exact Ancona account can request revenue totals', () => {
+test('only the two authorized accounts can request revenue totals', () => {
   assert.equal(canViewRevenue(' ANCONAMGT@AOL.COM '), true);
-  for (const email of [undefined, '', 'owner@aol.com', 'anconamgt@aol.com.example']) assert.equal(canViewRevenue(email), false);
+  assert.equal(canViewRevenue(' JENNIFER@RENTMECT.COM '), true);
+  for (const email of ['jennifer@rentmect.com.example', undefined, '', 'owner@aol.com', 'anconamgt@aol.com.example']) assert.equal(canViewRevenue(email), false);
 });
 test('paid rent and late fees exclude sales tax and refundable deposits', () => {
   const result = report({ rentals: [rental], charges: [charge()] });
