@@ -1,3 +1,4 @@
+import { canViewRevenue as canViewFinancialSummaryForEmail } from './lib/paymentRevenue.js';
 import { AccountantExport } from './AccountantExport.jsx';
 import { agreementCopy } from './lib/agreementCopy.js';
 import { DamageCases } from './DamageCases.jsx';
@@ -156,12 +157,6 @@ const BLOCKING_VEHICLE_STATUSES = ['maintenance', 'unavailable', 'inactive'];
 const TURNAROUND_BUFFER_MINUTES = 0; // No time-based availability buffer; possession is released by admin return.
 const SMS_TEMPLATE_MAX_LENGTH = 900;
 const SMS_COMPLIANCE_FOOTER = 'Reply STOP to unsubscribe or HELP for help.';
-const FINANCIAL_SUMMARY_VIEWER_EMAIL = 'anconamgt@aol.com';
-
-function canViewFinancialSummaryForEmail(email) {
-  return String(email || '').trim().toLowerCase() === FINANCIAL_SUMMARY_VIEWER_EMAIL;
-}
-
 function smsTemplateComplianceError(value) {
   const body = String(value || '').trim();
   if (!/\bRent Me CT\b/i.test(body)) return 'Text templates must identify the sender as Rent Me CT.';

@@ -16,9 +16,8 @@ const anconaOnlyCorrection = readFileSync(
   'utf8',
 );
 
-test('only the Ancona account renders financial summary cards', () => {
-  assert.match(source, /const FINANCIAL_SUMMARY_VIEWER_EMAIL = 'anconamgt@aol\.com'/);
-  assert.match(source, /function canViewFinancialSummaryForEmail\(email\)/);
+test('the dashboard and payments use the shared financial access check', () => {
+  assert.match(source, /canViewRevenue as canViewFinancialSummaryForEmail/);
   assert.match(source, /<Dashboard canViewFinancialSummary=\{canViewFinancialSummaryForEmail\(session\.user\.email\)\}/);
   assert.match(source, /<PaymentsTab canViewFinancialSummary=\{canViewFinancialSummaryForEmail\(session\.user\.email\)\}/);
   assert.match(source, /canViewFinancialSummary && <Metric icon=\{Banknote\} label="Month Revenue"/);
