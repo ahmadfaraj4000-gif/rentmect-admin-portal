@@ -10169,3 +10169,25 @@ input[type="radio"] {
     flex-wrap: wrap;
   }
 }
+
+.closed-rental-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 12px;
+  margin-block: 12px 16px;
+}
+.closed-rental-toolbar .search-row {
+  flex: 1 1 20rem;
+  min-width: 0;
+  margin: 0;
+}
+.closed-rental-toolbar select {
+  flex: 0 1 auto;
+  width: auto;
+  min-height: 44px;
+  padding-inline: 12px 32px;
+}
+@media (max-width: 600px) {
+  .closed-rental-toolbar select { width: 100%; }
+}
