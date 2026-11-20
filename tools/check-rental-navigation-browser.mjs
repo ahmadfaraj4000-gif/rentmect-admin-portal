@@ -43,15 +43,16 @@ const client={rpc:async(name,args)=>{window.reads.push({name,args});await new Pr
 const Panel=({title,children})=><section><h2>{title}</h2>{children}</section>,Metric=()=>null,DepositActionPanel=()=>null,ReminderMenu=()=>null;
 const RentalRow=({rental,summaryOnly,onRequestDetails,onCloseDetails})=><article data-rental-id={rental.id}><h3>{rental.profiles.full_name}</h3><p>{rental.vehicles.name}</p><button onClick={summaryOnly?onRequestDetails:onCloseDetails}>{summaryOnly?'Show rental details':'Hide rental details'}</button></article>;
 const isToday=()=>false,getLateReturnState=()=>({overdue:true,hardLocked:true}),formatRentalDate=(d,t)=>d+' '+t,prettyStatus=s=>s,money=n=>'$'+n;
-const rentalFilterOptions=()=>[{key:'needs_action',label:'Needs action'},{key:'archive',label:'Archive'}],limitText=(s,n)=>s.slice(0,n);
+const rentalFilterOptions=()=>[{key:'needs_action',label:'Needs action'},{key:'archive',label:'Archive'},{key:'deposit_review',label:'Deposit Review'}],limitText=(s,n)=>s.slice(0,n);
 ${components}
 function App(){
  const [activeTab,setActiveTab]=useState(new URLSearchParams(location.search).get('source')||'dashboard');
  const [manualBookingFocusId,setManualBookingFocusId]=useState('');
  const [rentalFilter,setRentalFilter]=useState('all'),[search,setSearch]=useState('');
+ const [closedOrder,setClosedOrder]=useState('recent');
  const [loaded,setLoaded]=useState({});
  const isMobileAdminNav=innerWidth<600,setNavCollapsed=()=>{};
- const rentalWorkspace=useRentalWorkspace({client,enabled:activeTab==='rentals',userId:'test-staff',filter:rentalFilter,search,focusId:manualBookingFocusId,
+ const rentalWorkspace=useRentalWorkspace({client,enabled:activeTab==='rentals',userId:'test-staff',filter:rentalFilter,closedOrder,search,focusId:manualBookingFocusId,
    hydrate:data=>setLoaded(current=>({...current,[data.rental.id]:data.rental})),prepareDetails:async()=>{}});
  window.refreshRentals=()=>rentalWorkspace.refresh();
  ${navigation}
@@ -59,7 +60,7 @@ function App(){
  return <>
  {activeTab==='dashboard'&&<Dashboard snapshot={{overdue_rentals:rows,due_soon_rentals:[]}} dashboard={{active:[],overdue:rows,dueSoon:[]}} vehicles={[]} onOpenRental={dashboardOpen}/>}
  {activeTab==='queue'&&<OperationsQueue queue={rows.map(r=>({id:r.id,bucket:'return_attention',severity:'critical',title:'Overdue',subtitle:r.profiles.full_name,rental:r}))} onOpenRental={queueOpen}/>}
- {activeTab==='rentals'&&<Rentals manager={rentalWorkspace} rentals={Object.values(loaded)} focusRentalId={manualBookingFocusId} clearRentalFocus={()=>setManualBookingFocusId('')}
+ {activeTab==='rentals'&&<Rentals closedOrder={closedOrder} setClosedOrder={setClosedOrder} manager={rentalWorkspace} rentals={Object.values(loaded)} focusRentalId={manualBookingFocusId} clearRentalFocus={()=>setManualBookingFocusId('')}
    search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} rentalPayments={[]} extensionRequests={[]} vehicles={[]} reports={[]} documentsByRentalId={{}}/>}
  </>;
 }
@@ -111,6 +112,18 @@ try {
     await page.evaluate(() => window.refreshRentals());
     assert.equal((await page.evaluate(() => window.reads)).filter(r => r.name === 'admin_rental_detail').length, 1);
     assert.equal(await page.getByRole('button', { name: 'Show rental details', exact: true }).count(), 35);
+    for (const [label, filter] of [['Archive', 'archive'], ['Deposit Review', 'deposit_review']]) {
+      await page.getByRole('button', { name: new RegExp('^' + label) }).click();
+      const sort = page.getByRole('combobox', { name: 'Sort by closure date' });
+      assert.equal(await sort.inputValue(), 'recent');
+      await sort.selectOption('oldest');
+      await page.waitForFunction(key => window.reads.some(r => r.args.p_filter === key && r.args.p_offset === 0), filter + '_oldest');
+      const search = await page.locator('.closed-rental-toolbar .search-row').boundingBox();
+      const control = await sort.boundingBox();
+      assert.ok(control.x >= 0 && control.x + control.width <= viewport.width);
+      assert.ok(viewport.width < 600 ? control.y >= search.y + search.height + 8 : control.x >= search.x + search.width + 8);
+      await sort.selectOption('recent');
+    }
     assert.deepEqual(errors, []);
     await page.close();
   }

@@ -3,8 +3,8 @@ import { freshDomainLoad } from './freshDomainLoad.js';
 export const RENTAL_PAGE_SIZE = 25;
 export const ARCHIVE_PAGE_SIZE = 5;
 export const RENTAL_CACHE_MS = 30_000;
-export const rentalPageKey = ({ filter, search = '', focusId = '', offset = 0 }) =>
-  JSON.stringify([filter, search.trim(), focusId, offset]);
+export const rentalPageKey = ({ filter, closedOrder = 'recent', search = '', focusId = '', offset = 0 }) =>
+  JSON.stringify([filter, closedOrder, search.trim(), focusId, offset]);
 
 // Session-local cache. Responses for an old filter or closed record never replace
 // the visible state. Forced reads drain once more if a mutation arrived mid-read.

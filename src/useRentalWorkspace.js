@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRentalWorkspace } from './lib/rentalWorkspace.js';
-import { createRentalSummaryReader } from './lib/rentalSummaryReader.js';
+import { createRentalSummaryReader, rentalRpcFilter } from './lib/rentalSummaryReader.js';
 import { withReadRetry } from './requestDeadline.js';
 import { subscribeTaskDialogs } from './lib/taskDraft.js';
 import { performanceTelemetry } from './lib/performance.js';
 import { performanceOutcome } from './lib/performanceTelemetry.js';
 
-export function useRentalWorkspace({ client, enabled, userId, filter, search, focusId, hydrate, prepareDetails }) {
+export function useRentalWorkspace({ client, enabled, userId, filter, search, closedOrder = 'recent', focusId, hydrate, prepareDetails }) {
   const callbacks = useRef({ hydrate, prepareDetails });
   callbacks.current = { hydrate, prepareDetails };
   const [state, setState] = useState({ rows: [], counts: {}, total: 0, offset: 0, loading: true, error: '', selectedId: '', detailReady: false });
@@ -33,7 +33,7 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
       readChanges: async (params, ids, knownIds) => {
         const size = ['archive', 'deposit_review'].includes(params.filter) ? 5 : 25;
         const { data, error } = await withReadRetry(() => client.rpc('admin_rental_summary_changes', {
-          p_filter: params.filter, p_search: params.search, p_offset: 0,
+          p_filter: rentalRpcFilter(params), p_search: params.search, p_offset: 0,
           p_limit: params.offset + size, p_rental_id: params.focusId || null,
           p_changed_ids: ids, p_known_ids: knownIds,
         }), 'Rental updates');
@@ -59,8 +59,8 @@ export function useRentalWorkspace({ client, enabled, userId, filter, search, fo
   }, [client, userId]);
   useEffect(() => {
     if (!enabled) { controllerRef.current?.clearRetained(); return; }
-    void controllerRef.current?.list({ filter, search: query, focusId, offset });
-  }, [enabled, userId, filter, query, focusId, offset]);
+    void controllerRef.current?.list({ filter, closedOrder, search: query, focusId, offset });
+  }, [enabled, userId, filter, closedOrder, query, focusId, offset]);
   useEffect(() => {
     if (enabled && focusId) void controllerRef.current?.open(focusId);
   }, [enabled, focusId, userId]);
