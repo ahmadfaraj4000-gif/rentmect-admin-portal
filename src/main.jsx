@@ -5708,8 +5708,8 @@ function Rentals({ closedOrder, setClosedOrder, onOpenReviewedRentalArchive, man
       </div>
       <div className={['archive', 'deposit_review'].includes(rentalFilter) ? 'closed-rental-toolbar' : undefined}>
       <div className="search-row"><Search size={18}/><input value={search} maxLength="120" onChange={(e)=>{ performanceTelemetry.intent(rentalFilter === 'archive' ? 'rental_archive' : 'rental_list', 'search'); setSearch(limitText(e.target.value, 120)); }} placeholder="Search customer, car, phone, status..." /></div>
-      {['archive', 'deposit_review'].includes(rentalFilter) && <select aria-label="Sort by closure date" value={closedOrder} onChange={event => { manager.setOffset(0); setClosedOrder(event.target.value); }}>
-        <option value="recent">Most recent first</option>
+      {['archive', 'deposit_review'].includes(rentalFilter) && <select aria-label="Sort by time added to this tab" value={closedOrder} onChange={event => { manager.setOffset(0); setClosedOrder(event.target.value); }}>
+        <option value="recent">Recently added first</option>
         <option value="oldest">Oldest first</option>
       </select>}
       </div>

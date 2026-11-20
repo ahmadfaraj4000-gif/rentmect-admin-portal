@@ -114,7 +114,7 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Show rental details', exact: true }).count(), 35);
     for (const [label, filter] of [['Archive', 'archive'], ['Deposit Review', 'deposit_review']]) {
       await page.getByRole('button', { name: new RegExp('^' + label) }).click();
-      const sort = page.getByRole('combobox', { name: 'Sort by closure date' });
+      const sort = page.getByRole('combobox', { name: 'Sort by time added to this tab' });
       assert.equal(await sort.inputValue(), 'recent');
       await sort.selectOption('oldest');
       await page.waitForFunction(key => window.reads.some(r => r.args.p_filter === key && r.args.p_offset === 0), filter + '_oldest');
