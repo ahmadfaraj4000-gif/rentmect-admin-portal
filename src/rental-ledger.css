@@ -187,3 +187,35 @@
 }
 .unused-rental-cancel:hover { text-decoration: underline; }
 .unused-rental-actions .unused-rental-delete { background: #a82b31; color: white; }
+
+.stripe-action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin: 12px 0;
+}
+.stripe-action-row > button, .stripe-action-row > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: #365448;
+  font: inherit;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}
+.stripe-action-row > .stripe-primary { color: white; background: #236847; padding-inline: 18px; }
+.stripe-action-row > .stripe-danger { color: #a82b31; }
+.stripe-action-row > .stripe-danger-confirm { background: #a82b31; color: white; }
+.stripe-action-row > :is(button,a):hover { text-decoration: underline; }
+.stripe-action-row > :is(button,a):focus-visible { outline: 2px solid currentColor; outline-offset: 2px; box-shadow: 0 0 0 4px #30664b; }
+.stripe-cancel-area { border-top: 1px solid var(--ui-line,#d8e2dd); padding-top: 8px; margin-top: 16px; }
+@media (max-width: 520px) { .stripe-action-row > .stripe-primary { width: 100%; } }

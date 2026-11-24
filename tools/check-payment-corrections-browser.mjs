@@ -64,14 +64,25 @@ try{
   for(const label of ['Rental balance','Bridge toll','Transport','Late fee'])assert.equal(await externalPanel.getByRole('checkbox',{name:label,exact:true}).isChecked(),true);
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   await amount.fill('200.00');await page.getByLabel('Stripe amount toward rental',{exact:true}).fill('50.00');await page.getByLabel('Stripe amount toward Bridge toll',{exact:true}).fill('10.00');
-  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Create Stripe link',exact:true}).click();await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
+  const openLink=stripePanel.getByRole('link',{name:'Open Stripe link',exact:true});
+  assert.equal(await openLink.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(35, 104, 71)');
+  for(const name of ['Copy link','Email link','Check payment status','Cancel payment link']){
+    const button=stripePanel.getByRole('button',{name,exact:true});
+    assert.equal(await button.evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)',name);
+  }
+  const cancelLink=stripePanel.getByRole('button',{name:'Cancel payment link',exact:true});
+  assert.equal(await cancelLink.evaluate(el=>getComputedStyle(el).color),'rgb(168, 43, 49)');
+  await cancelLink.click();
+  await stripePanel.getByRole('button',{name:'Keep link',exact:true}).click();
+  assert.ok(await openLink.isVisible());
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByText('Stripe payment link copied.',{exact:true}).waitFor();
   const calls=await page.evaluate(()=>window.calls),call=calls.at(-1);assert.equal(call.externalPayment.amountCents,20000);assert.equal(call.externalPayment.rentalAmountCents,5000);assert.equal(call.externalPayment.creditAmountCents,8000);
   assert.equal((await page.evaluate(()=>window.copied)).length,1);
   await page.getByRole('button',{name:'Email link',exact:true}).click();assert.equal((await page.evaluate(()=>window.emails))[0].channel,'email');assert.equal((await page.evaluate(()=>window.calls)).length,calls.length,'email reuses reserved checkout');
   await page.screenshot({path:'/tmp/rentme-card-screenshots/stripe-allocation-'+viewport.width+'.png'});
-  await page.getByRole('button',{name:'Cancel unpaid Stripe attempt',exact:true}).click();await page.getByText(/unpaid Stripe attempt was cancelled/).waitFor();assert.equal(await amount.isEnabled(),true);
+  await page.getByRole('button',{name:'Cancel payment link',exact:true}).click();await page.getByRole('button',{name:'Confirm cancellation',exact:true}).click();await page.getByText(/unpaid Stripe attempt was cancelled/).waitFor();assert.equal(await amount.isEnabled(),true);
   await page.getByRole('button',{name:'Charge saved card',exact:true}).click();await page.getByRole('button',{name:'Confirm and charge saved card',exact:true}).click();await page.getByText(/received through Stripe/).waitFor();
   assert.ok(await dialog.evaluate(n=>n.scrollWidth<=n.clientWidth+1),'no horizontal dialog overflow');assert.deepEqual(errors,[]);await page.close();
  }

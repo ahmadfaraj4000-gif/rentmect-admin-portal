@@ -9,6 +9,7 @@ export function StripeAllocatedPayment({client,rental,charges,due,depositDue,sta
  const [form,setForm]=useState(()=>({amount:((due+(depositDue||0)+charges.reduce((s,c)=>s+chargeRemainingCents(c),0))/100).toFixed(2),rentalAmount:(due/100).toFixed(2),depositAmount:((depositDue||0)/100).toFixed(2),allocations:Object.fromEntries(charges.map(c=>[c.id,(chargeRemainingCents(c)/100).toFixed(2)]))}));
  const [attempt,setAttempt]=useState(null),[review,setReview]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[done,setDone]=useState(null);
  useEffect(()=>{if(depositDue!==undefined&&!pending)setForm(f=>({...f,rentalAmount:(due/100).toFixed(2),depositAmount:(depositDue/100).toFixed(2),amount:((due+depositDue+charges.reduce((s,c)=>s+chargeRemainingCents(c),0))/100).toFixed(2)}));},[depositDue!==undefined]);
+ const [cancelReview,setCancelReview]=useState(false);
  const lock=useRef(false);
  const active=attempt || (stripePending && {id:stripePending.id,request:stripePending.request,url:stripePending.result?.url});
  const request=active?.request;
@@ -40,10 +41,10 @@ export function StripeAllocatedPayment({client,rental,charges,due,depositDue,sta
    const {data,error}=onCollect ? {data:await onCollect(id,saved.request,action)} : await client.functions.invoke('stripe-web-hook',{body:{action,rentalId:rental.id,idempotencyKey:id,externalPayment:saved.request}});
    if(error||data?.error){let message=data?.error||error?.message;try{message=(await error?.context?.clone?.().json())?.error||message;}catch{}throw new Error(message||'Unable to confirm payment. Check this same attempt again.');}
    if(data.status==='posted'){setDone(data);setReview(null);await onRefresh?.();return;}
-   if(data.status==='cancelled'){setAttempt(null);setReview(null);setNotice('The unpaid Stripe attempt was cancelled. You can change the amount and allocations.');await onRefresh?.();return;}
+   if(data.status==='cancelled'){setAttempt(null);setReview(null);setCancelReview(false);setNotice('The unpaid Stripe attempt was cancelled. You can change the amount and allocations.');await onRefresh?.();return;}
    setAttempt({...saved,url:data.url||active?.url});setReview(null);await onRefresh?.();
    if(data.url){
-    setNotice('Stripe payment link is ready. Open, copy, or email it below.');
+    setNotice('');
    }else setNotice(data.message||'Payment is awaiting Stripe confirmation. Check payment status before starting another attempt.');
   }catch(e){setError(e.message);}
   finally{setBusy(false);onBusyChange?.(false);lock.current=false;}
@@ -52,7 +53,6 @@ export function StripeAllocatedPayment({client,rental,charges,due,depositDue,sta
  return <div className="stripe-allocated-payment">
   <p>Enter the amount to collect through Stripe. Money goes to the security deposit first, then rental, then additional charges. Changing the amount updates these selections. Any excess becomes customer credit for this rental.</p>
   {blocked&&<p role="alert">An external payment is unfinished. Resume or cancel it in External payments first.</p>}
-  {active&&<p role="status">A Stripe payment is pending. Its amount and allocations are reserved until payment or cancellation. Use the same link to avoid duplicate payments.</p>}
   <fieldset className="flexible-payment-fields" disabled={busy||!!active||!!blocked||!state}>
    <label>Stripe payment amount<MoneyInput type="number" step="0.01" min="0.50" inputMode="decimal" value={request?(amount/100).toFixed(2):form.amount} onChange={e=>change('amount',e.target.value)}/></label>
    <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
@@ -62,11 +62,35 @@ export function StripeAllocatedPayment({client,rental,charges,due,depositDue,sta
    </div>
   </fieldset>
   <dl className="allocation-review"><dt>Stripe amount</dt><dd>{money(amount||0)}</dd><dt>Selected for security deposit</dt><dd>{money(deposit||0)}</dd><dt>Selected for rental</dt><dd>{money(rent||0)}</dd><dt>Additional charges / tolls</dt><dd>{money(extras||0)}</dd><dt>{credit<0?'Selected amount exceeds payment by':'Left as customer credit'}</dt><dd>{money(Math.abs(credit)||0)}</dd></dl>
-  {review?<div className="receipt-confirmation"><strong>Confirm {review.mode==='card'?'saved-card charge':'Stripe payment link'}</strong><p>Collect {money(review.request.amountCents)}: {money(review.request.depositAmountCents||0)} to security deposit, {money(review.request.rentalAmountCents)} to rental, {money(review.request.charges.reduce((s,c)=>s+c.amountCents,0))} to selected charges, and {money(review.request.creditAmountCents)} as credit. {review.mode==='card'?'Confirming will charge the saved card now.':'Creating a link does not mark the payment as received.'}</p><div className="rp-stripe-actions"><button type="button" disabled={busy} onClick={()=>perform(review.mode)}>{busy?'Checking Stripe…':review.mode==='card'?'Confirm and charge saved card':'Confirm and create Stripe link'}</button><button type="button" disabled={busy} onClick={()=>setReview(null)}>Back to edit</button></div></div>:<div className="rp-stripe-actions">
-   {!active&&<><button type="button" disabled={busy||!!blocked||!state} onClick={()=>prepare('link')}>Open Stripe link</button><button type="button" disabled={busy||!!blocked||!state} onClick={()=>prepare('card')}>Charge saved card</button></>}
-   {active&&<><button type="button" disabled={busy} onClick={()=>perform('status')}>{busy?'Checking Stripe…':'Check payment status'}</button><button type="button" disabled={busy} onClick={()=>perform('cancel')}>Cancel unpaid Stripe attempt</button></>}
-  </div>}
-  {active?.url&&<div className="rp-stripe-actions"><a href={active.url} target="_blank" rel="noopener noreferrer">Open Stripe payment link</a><button type="button" disabled={busy} onClick={async()=>{try{await navigator.clipboard.writeText(active.url);setNotice('Stripe payment link copied.');}catch{setError('Copy failed. Open the link and copy its address.');}}}>Copy link</button><button type="button" disabled={busy} onClick={()=>onEmail?.({id:rental.id,kind:'rental',rental,paymentReceiptId:active.id,amount:amount/100,label:'Allocated rental payment'},active.url,'email')}>Email link</button></div>}
+  {review?<div className="receipt-confirmation"><strong>Confirm {review.mode==='card'?'saved-card charge':'Stripe payment link'}</strong><p>Collect {money(review.request.amountCents)}: {money(review.request.depositAmountCents||0)} to security deposit, {money(review.request.rentalAmountCents)} to rental, {money(review.request.charges.reduce((s,c)=>s+c.amountCents,0))} to selected charges, and {money(review.request.creditAmountCents)} as credit. {review.mode==='card'?'Confirming will charge the saved card now.':'Creating a link does not mark the payment as received.'}</p><div className="stripe-action-row">
+    <button className="stripe-primary" type="button" disabled={busy} onClick={()=>perform(review.mode)}>{busy?'Checking Stripe…':review.mode==='card'?'Confirm and charge saved card':'Confirm and create Stripe link'}</button>
+    <button type="button" disabled={busy} onClick={()=>setReview(null)}>Back to edit</button>
+  </div></div>:!active ? <div className="stripe-action-row">
+    <button className="stripe-primary" type="button" disabled={busy||!!blocked||!state} onClick={()=>prepare('link')}>Create Stripe link</button>
+    <button type="button" disabled={busy||!!blocked||!state} onClick={()=>prepare('card')}>Charge saved card</button>
+  </div> : <>
+    <div className="stripe-action-row">
+      <strong role="status">Awaiting payment · {money(amount)}</strong>
+      <button type="button" disabled={busy} onClick={()=>perform('status')}>{busy?'Checking Stripe…':'Check payment status'}</button>
+    </div>
+    {active.url && <div className="stripe-action-row">
+      <a className="stripe-primary" href={active.url} target="_blank" rel="noopener noreferrer">Open Stripe link</a>
+      <button type="button" disabled={busy} onClick={async()=>{
+        try { await navigator.clipboard.writeText(active.url); setNotice('Stripe payment link copied.'); }
+        catch { setError('Copy failed. Open the link and copy its address.'); }
+      }}>Copy link</button>
+      <button type="button" disabled={busy||!onEmail} onClick={()=>onEmail({id:rental.id,kind:'rental',rental,paymentReceiptId:active.id,amount:amount/100,label:'Allocated rental payment'},active.url,'email')}>Email link</button>
+    </div>}
+    <div className="stripe-cancel-area">
+      {cancelReview ? <>
+        <strong>{active.url?'Cancel this unpaid payment link?':'Cancel this unpaid payment attempt?'}</strong>
+        <div className="stripe-action-row">
+          <button type="button" disabled={busy} onClick={()=>setCancelReview(false)}>{active.url?'Keep link':'Keep payment attempt'}</button>
+          <button className="stripe-danger-confirm" type="button" disabled={busy} onClick={()=>perform('cancel')}>Confirm cancellation</button>
+        </div>
+      </> : <div className="stripe-action-row"><button className="stripe-danger" type="button" disabled={busy} onClick={()=>setCancelReview(true)}>{active.url?'Cancel payment link':'Cancel unpaid payment attempt'}</button></div>}
+    </div>
+  </>}
   {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="form-error">{error}</p>}
  </div>;
 }
