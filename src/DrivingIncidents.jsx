@@ -41,7 +41,7 @@ export default function DrivingIncidents({ client, rentalId }) {
     <form className="portal-form driving-incident-form" onSubmit={record}>
       <label>Incident report or trip event ID<input value={reference} maxLength={120} required onChange={e => setReference(e.target.value)}/></label>
       <label>Peak speed (mph)<input type="number" value={speed} min="0.1" max="399.9" step="0.1" onChange={e => setSpeed(e.target.value)}/></label>
-      <label><input type="checkbox" checked={reckless} onChange={e => setReckless(e.target.checked)}/> Reckless driving documented</label>
+      <label className="driving-incident-checkbox"><input type="checkbox" checked={reckless} onChange={e => setReckless(e.target.checked)}/> Reckless driving documented</label>
       <button type="submit" className="secondary-btn" disabled={busy || !reference.trim() || (!reckless && Number(speed) <= 90)}>Record incident</button>
     </form>
     {message && <p role="status">{message}</p>}

@@ -10200,8 +10200,17 @@ input[type="radio"] {
   max-width: 100%;
   box-sizing: border-box;
 }
+.driving-incident-form label.driving-incident-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+  cursor: pointer;
+}
 .driving-incident-form input[type="checkbox"] {
-  width: auto;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }
 
 .communications-nav-count {
