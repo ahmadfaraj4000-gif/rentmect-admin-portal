@@ -8342,7 +8342,7 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
       return;
     }
     const actions = { warnings: () => setNeedsActionModalOpen(true), pickup: () => setPickupModal({}),
-      return: () => openReturnPanel(), receive: () => setReceivePaymentOpen(true),
+      return: () => openReturnPanel(), receive: () => openReceivePayment(),
       edit: () => setEditRentalOpen(true), swap: () => setSwapOpen(true), extend: () => setExtensionOpen(true),
       contact: () => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' }),
       restore: () => setRestoreModalOpen(true), deadline: () => setDeadlineModalOpen(true),
@@ -8635,7 +8635,7 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
         <div className="rental-card-primary-action">
           {canMarkActive && <button className="approve primary-action" onClick={() => runCardAction('pickup', () => setPickupModal({}))}><Car size={15}/> Mark Vehicle Picked Up</button>}
           {canCompleteReturn && <button className="approve primary-action" onClick={() => runCardAction('return', openReturnPanel)}><CheckCircle2 size={15}/> Confirm Return Complete</button>}
-          {rental.status === 'completed' && !depositReviewRequired && (balanceDue > 0.005 || (summaryOnly && rental.outstanding_charge)) && recordExternalTollPayment && <button type="button" className="approve primary-action" onClick={() => runCardAction('receive', () => openReceivePayment())}><DollarSign size={15}/> {hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
+          {rental.status === 'completed' && recordExternalTollPayment && <button type="button" className="approve primary-action" onClick={() => runCardAction('receive', () => openReceivePayment())}><DollarSign size={15}/> {hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
           {rental.status !== 'completed' && !canMarkActive && !canCompleteReturn && nextAdminStep && <button type="button" className="approve primary-action" onClick={() => runCardAction('step:' + nextAdminStep.key, () => nextAdminStep.key === 'payment' ? openPaymentStep() : setAdminStepScope(nextAdminStep.key))}><ArrowRight size={15}/> Manage {nextAdminStep.label}</button>}
         </div>
         <div className="rental-card-secondary-actions">
@@ -8711,9 +8711,8 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
 
     <div className="rental-card-payment-toolbar">
       {(depositReviewRequired || rental.status === 'completed') && releaseSecurityDeposit && <button type="button" className="approve" onClick={() => setDepositReviewOpen(true)}><DollarSign size={15}/> Return deposit &amp; credit</button>}
-      {depositReviewRequired && balanceDue > 0 && recordExternalTollPayment && <button type="button" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Collect remaining balance'}</button>}
 
-      {!depositReviewRequired && (flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" id={`take-payment-${rental.id}`} className="approve" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
+      {(rental.status === 'completed' || flexiblePaymentsEnabled || import.meta.env.VITE_UNIFIED_EXTERNAL_PAYMENTS === 'true' || rental.pending_external_payment_id) && recordExternalTollPayment && rental.status !== 'cancelled' && <button type="button" id={`take-payment-${rental.id}`} className="approve" onClick={() => openReceivePayment()}>{hasPendingPayment ? 'Resume Payment' : 'Take Payment'}</button>}
       {applyManualRentalDiscount && rental.status !== 'cancelled' && <button type="button" onClick={() => setDiscountModalOpen(true)}><Tag size={15}/> Add Discount</button>}
       <button type="button" onClick={() => { setDetailsExpanded(true); setPaymentBrowserOpen(true); }}><Pencil size={15}/> Edit Payment Details</button>
     </div>
@@ -8721,7 +8720,7 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
     <div className="rental-card-workspace">
       <div className="rental-card-left-column">
         <RentalLedger id={`ledger-${rental.id}`} payments={<>{flexibleReadError && <p role="alert">Allocated payment history could not load: {flexibleReadError} <button type="button" onClick={refreshFlexibleState}>Retry</button></p>}<RentalPaymentHistory compact payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)} /></>}
-          charges={<RentalChargeManager ledger rental={rental} depositAllocations={depositAllocations} charges={trueAdditionalCharges} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} sendPaymentLink={(charge) => setContactModal({ charge })}  notify={notify} />} activity={<details className="rental-card-activity" open>
+          charges={<RentalChargeManager ledger rental={rental} depositAllocations={depositAllocations} charges={trueAdditionalCharges} onReceivePayment={rental.status === 'completed' && recordExternalTollPayment ? openReceivePayment : null} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} sendPaymentLink={(charge) => setContactModal({ charge })}  notify={notify} />} activity={<details className="rental-card-activity" open>
       <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length + activityEvents.length} items</em><ChevronDown size={16}/></summary>
       <div className="rental-card-activity-body"><RentalPricingHistory account={rentalAccount} formatDate={formatEasternDateTime} />
         {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
@@ -10391,6 +10390,7 @@ function RentalChargeManager({ depositAllocations = [], rental, charges = [], se
     <div className={`rental-charge-balance ${outstandingTotal > 0 ? 'due' : 'clear'}`}>
       <div><span><strong>Additional charges: {outstandingTotal > 0 ? `${money(outstandingTotal)} outstanding` : paidTotal > 0 ? 'Paid in full' : 'No balance due'}</strong></span>
       <small>{money(paidTotal + outstandingTotal)} charged · {money(paidTotal)} paid · {money(outstandingTotal)} outstanding</small></div>
+      {ledger && outstandingTotal > 0 && onReceivePayment && <button type="button" className="approve charge-all-addons" onClick={() => onReceivePayment()}><CreditCard size={15}/> Take Payment</button>}
       {!ledger && collectible.length > 0 && chargeRentalSavedCard && <button type="button" className="approve charge-all-addons" disabled={Boolean(collectionCharges || waivingId)} onClick={() => onReceivePayment ? onReceivePayment(collectible.map(c => c.id)) : setCollectionCharges(collectible)}><CreditCard size={15}/>{onReceivePayment ? 'Take Payment' : `Charge all · ${money(outstandingTotal)}`}</button>}
     </div>
     {!ledger && recordExternalTollPayment && charges.some(charge => charge.charge_type === 'toll') && <div className="row-actions"><button type="button" className="approve" disabled={Boolean(collectionCharges || waivingId || externalCharge)} onClick={() => onReceivePayment ? onReceivePayment(collectible.filter(c => c.charge_type === 'toll').map(c => c.id)) : setExternalTollsOpen(true)}><Banknote size={15}/> Record toll payment</button></div>}
