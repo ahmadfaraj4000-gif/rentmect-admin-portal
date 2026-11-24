@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useHistoryPage, PageControls } from './HistoryScreens.jsx';
-export function PortalInbox({ client, revision, Panel, canSend, notify }) {
+export function PortalInbox({ client, revision, Panel, canSend, notify, onMessagesRead }) {
   const [search,setSearch] = useState('');
   const [query,setQuery] = useState('');
   const [offset,setOffset] = useState(0);
@@ -34,7 +34,7 @@ export function PortalInbox({ client, revision, Panel, canSend, notify }) {
         <span className="communications-thread-copy"><strong>{row.full_name || row.email}</strong><small>{row.preview}</small></span>{Number(row.unread)>0 ? <em className="communications-thread-unread" aria-label={`${row.unread} unread messages`}>{row.unread}</em> : <time className="communications-thread-date" dateTime={row.latest_at}>{new Date(row.latest_at).toLocaleDateString()}</time>}
       </button>)}</div>
     </Panel>
-    {selected ? <PortalThread key={selected.user_id} client={client} thread={selected} revision={revision} Panel={Panel} canSend={canSend} notify={notify} onRead={()=>setRefresh(value=>value+1)} onClose={()=>setSelected(null)}/>
+    {selected ? <PortalThread key={selected.user_id} client={client} thread={selected} revision={revision} Panel={Panel} canSend={canSend} notify={notify} onRead={()=>{setRefresh(value=>value+1);onMessagesRead?.();}} onClose={()=>setSelected(null)}/>
       : <Panel title="Select a customer" eyebrow="Portal Conversation"><p>Choose a conversation to read and reply.</p></Panel>}
   </section>;
 }
