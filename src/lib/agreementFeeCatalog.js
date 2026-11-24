@@ -45,7 +45,6 @@ export function agreementFeeTemplates(rental) {
     fixed('excessive-cleaning', 'Excessive Cleaning / Detailing — minimum', 'cleaning', 80, 'Excessive cleaning or detailing charge; $80 minimum based on vehicle condition.', true, '$80.00 minimum'),
     fixed('smoking-remediation', 'Smoking Cleaning & Remediation — minimum', 'smoking', 200, 'Smoking cleaning and remediation charge; agreement range is $200–$2,000.', true, '$200.00–$2,000.00'),
     variable('tolls', 'Tolls', 'toll', 'Actual toll charges incurred during the rental period.'),
-    fixed('excessive-speeding', 'Excessive Speeding Fee (90+ mph)', 'excessive_speeding', 25, ''),
     variable('traffic-violations', 'Traffic / Parking Violation', 'traffic_violation', 'Actual ticket, citation, parking, or traffic-violation charge incurred during the rental period.'),
     variable('damage', 'Vehicle Damage / Repair', 'damage', 'Actual physical or mechanical damage, repair, diagnostic, or restoration cost.'),
     variable('loss-of-use', 'Loss of Use', 'loss_of_use', 'Loss-of-use charge authorized by the rental agreement.'),

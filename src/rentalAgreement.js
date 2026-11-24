@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-24-excessive-speeding';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-23-speed-incidents';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -65,9 +65,8 @@ Company reserves the right to charge the payment method on file for all recovery
 
 SPEED MONITORING AND VEHICLE DISABLING POLICY
 Renter acknowledges that the Vehicle may be equipped with GPS tracking and telematics capable of monitoring vehicle speed and driving behavior.
-No driver is permitted to operate the Vehicle at ninety (90) miles per hour or faster.
-Excessive Speeding Fee: $25 per distinct occurrence of driving at 90 mph or faster. GPS or telematics records may document the occurrence. Multiple readings during one continuous episode count as one occurrence. No traffic citation is required.
-During this rental, each distinct episode of driving at 90 mph or faster or driving recklessly counts as one incident, including an episode involving both. The third incident triggers a recovery review regardless of how many warnings were issued or received. Driving over 100 mph triggers immediate review, including on the first incident. Any immobilization may occur only after the Vehicle is safely parked.
+No driver is permitted to operate the Vehicle at speeds exceeding ninety (90) miles per hour.
+During this rental, each distinct episode of driving over 90 mph or driving recklessly counts as one incident, including an episode involving both. The third incident triggers a recovery review regardless of how many warnings were issued or received. Driving over 100 mph triggers immediate review, including on the first incident. Any immobilization may occur only after the Vehicle is safely parked.
 Renter agrees that a $100 vehicle reactivation fee shall apply before the Vehicle is re-enabled for continued use.
 
 CLEANLINESS AND DETAILING POLICY
