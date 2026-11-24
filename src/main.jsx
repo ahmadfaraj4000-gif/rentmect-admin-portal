@@ -10725,7 +10725,6 @@ function RentalPaymentRefundModal({ rental, sources = [], previousRefunds = [], 
 }
 
 function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
-  const dialogRef = useDialogFocus(onCancel);
   const currentTotal = Number(rental.rental_total || 0)
     + Number(rental.service_fee_total || 0)
     + Number(rental.tax_amount || 0)
@@ -10740,6 +10739,13 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
   const [previewing, setPreviewing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const removing = form.mode === 'remove';
+  function close() {
+    if (saving) return;
+    if (removing) clearDraft();
+    onCancel();
+  }
+  const dialogRef = useDialogFocus(close);
   const numericValue = Number(form.value || 0);
 
   const previewValid = manualDiscountPreviewMatches(preview, rental.id, form.mode, numericValue);
@@ -10794,28 +10800,34 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
     } finally { setSaving(false); }
   }
 
-  return <div className="admin-modal-backdrop manual-discount-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && onCancel()}>
+  return <div className="admin-modal-backdrop manual-discount-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
     <form ref={dialogRef} className="admin-modal manual-discount-modal" role="dialog" aria-modal="true" aria-labelledby={`manual-discount-title-${rental.id}`} onSubmit={submit}>
       <div className="admin-modal-header">
-        <Tag size={22}/>
         <div>
-          <strong id={`manual-discount-title-${rental.id}`}>Add Manual Discount</strong>
+          <strong id={`manual-discount-title-${rental.id}`}>{removing ? 'Remove manual discount' : 'Add Manual Discount'}</strong>
           <span>{rental.vehicles?.name || 'Vehicle'} • {rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer'}</span>
         </div>
-        <button type="button" className="admin-close-button" onClick={onCancel} disabled={saving} aria-label="Close discount dialog"><X size={18}/></button>
+        <button type="button" className="admin-close-button" onClick={close} disabled={saving} aria-label="Close discount dialog"><X size={18}/></button>
       </div>
 
       <div className="manual-discount-current">
         <span>Current reservation total</span>
         <strong>{money(currentTotal)}</strong>
-        <small>{hasManualDiscount ? `Existing rental discount: ${money(rental.manual_discount_amount)}. The new discount is added to it.` : 'The discount applies to the rental price before tax.'} Tolls and other additional charges remain separate.</small>
+        {hasManualDiscount && <div className="discount-existing-row">
+          <span>Current manual discount <b>{money(rental.manual_discount_amount)}</b></span>
+          {!removing && <button type="button" className="discount-remove-link" disabled={saving}
+            onClick={() => { setError(''); setForm(current => ({ ...current, mode: 'remove', value: '0', reason: '' })); }}>
+            Remove {money(rental.manual_discount_amount)} discount
+          </button>}
+        </div>}
+        <small>{removing ? 'Review the new reservation total and enter a reason to remove this discount.' : hasManualDiscount ? 'The new discount is added to it before tax.' : 'The discount applies to the rental price before tax.'}</small>
       </div>
 
-      <div className="manual-discount-mode" role="group" aria-label="Discount entry method">
+      {!removing && <div className="manual-discount-mode" role="group" aria-label="Discount entry method">
         <button type="button" className={form.mode === 'fixed' ? 'active' : ''} onClick={() => setForm((current) => ({ ...current, mode: 'fixed', value: '' }))}>Dollar amount off</button>
         <button type="button" className={form.mode === 'percentage' ? 'active' : ''} onClick={() => setForm((current) => ({ ...current, mode: 'percentage', value: '' }))}>Percentage off</button>
         <button type="button" className={form.mode === 'target' ? 'active' : ''} onClick={() => setForm(current => ({ ...current, mode: 'target', value: '' }))}>Desired balance due</button>
-      </div>
+      </div>}
       {form.mode === 'target' && <p className="modal-hint">Enter the total you want the client to owe, including tax, unpaid deposit and additional charges, after recorded payments. We calculate the rental discount; the deposit and separate charges stay unchanged.</p>}
 
       {form.mode !== 'remove' && <label className="modal-field">
@@ -10825,7 +10837,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
 
       {previewing && <div className="manual-discount-preview loading">Calculating rental and CT tax…</div>}
       {previewValid && !previewing && <div className="manual-discount-preview" aria-live="polite">
-        <div><span>Entered discount</span><strong>{form.mode === 'target' ? `Target balance: ${money(numericValue)}` : form.mode === 'remove' ? 'Remove existing discount' : form.mode === 'percentage' ? `${numericValue}% additional` : `${money(numericValue)} additional`}</strong></div>
+        <div><span>{removing ? 'Discount to remove' : 'Entered discount'}</span><strong>{form.mode === 'target' ? `Target balance: ${money(numericValue)}` : removing ? money(rental.manual_discount_amount) : form.mode === 'percentage' ? `${numericValue}% additional` : `${money(numericValue)} additional`}</strong></div>
         <div><span>Rental before manual discount</span><strong>{money(preview.pre_manual_discount_rental_total)}</strong></div>
         <div className="discount"><span>Total rental discount</span><strong>−{money(preview.manual_discount_amount)}</strong></div>
         <div><span>Recalculated CT tax</span><strong>{money(preview.tax_amount)}</strong></div>
@@ -10836,7 +10848,7 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
           <div><span>Additional charges due (unchanged)</span><strong>{money(preview.additional_charges_due)}</strong></div>
           <div className="total"><span>New balance due</span><strong>{money(preview.total_balance_due)}</strong></div>
         </>}
-        <small>Total savings including tax: {money(preview.total_savings)}</small>
+        {!removing && <small>Total savings including tax: {money(preview.total_savings)}</small>}
       </div>}
 
       {previewValid && Number(preview?.paid_credit_due || 0) > 0 && <div className="manual-discount-credit-warning"><AlertTriangle size={17}/><span><strong>{money(preview.paid_credit_due)} customer credit will be due.</strong> The captured payment will remain unchanged and must be returned through the correct refund or external-payment process.</span></div>}
@@ -10850,9 +10862,10 @@ function ManualRentalDiscountModal({ rental, onPreview, onApply, onCancel }) {
       {error && <small className="form-error" role="alert">{error}</small>}
 
       <div className="modal-actions">
-        {hasManualDiscount && <button type="button" className="reject manual-discount-remove" onClick={() => setForm(current => ({ ...current, mode: 'remove', value: '0' }))} disabled={saving || form.mode === 'remove'}>Remove Discount</button>}
-        <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className="approve" disabled={saving || previewing || !previewValid || form.reason.trim().length < 1}><CheckCircle2 size={15}/> {saving ? 'Saving…' : form.mode === 'remove' ? 'Confirm Removal' : 'Apply Discount'}</button>
+        <button type="button" className="discount-cancel" onClick={close} disabled={saving}>Cancel</button>
+        <button type="submit" className={removing ? 'discount-confirm-remove' : 'approve'} disabled={saving || previewing || !previewValid || form.reason.trim().length < 1}>
+          {saving ? 'Saving…' : removing ? `Confirm removal of ${money(rental.manual_discount_amount)}` : 'Apply Discount'}
+        </button>
       </div>
     </form>
   </div>;

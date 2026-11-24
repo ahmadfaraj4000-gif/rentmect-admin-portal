@@ -3468,7 +3468,7 @@ input[type="radio"] {
   padding: 14px 20px !important;
   border-top: 1px solid var(--admin-line) !important;
 }
-.manual-discount-modal .manual-discount-remove { margin-right: auto; }
+
 
 .rental-payment-lines .discount-line,
 .rental-payment-lines .credit-line { color: #167144; }
@@ -3478,7 +3478,7 @@ input[type="radio"] {
 @media (max-width: 620px) {
   .manual-discount-mode { grid-template-columns: 1fr; }
   .manual-discount-modal > .modal-actions { grid-template-columns: 1fr !important; }
-  .manual-discount-modal .manual-discount-remove { margin-right: 0; }
+
 }
 
 .admin-modal input[type="radio"] {
@@ -10218,3 +10218,42 @@ input[type="radio"] {
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
+
+.manual-discount-modal .discount-existing-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+.manual-discount-modal .discount-remove-link,
+.manual-discount-modal .discount-cancel {
+  min-height: 44px;
+  padding: 8px 12px;
+  color: #42564b !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+.manual-discount-modal .discount-remove-link { color: #9b2930 !important; font-weight: 650; }
+.manual-discount-modal :is(.discount-remove-link,.discount-cancel):hover { text-decoration: underline; }
+.manual-discount-modal > .modal-actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-end !important;
+  align-items: center;
+  gap: 16px !important;
+}
+.manual-discount-modal .discount-confirm-remove {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #a82b31 !important;
+  color: white !important;
+  font-weight: 700;
+}
+.manual-discount-modal .discount-confirm-remove:disabled { opacity: .5; }
+.manual-discount-modal > .modal-field > span { color: #31483c !important; }
