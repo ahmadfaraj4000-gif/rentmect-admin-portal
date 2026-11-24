@@ -121,7 +121,10 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
       {state?.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe') && <p role="status">A Stripe payment is pending. Check or cancel it in the Stripe payments tab before recording external money.</p>}
       {pending && <p role="status">This payment is awaiting confirmation. Resume the same payment to check its result.</p>}
       <fieldset disabled={tab !== 'external' || busy || !!pending || !state || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')} className="flexible-payment-fields">
-        <label>Collection method<select value={funding} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
+        <div className="collection-method-field">
+          <label>Collection method<select value={funding} aria-describedby={funding === 'credit' && state ? 'available-customer-credit' : undefined} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
+          {funding === 'credit' && state && <strong id="available-customer-credit" className="available-customer-credit">Available customer credit: {money(state.availableCreditCents)}</strong>}
+        </div>
         <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<MoneyInput type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
         <p className="allocation-explanation">Enter the amount received. Money goes to the security deposit first, then rental, then additional charges. Changing the amount updates these selections. Any excess stays as customer credit. Existing customer credit can pay rental and charges, but cannot fund a deposit.</p>
         <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
