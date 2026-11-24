@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { taxRateSuffix } from '../src/lib/agreementCopy.js';
 import {creditReturnHistory} from '../src/lib/returnReview.js';
 import { chargePaid, chargeRemaining, receiptHistory } from '../src/lib/paymentAllocation.js';
 
@@ -65,17 +66,17 @@ test('the actual summary markup presents one equation with a separate held-depos
   const markup = source.slice(start, end);
   const transformed = await transformWithOxc(`const Summary = () => <>${markup}</>; Summary;`, 'summary.jsx', { jsx: { runtime: 'classic' } });
   const context = vm.createContext({
-    React, ShieldCheck: () => null, depositAllocations: [],
+    React, taxRateSuffix, ShieldCheck: () => null, depositAllocations: [],
     money: (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
     manualDiscountDescriptor: () => '$159.86 off rental',
-    rental: { rental_total: 1079.14, pre_manual_discount_rental_total: 1239, manual_discount_amount: 159.86, tax_amount: 68.53, security_deposit: 300 },
+    rental: { rental_total: 1079.14, contract_sales_tax_rate: 0.0635, pre_manual_discount_rental_total: 1239, manual_discount_amount: 159.86, tax_amount: 68.53, security_deposit: 300 },
     additionalChargeTotal: 75.33, initialPaymentTotal: 1447.67, currentInvoiceTotal: 1447.67, paidAmount: 1384.92,
     cancellationCredit: 0, cancelledBeforePickup: false,
     depositAppliedToRental: 0, depositAppliedToCharges: 0, additionalPaymentsReceived: 75.33, customerCreditDue: 0, balanceDue: 62.75, depositHeldAmount: 300,
   });
   const Summary = vm.runInContext(transformed.code, context);
   const html = renderToStaticMarkup(React.createElement(Summary));
-  const labels = ['Rental before discount', 'Manual discount', 'Rental after discount', 'Tax', 'Refundable security deposit', 'Additional charges', 'Total charges, including deposit', 'Net booking payments received', 'Additional-charge payments received', 'Balance due', 'Security deposit:'];
+  const labels = ['Rental before discount', 'Manual discount', 'Rental after discount', 'Tax (6.35%)', 'Refundable security deposit', 'Additional charges', 'Total charges, including deposit', 'Net booking payments received', 'Additional-charge payments received', 'Balance due', 'Security deposit:'];
   let position = -1;
   for (const label of labels) {
     const next = html.indexOf(label);

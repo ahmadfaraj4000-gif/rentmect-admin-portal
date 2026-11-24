@@ -1,6 +1,6 @@
 import { canViewRevenue as canViewFinancialSummaryForEmail } from './lib/paymentRevenue.js';
 import { AccountantExport } from './AccountantExport.jsx';
-import { agreementCopy } from './lib/agreementCopy.js';
+import { agreementCopy, agreementMarkup, taxRateSuffix } from './lib/agreementCopy.js';
 import { DamageCases } from './DamageCases.jsx';
 import { adminErrorMessage } from './lib/adminErrors.js';
 import { UnreadMessageBadge } from './UnreadMessageBadge.jsx';
@@ -6304,10 +6304,8 @@ function CustomerAgreementCopy({ rental }) {
     <button disabled={downloading} onClick={async()=>{setDownloading(true);setError('');try{downloadAgreement(await read());}catch(e){setError(e.message);}finally{setDownloading(false);}}}>Download</button></div>
     {error && <p role="alert">{error}</p>}
     <LazyHistoryDetail id={rental.id} read={read}>{data=>{
-      const signatureImage=extractSignatureImage(data.agreement_snapshot);
       return <div className="customer-agreement-copy"><p>Agreement version: {data.agreement_version || 'Not recorded'} • Hash: {data.agreement_hash || 'Not recorded'}</p>
-        <pre>{data.agreement_snapshot.replace(/Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,'Drawn Signature Image: embedded below')}</pre>
-        {signatureImage && <img src={signatureImage} alt={`Electronic signature for ${data.agreement_signature_name || 'customer'}`}/>}</div>;
+        <div dangerouslySetInnerHTML={{__html: agreementMarkup(data.agreement_snapshot, data.agreement_signed_at)}}/></div>;
     }}</LazyHistoryDetail></article>;
 }
 
@@ -7688,7 +7686,7 @@ function ManualBooking({ manualBookingForm, setManualBookingForm, profiles, cust
           {under25 && markupAmount > 0 && <div><dt>Under-25 markup ({markupPercentage}%)</dt><dd>{money(markupAmount)}</dd></div>}
           <div><dt>Rental total</dt><dd>{money(rentalTotal)}</dd></div>
           <div><dt>Tourism surcharge</dt><dd>{money(tourism)}</dd></div>
-          <div><dt>CT tax</dt><dd>{taxRate === null ? 'Agreed vehicle value required' : money(taxTotal)}</dd></div>
+          <div><dt>CT tax{taxRateSuffix(taxRate)}</dt><dd>{taxRate === null ? 'Agreed vehicle value required' : money(taxTotal)}</dd></div>
           <div><dt>Deposit</dt><dd>{selectedVehicle ? money(deposit) : '—'}</dd></div>
           <div><dt>Total due</dt><dd>{selectedVehicle && taxRate !== null ? money(rentalTotal + tourism + taxTotal + deposit) : '—'}</dd></div>
         </dl>
@@ -8784,7 +8782,7 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
         <section className="rental-accounting-breakdown" aria-label="Full accounting breakdown"><h4>Full accounting breakdown</h4><dl className="rental-payment-lines">
           {Number(rental.manual_discount_amount || 0) > 0 && <><dt>Rental before discount</dt><dd>{money(rental.pre_manual_discount_rental_total)}</dd><dt className="discount-line">Manual discount ({manualDiscountDescriptor(rental)})</dt><dd className="discount-line">−{money(rental.manual_discount_amount)}</dd></>}
           <dt><strong>{Number(rental.manual_discount_amount || 0) > 0 ? 'Rental after discount' : 'Rental'}</strong></dt><dd><strong>{money(rental.rental_total)}</strong></dd>
-          <dt>Tax</dt><dd>{money(rental.tax_amount || 0)}</dd>
+          <dt>Tax{taxRateSuffix(rental.contract_sales_tax_rate) || ' (rate not recorded)'}</dt><dd>{money(rental.tax_amount || 0)}</dd>
           {Number(rental.service_fee_total || 0) > 0 && <><dt>Booking fees</dt><dd>{money(rental.service_fee_total)}</dd></>}
           <dt>Refundable security deposit</dt><dd>{money(rental.security_deposit)}</dd>
           <dt>Additional charges</dt><dd>{money(additionalChargeTotal)}</dd>
@@ -9869,11 +9867,6 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
   const [agreementReviewed, setAgreementReviewed] = useState(alreadySigned);
   const displayedAgreement = alreadySigned ? rental.agreement_snapshot
     : scope === 'agreement' ? buildAdminAgreementSnapshot(rental, '', '', 'pending') : '';
-  const displayedSignatureImage = alreadySigned ? extractSignatureImage(displayedAgreement) : '';
-  const printableAgreement = String(displayedAgreement || '').replace(
-    /Drawn Signature Image:\s*data:image\/png;base64,[^\s]+/,
-    'Drawn Signature Image: embedded below',
-  );
   const stripeAmountValue = Number(stripeAmount || 0);
   const stripeBalanceAfter = Number.isFinite(stripeAmountValue)
     ? Math.max(0, Number(amountDue || 0) - stripeAmountValue)
@@ -10006,8 +9999,7 @@ function AdminStepCompletionModal({ rental, scope, complete, rentalDocument, can
               : <><span>“I Agree to the Terms” remains disabled until you scroll through the agreement to the bottom.</span><button type="button" className="agreement-skip-button" onClick={skipAgreementToEnd}>Skip to bottom and unlock “I Agree”</button></>}
         </div>
         <div ref={agreementScrollRef} className="admin-agreement-scroll-box" onScroll={trackAgreementReview} tabIndex="0" aria-label="Complete rental agreement">
-          <pre>{printableAgreement}</pre>
-          {alreadySigned && displayedSignatureImage && <div className="admin-agreement-stored-signature"><strong>Stored electronic signature</strong><img src={displayedSignatureImage} alt={`Electronic signature for ${rental.agreement_signature_name || 'customer'}`}/></div>}
+          <div dangerouslySetInnerHTML={{__html: agreementMarkup(displayedAgreement, alreadySigned ? rental?.agreement_signed_at : null)}}/>
         </div>
         {!alreadySigned && <div className="admin-agreement-sign-box">
           <label className="checkbox-row"><input type="checkbox" checked={agreementChecked} onChange={(event) => setAgreementChecked(event.target.checked)} disabled={!agreementReviewed}/> I have read and agree to the rental agreement.</label>
@@ -12584,7 +12576,7 @@ Under-25 Rental Markup: ${Number(rental.under_25_markup_amount || 0) > 0 ? `${mo
 Promotion Discount: ${Number(rental.discount_amount || 0) > 0 ? `${money(rental.discount_amount)} (${rental.discount_code || 'promotion'})` : 'Not applied'}
 Manual Reservation Discount: ${Number(rental.manual_discount_amount || 0) > 0 ? `${manualDiscountDescriptor(rental)}; ${money(rental.manual_discount_amount)} rental-subtotal adjustment before recalculated tax` : 'Not applied'}
 Rental Total: ${rental.rental_total ? money(rental.rental_total) : 'Pending'}
-Tax Amount: ${rental.tax_amount ? money(rental.tax_amount) : 'Pending'}
+Tax Amount${taxRateSuffix(rental.contract_sales_tax_rate)}: ${rental.tax_amount != null ? money(rental.tax_amount) : 'Pending'}
 Security Deposit: ${rental.security_deposit ? money(rental.security_deposit) : vehicle.security_deposit ? money(vehicle.security_deposit) : 'Pending'}
 Mileage Policy: ${MILEAGE_POLICY}
 Cancellation Terms: ${CANCELLATION_TERMS}
