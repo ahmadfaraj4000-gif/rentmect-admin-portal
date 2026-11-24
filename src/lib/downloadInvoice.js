@@ -65,5 +65,13 @@ export async function downloadInvoice(statement, rental, reference, breakdown) {
       ...notes.map(text => ({ text, margin: [0, 6, 0, 0] }))
     ]
   };
-  await pdfMake.createPdf(documentDefinition).download('Rent-Me-CT-Invoice-' + String(reference).replace(/[^a-z0-9_-]/gi, '-') + '.pdf');
+  const customer = rental.profiles?.full_name || rental.customer_name_snapshot || 'Customer';
+  const vehicle = rental.vehicles?.name || '';
+  const carNumber = vehicle.match(/#\s*(\d+)\b/)?.[1];
+  const car = carNumber ? 'Car ' + carNumber : vehicle || 'Rental ' + reference;
+  const dates = [rental.pickup_date, rental.return_date].filter(Boolean).join(' to ') || period;
+  const filename = [customer, car, dates].filter(Boolean).map(part =>
+    String(part).normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim().slice(0, 70)
+  ).join(' - ');
+  await pdfMake.createPdf(documentDefinition).download(filename + '.pdf');
 }
