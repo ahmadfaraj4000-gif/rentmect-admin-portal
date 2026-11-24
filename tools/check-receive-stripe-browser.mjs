@@ -58,7 +58,7 @@ try{
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   assert.equal(await page.getByLabel('Stripe payment amount').inputValue(),'78.70');
   await page.getByLabel('Stripe payment amount').fill('50.00');
-  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Create Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByRole('button',{name:'Copied',exact:true}).waitFor();
   assert.equal((await page.evaluate(()=>window.stripeCalls)).length,1);assert.equal((await page.evaluate(()=>window.stripeCalls))[0].amount,50);
@@ -71,7 +71,7 @@ try{
   await page.getByRole('button',{name:'Take Payment',exact:true}).first().click();
   await page.getByRole('tab',{name:'Stripe payments',exact:true}).click();
   await page.getByLabel('Stripe payment for').selectOption('fee');
-  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Create Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Email link',exact:true}).click();
   await page.getByRole('dialog',{name:'Message Synthetic Customer'}).waitFor();
   assert.deepEqual((await page.evaluate(()=>window.stripeCalls))[1],{kind:'charge',id:'fee'});

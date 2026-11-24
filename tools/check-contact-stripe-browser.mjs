@@ -43,7 +43,7 @@ try {
   await page.screenshot({path:'/tmp/contact-stripe-'+width+'.png'});
   await page.goto('http://127.0.0.1:5197/'+folder.split('/').at(-1)+'/index.html?stripe');
   assert.equal(await page.getByRole('button',{name:/^(Send|Email|Copy) Stripe link$/}).count(),0);
-  await page.getByRole('button',{name:'Open Stripe link',exact:true}).click();
+  await page.getByRole('button',{name:'Create Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Confirm and create Stripe link',exact:true}).click();
   await page.getByRole('button',{name:'Copy link',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>({created:window.created,emails:window.emails,copied:window.copied.length})),{created:1,emails:0,copied:1});
