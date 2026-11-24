@@ -10206,8 +10206,8 @@ input[type="radio"] {
 
 .communications-nav-count {
   display: inline-block;
-  vertical-align: middle;
-  margin-inline-start: .4em;
+  flex-shrink: 0;
+  margin-inline-start: auto;
   padding: .12em .45em;
   border-radius: 1em;
   background: #c9f4d8;
