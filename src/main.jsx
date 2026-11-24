@@ -5705,7 +5705,7 @@ function Rentals({ operationsStaff, closedOrder, setClosedOrder, onOpenReviewedR
 
   return <>
     <Panel title={rentalFilter === 'archive' ? 'Rental Archive' : 'Rental Manager'} eyebrow="Reservations">
-      {focusRentalId && <div className="focused-rental-actions"><span className="admin-completion-badge"><CheckCircle2 size={14}/> Rental reservation</span><button type="button" className="secondary-btn" onClick={clearRentalFocus}>{`Show ${rentalFilterOptions().find(option => option.key === rentalFilter)?.label || 'All Open'} rentals`}</button></div>}
+      {focusRentalId && <div className="focused-rental-actions"><span className="admin-completion-badge"><CheckCircle2 size={14}/> Rental reservation</span><button type="button" className="secondary-btn" onClick={clearRentalFocus}>{rentalFilter === 'archive' ? 'Show All Archived Rentals' : 'Show All Rentals'}</button></div>}
       {!focusRentalId && <>
       <div className="filter-pills" role="group" aria-label="Rental filters">
         {rentalFilterOptions().map((filter) => (

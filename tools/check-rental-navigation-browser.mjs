@@ -41,9 +41,9 @@ const client={rpc:async(name,args)=>{window.reads.push({name,args});await new Pr
  if(name==='admin_rental_details')return {data:args.p_rental_ids.map(id=>({rental:rows.find(r=>r.id===id)}))};
  throw Error(name);}};
 const Panel=({title,children})=><section><h2>{title}</h2>{children}</section>,Metric=()=>null,DepositActionPanel=()=>null,ReminderMenu=()=>null;
-const RentalRow=({rental,summaryOnly,onRequestDetails,onCloseDetails})=><article data-rental-id={rental.id}><h3>{rental.profiles.full_name}</h3><p>{rental.vehicles.name}</p><button onClick={summaryOnly?onRequestDetails:onCloseDetails}>{summaryOnly?'Show rental details':'Hide rental details'}</button></article>;
+const RentalRow=({rental,summaryOnly,onRequestDetails,onCloseDetails,onReturnUndone})=><article data-rental-id={rental.id}><h3>{rental.profiles.full_name}</h3><p>{rental.vehicles.name}</p><button onClick={summaryOnly?onRequestDetails:onCloseDetails}>{summaryOnly?'Show rental details':'Hide rental details'}</button>{onReturnUndone && <button onClick={()=>onReturnUndone(window.savedTab)}>Undo fixture return</button>}</article>;
 const isToday=()=>false,getLateReturnState=()=>({overdue:true,hardLocked:true}),formatRentalDate=(d,t)=>d+' '+t,prettyStatus=s=>s,money=n=>'$'+n;
-const rentalFilterOptions=()=>[{key:'needs_action',label:'Needs action'},{key:'archive',label:'Archive'},{key:'deposit_review',label:'Deposit Review'}],limitText=(s,n)=>s.slice(0,n);
+const rentalFilterOptions=()=>[{key:'needs_action',label:'Needs action'},{key:'returns_today',label:'Returns Today'},{key:'archive',label:'Archive'},{key:'deposit_review',label:'Deposit Review'}],limitText=(s,n)=>s.slice(0,n);
 ${components}
 function App(){
  const [activeTab,setActiveTab]=useState(new URLSearchParams(location.search).get('source')||'dashboard');
@@ -60,7 +60,7 @@ function App(){
  return <>
  {activeTab==='dashboard'&&<Dashboard snapshot={{overdue_rentals:rows,due_soon_rentals:[]}} dashboard={{active:[],overdue:rows,dueSoon:[]}} vehicles={[]} onOpenRental={dashboardOpen}/>}
  {activeTab==='queue'&&<OperationsQueue queue={rows.map(r=>({id:r.id,bucket:'return_attention',severity:'critical',title:'Overdue',subtitle:r.profiles.full_name,rental:r}))} onOpenRental={queueOpen}/>}
- {activeTab==='rentals'&&<Rentals closedOrder={closedOrder} setClosedOrder={setClosedOrder} manager={rentalWorkspace} rentals={Object.values(loaded)} focusRentalId={manualBookingFocusId} clearRentalFocus={()=>setManualBookingFocusId('')}
+ {activeTab==='rentals'&&<Rentals closedOrder={closedOrder} setClosedOrder={setClosedOrder} manager={rentalWorkspace} rentals={Object.values(loaded)} focusRestoredRental={setManualBookingFocusId} notify={()=>{}} focusRentalId={manualBookingFocusId} clearRentalFocus={()=>setManualBookingFocusId('')}
    search={search} setSearch={setSearch} rentalFilter={rentalFilter} setRentalFilter={setRentalFilter} rentalPayments={[]} extensionRequests={[]} vehicles={[]} reports={[]} documentsByRentalId={{}}/>}
  </>;
 }
@@ -95,6 +95,17 @@ try {
       const reads = await page.evaluate(() => window.reads);
       assert.ok(reads.some(r => r.name === 'admin_rental_detail' && r.args.p_rental_id === 'overdue-' + i));
       assert.ok(reads.filter(r => r.name === 'admin_rental_list').every(r => r.args.p_rental_id === 'overdue-' + i), 'Navigation must not fall back to a general rental list');
+      await page.getByRole('button', { name: 'Show All Rentals' }).click();
+      await page.waitForFunction(() => document.querySelectorAll('[data-rental-id]').length === 25);
+    }
+    for (const savedTab of ['needs_action', 'returns_today', null]) {
+      await page.goto('http://127.0.0.1:5197/' + folder.split('/').at(-1) + '/index.html?source=rentals');
+      await page.getByRole('button', { name: /^Archive/ }).click();
+      await page.getByRole('button', { name: 'Show rental details' }).nth(2).click();
+      await page.evaluate(tab => { window.savedTab = tab; }, savedTab);
+      await page.getByRole('button', { name: 'Undo fixture return' }).click();
+      await page.waitForFunction(tab => window.reads.some(r => r.name === 'admin_rental_list'
+        && r.args.p_filter === tab && r.args.p_rental_id === 'overdue-2'), savedTab || 'all');
       await page.getByRole('button', { name: 'Show All Rentals' }).click();
       await page.waitForFunction(() => document.querySelectorAll('[data-rental-id]').length === 25);
     }
