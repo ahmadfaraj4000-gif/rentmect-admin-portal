@@ -6,6 +6,21 @@ export function PortalInbox({ client, revision, Panel, canSend, notify }) {
   const [offset,setOffset] = useState(0);
   const [refresh,setRefresh] = useState(0);
   const [selected,setSelected] = useState(null);
+  useEffect(() => {
+    const messageId = new URLSearchParams(window.location.search).get('message');
+    if (!messageId) return;
+    const controller = new AbortController();
+    client.from('rental_messages').select('user_id,rental_id').eq('id', messageId)
+      .abortSignal(controller.signal).single().then(async ({ data, error }) => {
+        if (controller.signal.aborted) return;
+        if (error) notify('This conversation could not be opened.', 'error');
+        else {
+          const person = await client.from('profiles').select('full_name,email').eq('id', data.user_id).abortSignal(controller.signal).single();
+          if (!controller.signal.aborted) setSelected({ full_name: 'Customer', ...person.data, ...data });
+        }
+      });
+    return () => controller.abort();
+  }, [client]);
   useEffect(() => { if (search === query) return; const timer=setTimeout(() => { setQuery(search);setOffset(0); },300); return () => clearTimeout(timer); },[search,query]);
   const state=useHistoryPage(async signal => {
     const { data,error }=await client.rpc('admin_communication_threads',{p_search:query,p_offset:offset}).abortSignal(signal);
