@@ -100,3 +100,33 @@
 .communications-thread--summary>.communications-thread-copy{display:grid;gap:3px;min-width:0;text-align:left}
 .communications-thread--summary>.communications-thread-unread{justify-self:end;width:max-content}
 .communications-thread--summary>.communications-thread-date{justify-self:end;white-space:nowrap;background:transparent;color:#607176;font-size:11px;font-style:normal;font-weight:500}
+
+/* Keep inbox actions separate from the independently scrollable conversation list. */
+.inbox-search-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 10px;
+  margin: 12px 0 18px;
+}
+.inbox-search-toolbar input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 6px;
+  font: inherit;
+}
+.communications-inbox .communications-thread-list { gap: 10px; }
+.communications-inbox .communications-thread--summary { padding: 12px 14px; }
+.inbox-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.inbox-pagination span { font-variant-numeric: tabular-nums; }

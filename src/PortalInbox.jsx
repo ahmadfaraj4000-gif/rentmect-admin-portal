@@ -28,11 +28,21 @@ export function PortalInbox({ client, revision, Panel, canSend, notify, onMessag
   },`${query}:${offset}`,`${revision}:${refresh}`);
   return <section className="communications-inbox">
     <Panel title="Customer Inbox" eyebrow={`${state.unread ?? '…'} Unread`}>
-      <input aria-label="Search conversations" value={search} maxLength={120} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations…"/>
-      <PageControls state={state} offset={offset} setOffset={setOffset} refresh={()=>setRefresh(value=>value+1)}/>
+      <div className="inbox-search-toolbar">
+        <input type="search" aria-label="Search conversations" value={search} maxLength={120} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations…"/>
+        <button type="button" className="secondary-btn" disabled={state.loading} onClick={()=>setRefresh(value=>value+1)}>Refresh</button>
+      </div>
+      {state.error && <p role="alert" className="form-error">{state.error}</p>}
+      {state.loading && <p role="status">Loading conversations…</p>}
+      {!state.loading && !state.error && !state.rows.length && <p role="status">No matching conversations.</p>}
       <div className="communications-thread-list">{state.rows.map(row=><button key={row.user_id} className={`communications-thread communications-thread--summary ${selected?.user_id===row.user_id?'active':''}`} onClick={()=>setSelected(row)}>
         <span className="communications-thread-copy"><strong>{row.full_name || row.email}</strong><small>{row.preview}</small></span>{Number(row.unread)>0 ? <em className="communications-thread-unread" aria-label={`${row.unread} unread messages`}>{row.unread}</em> : <time className="communications-thread-date" dateTime={row.latest_at}>{new Date(row.latest_at).toLocaleDateString()}</time>}
       </button>)}</div>
+      {(offset > 0 || state.has_more) && <nav className="inbox-pagination" aria-label="Conversation pages">
+        <button type="button" className="secondary-btn" disabled={state.loading || offset === 0} onClick={()=>setOffset(Math.max(0,offset-50))}>Previous</button>
+        <span aria-live="polite">{state.rows.length ? `${offset+1}–${offset+state.rows.length}` : ''}</span>
+        <button type="button" className="secondary-btn" disabled={state.loading || !state.has_more} onClick={()=>setOffset(offset+50)}>Next</button>
+      </nav>}
     </Panel>
     {selected ? <PortalThread key={selected.user_id} client={client} thread={selected} revision={revision} Panel={Panel} canSend={canSend} notify={notify} onRead={()=>{setRefresh(value=>value+1);onMessagesRead?.();}} onClose={()=>setSelected(null)}/>
       : <Panel title="Select a customer" eyebrow="Portal Conversation"><p>Choose a conversation to read and reply.</p></Panel>}
