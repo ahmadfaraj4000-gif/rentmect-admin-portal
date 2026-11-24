@@ -10191,3 +10191,15 @@ input[type="radio"] {
 @media (max-width: 600px) {
   .closed-rental-toolbar select { width: 100%; }
 }
+
+.driving-incident-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+.driving-incident-form label, .driving-incident-form input {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.driving-incident-form input[type="checkbox"] {
+  width: auto;
+}
