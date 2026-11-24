@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-24-citation-processing';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-24-excessive-speeding';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -65,8 +65,9 @@ Company reserves the right to charge the payment method on file for all recovery
 
 SPEED MONITORING AND VEHICLE DISABLING POLICY
 Renter acknowledges that the Vehicle may be equipped with GPS tracking and telematics capable of monitoring vehicle speed and driving behavior.
-No driver is permitted to operate the Vehicle at speeds exceeding ninety (90) miles per hour.
-During this rental, each distinct episode of driving over 90 mph or driving recklessly counts as one incident, including an episode involving both. The third incident triggers a recovery review regardless of how many warnings were issued or received. Driving over 100 mph triggers immediate review, including on the first incident. Any immobilization may occur only after the Vehicle is safely parked.
+No driver is permitted to operate the Vehicle at ninety (90) miles per hour or faster.
+Excessive Speeding Fee: $25 per distinct occurrence of driving at 90 mph or faster. GPS or telematics records may document the occurrence. Multiple readings during one continuous episode count as one occurrence. No traffic citation is required.
+During this rental, each distinct episode of driving at 90 mph or faster or driving recklessly counts as one incident, including an episode involving both. The third incident triggers a recovery review regardless of how many warnings were issued or received. Driving over 100 mph triggers immediate review, including on the first incident. Any immobilization may occur only after the Vehicle is safely parked.
 Renter agrees that a $100 vehicle reactivation fee shall apply before the Vehicle is re-enabled for continued use.
 
 CLEANLINESS AND DETAILING POLICY
@@ -124,7 +125,6 @@ Renter shall cooperate with all inspection requests. Failure to do so shall cons
 TRAFFIC VIOLATIONS, PARKING CITATIONS, TOLLS
 Renter shall be responsible for all violations, tickets, and toll charges incurred during the Rental Period.
 Company may transfer liability or charge the Renter directly, including administrative fees.
-Rent Me CT charges a $25 processing fee once per official speeding citation that states a speed of 90 mph or more and that Rent Me CT processes for this rental. The fee is separate from the government fine. A GPS or telematics alert alone does not trigger this fee.
 
 ATTORNEYS’ FEES AND COLLECTION COSTS
 Renter agrees to pay all reasonable costs incurred by Company in enforcing this Agreement, including attorneys’ fees, court costs, and collection expenses.
