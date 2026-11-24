@@ -5734,7 +5734,7 @@ function Rentals({ operationsStaff, closedOrder, setClosedOrder, onOpenReviewedR
         if (manager.selectedId !== row.id || !manager.detailReady || !r) {
           const summary = row.card || {};
           const summaryRental = { ...row, ...summary.rental, vehicles: { name: row.vehicle_name }, profiles: { ...summary.rental?.profiles, full_name: row.customer_name } };
-          return <RentalRow key={`${row.id}:summary`} summaryOnly summary={summary} rental={summaryRental} detailed
+          return <RentalRow key={`${row.id}:summary`} summaryOnly operationsStaff={operationsStaff} summary={summary} rental={summaryRental} detailed
             refreshing={manager.selectedId === row.id && manager.detailLoading}
             showNeedsActionSummary={rentalFilter === 'needs_action'}
             rentalDocuments={summary.documents || []} allDocuments={summary.documents || []}
@@ -8342,6 +8342,8 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [extensionInsuranceRequestId, setExtensionInsuranceRequestId] = useState('');
+  const [removeUnusedOpen, setRemoveUnusedOpen] = useState(false);
+  const canReviewUnused = operationsStaff && ['pending', 'documents_needed', 'document_review', 'approved', 'ready_for_pickup', 'cancelled'].includes(rental.status);
   const runCardAction = (action, run) => summaryOnly ? onRequestAction?.(action) : run();
   useEffect(() => {
     if (summaryOnly || !initialAction) return;
@@ -8350,7 +8352,7 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
       if (step === 'payment') openPaymentStep(); else setAdminStepScope(step);
       return;
     }
-    const actions = { warnings: () => setNeedsActionModalOpen(true), pickup: () => setPickupModal({}),
+    const actions = { removeUnused: () => setRemoveUnusedOpen(true), warnings: () => setNeedsActionModalOpen(true), pickup: () => setPickupModal({}),
       return: () => openReturnPanel(), receive: () => openReceivePayment(),
       edit: () => setEditRentalOpen(true), swap: () => setSwapOpen(true), extend: () => setExtensionOpen(true),
       contact: () => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' }),
@@ -8654,20 +8656,25 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
           <button type="button" onClick={() => runCardAction('step:agreement', () => setAdminStepScope('agreement'))}><FileSignature size={14}/> Agreement</button>
           <button type="button" onClick={() => runCardAction('contact', () => setContactModal({ charge: null, initialTemplateKey: rental.agreement_signed ? '' : 'manual_agreement_signature_required' }))}><MessageCircle size={14}/> Contact</button>
           <details className="rental-overflow-menu">
-            <summary aria-label="More rental actions"><span>More Actions</span><ChevronDown size={14}/></summary>
+            <summary aria-label="Quick Actions"><span>Quick Actions</span><ChevronDown size={14}/></summary>
             <div>
               <span className="rental-overflow-menu-label">Reservation actions</span>
               {canRestoreCancelledRental && <button type="button" className="restore-rental-action" onClick={() => runCardAction('restore', () => setRestoreModalOpen(true))}><History size={14}/> Restore rental</button>}
               {canAdjustPaymentDeadline && <button type="button" onClick={() => runCardAction('deadline', () => setDeadlineModalOpen(true))}><CalendarClock size={14}/> Change payment deadline</button>}
               {canCreateEmergencyException && <button type="button" className="emergency-exception-action" onClick={() => runCardAction('emergency', () => setEmergencyModalOpen(true))}><AlertTriangle size={14}/> Global emergency override</button>}
               {canCancel && <button type="button" className="reject" onClick={() => runCardAction('cancel', () => setCancelModalOpen(true))}><XCircle size={14}/> Cancel rental</button>}
-              {!canRestoreCancelledRental && !canAdjustPaymentDeadline && !canCreateEmergencyException && !canCancel && <span>No additional actions</span>}
+              {canReviewUnused && <button type="button" className="reject" aria-haspopup="dialog" onClick={event => {
+                event.currentTarget.closest('details').open = false;
+                runCardAction('removeUnused', () => setRemoveUnusedOpen(true));
+              }}><Trash2 size={14}/> Delete unused rental</button>}
+              {!canReviewUnused && !canRestoreCancelledRental && !canAdjustPaymentDeadline && !canCreateEmergencyException && !canCancel && <span>No additional actions</span>}
             </div>
           </details>
         </div>
       </div>
     </header>
 
+    {!summaryOnly && canReviewUnused && removeUnusedOpen && <RemoveUnusedRental client={supabase} rental={rental} onComplete={onRentalRemoved} onClose={() => setRemoveUnusedOpen(false)}/>}
     {!summaryOnly && <CustomerTicketFlags userId={rental.user_id}/>}
     <div className="rental-card-workflow">
       <RentalProgressTracker steps={progressSteps} onStepClick={(step) => runCardAction('step:' + step.key, () => step.key === 'payment' ? openPaymentStep() : setAdminStepScope(step.key))} />
@@ -8746,7 +8753,6 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
           totals={<><span>{money(balanceDue)} outstanding</span><span>{paymentHistory.length} payment / refund records</span></>}/>
 
         {operationsStaff && rental.status === 'completed' && <UndoReturn client={supabase} rental={rental} onComplete={onReturnUndone}/>}
-        {operationsStaff && ['pending','documents_needed','document_review','approved','ready_for_pickup','cancelled'].includes(rental.status) && <RemoveUnusedRental client={supabase} rental={rental} onComplete={onRentalRemoved} />}
         {operationsStaff && <BalanceEmail client={supabase} rentalId={rental.id} />}
         {operationsStaff && ['active','rented','overdue','return_initiated'].includes(rental.status) && <DrivingIncidents client={supabase} rentalId={rental.id} />}
         {operationsStaff && <InspectionPhotos client={supabase} rentalId={rental.id} />}

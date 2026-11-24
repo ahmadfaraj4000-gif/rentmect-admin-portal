@@ -1,27 +1,39 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { RentalReceiptDialog } from './RentalLedger.jsx';
 
-export default function RemoveUnusedRental({ client, rental, onComplete }) {
+export default function RemoveUnusedRental({ client, rental, onComplete, onClose }) {
   const [action, setAction] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  async function submit(confirm) {
-    setBusy(true); setError('');
+  useEffect(() => {
+    let active = true;
+    async function review() {
+      try {
+        const { data, error } = await client.rpc('remove_unused_rental', { p_rental_id: rental.id, p_confirm: null });
+        if (error) throw error;
+        if (!['delete', 'archive'].includes(data)) throw Error('Unable to verify removal eligibility.');
+        if (active) setAction(data);
+      } catch (e) { if (active) setError(e.message); }
+    }
+    review();
+    return () => { active = false; };
+  }, [client, rental.id]);
+
+  async function confirm() {
+    setBusy(true);
     try {
-      const { data, error } = await client.rpc('remove_unused_rental', { p_rental_id: rental.id, p_confirm: confirm ? action : null });
+      const { data, error } = await client.rpc('remove_unused_rental', { p_rental_id: rental.id, p_confirm: action });
       if (error) throw error;
-      if (confirm) await onComplete(data);
-      else setAction(data);
+      await onComplete(data);
     } catch (e) { setError(e.message); setAction(''); }
     finally { setBusy(false); }
   }
-  return <section className="rental-card-supplement">
-    {!action && <button className="secondary-btn" type="button" disabled={busy} onClick={() => submit(false)}>Review unused rental for removal</button>}
-    {action && <>
-      <p>{rental.profiles?.full_name || rental.customer_name_snapshot} · {rental.vehicles?.name} · {rental.pickup_date} through {rental.return_date}</p>
-      <p>{action === 'delete' ? 'Permanently delete this unused draft and release its reservation?' : 'Archive this incomplete rental, release its reservation and retain its history?'}</p>
-      <button className="secondary-btn" type="button" disabled={busy} onClick={() => setAction('')}>Cancel</button>
-      <button className="approve" type="button" disabled={busy} onClick={() => submit(true)}>{action === 'delete' ? 'Delete draft permanently' : 'Archive rental'}</button>
-    </>}
+  return <RentalReceiptDialog title="Delete unused rental" onClose={() => { if (!busy) onClose(); }}>
+    <p>{rental.profiles?.full_name || rental.customer_name_snapshot} · {rental.vehicles?.name} · {rental.pickup_date} through {rental.return_date}</p>
+    {!action && !error && <p role="status">Checking rental history…</p>}
     {error && <p role="alert">{error}</p>}
-  </section>;
+    {action && <p>{action === 'delete' ? 'Permanently delete this unused draft and release its reservation?' : 'This rental has linked history. Archive it and release its reservation?'}</p>}
+    <button className="secondary-btn" type="button" disabled={busy} onClick={onClose}>Cancel</button>
+    {action && <button className="reject" type="button" disabled={busy} onClick={confirm}>{action === 'delete' ? 'Delete draft permanently' : 'Archive rental'}</button>}
+  </RentalReceiptDialog>;
 }
