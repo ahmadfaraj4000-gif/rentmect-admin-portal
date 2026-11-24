@@ -3,6 +3,7 @@ import { AccountantExport } from './AccountantExport.jsx';
 import { agreementCopy } from './lib/agreementCopy.js';
 import { DamageCases } from './DamageCases.jsx';
 import { adminErrorMessage } from './lib/adminErrors.js';
+import { UnreadMessageBadge } from './UnreadMessageBadge.jsx';
 import { PortalInbox } from './PortalInbox.jsx';
 import { CustomerDirectory } from './CustomerDirectory.jsx';
 import { AuditHistory, DocumentHistory, MaintenanceHistory, PaymentActivity, EmailHistory, LazyHistoryDetail } from './HistoryScreens.jsx';
@@ -591,6 +592,8 @@ function App() {
   const [bookingPolicySaving, setBookingPolicySaving] = useState(false);
   const [sitePromotions, setSitePromotions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [unreadRevision, setUnreadRevision] = useState(0);
+  const refreshUnreadCount = () => setUnreadRevision(value => value + 1);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [promotionForm, setPromotionForm] = useState({ ...EMPTY_PROMOTION_FORM });
   const [editingPromotionId, setEditingPromotionId] = useState('');
@@ -1049,7 +1052,10 @@ function App() {
         scheduleDomainRefresh('deposit-tasks');
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_documents' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_messages' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_messages' }, (payload) => {
+        refreshUnreadCount();
+        scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id);
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_reports' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rental_step_completions' }, (payload) => scheduleDomainRefresh('workflow', payload.new?.rental_id || payload.old?.rental_id))
       .subscribe();
@@ -3766,6 +3772,7 @@ function App() {
     setMessages((current) => current.map((message) => unreadIds.includes(message.id) ? { ...message, read_by_admin: true } : message));
     const { error } = await supabase.from('rental_messages').update({ read_by_admin: true }).in('id', unreadIds);
     if (error) notify(error.message);
+    else refreshUnreadCount();
   }
 
   async function createManualBooking(event) {
@@ -4393,7 +4400,7 @@ function App() {
             </button>}
             {adminTabs.map(({ key, label, icon: Icon }) => (
               <button key={key} type="button" className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
-                <Icon size={20}/><span>{label}</span>
+                <Icon size={20}/><span>{label}{key === 'emails' && <UnreadMessageBadge key={session.user.id} client={supabase} revision={unreadRevision}/>}</span>
               </button>
             ))}
           </nav>
@@ -4413,7 +4420,7 @@ function App() {
           <nav className="side-nav" id="admin-primary-navigation">
             {adminTabs.map(({ key, label, icon: Icon }) => (
               <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
-                <Icon size={18}/><span>{label}</span>
+                <Icon size={18}/><span>{label}{key === 'emails' && <UnreadMessageBadge key={session.user.id} client={supabase} revision={unreadRevision}/>}</span>
               </button>
             ))}
           </nav>
@@ -4470,7 +4477,7 @@ function App() {
             onSetStatus={async (...args) => { const result = await setCustomerStatus(...args); if (result) saved({ customer_status: args[1], blocked_customer: args[1] === 'blocked', block_reason: args[2] }); return result; }}
             onDelete={async (...args) => { await deleteCustomerProfile(...args); close(); saved(); }} onClose={close}/>}
           renderContact={(data, close) => <CustomerContactModal {...data} notify={notify} onClose={close}/>}/>}
-        {activeTab === 'emails' && <ContactCenterTab revision={historyRevision} canSend={canUsePermission('communications.send')} profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
+        {activeTab === 'emails' && <ContactCenterTab onMessagesRead={refreshUnreadCount} revision={historyRevision} canSend={canUsePermission('communications.send')} profiles={profiles} rentals={rentals} messages={messages} selectedRental={selectedRental} onSelectThread={selectCommunicationThread} replyText={replyText} setReplyText={setReplyText} sendReply={sendReply} adminEmail={session.user.email} notify={notify} onTemplatesChanged={() => loadAllData({ silent: true })} />}
         {activeTab === 'vehicles' && <Vehicles operationsStaff={canViewFinancialSummaryForEmail(session.user.email)} vehicles={vehicles} maintenanceSchedules={maintenanceSchedules} maintenanceServiceLogs={maintenanceServiceLogs} vehicleForm={vehicleForm} setVehicleForm={setVehicleForm} addVehicle={addVehicle} updateVehicleStatus={updateVehicleStatus} updateVehiclePublished={updateVehiclePublished} completeMaintenanceSchedule={completeMaintenanceSchedule} saveMaintenanceSchedule={saveMaintenanceSchedule} overrideVehicleMaintenance={overrideVehicleMaintenance} editingVehicleId={editingVehicleId} editVehicleForm={editVehicleForm} setEditVehicleForm={setEditVehicleForm} startEditVehicle={startEditVehicle} cancelEditVehicle={cancelEditVehicle} saveVehicleEdit={saveVehicleEdit} deleteVehicle={deleteVehicle} notify={notify} />}
         {activeTab === 'damage' && <DamageCases client={supabase} revision={historyRevision} updateDamageCase={updateDamageCase} setCustomerStatus={setCustomerStatus} renderEvidence={paths=><SavedReturnEvidence paths={paths}/>} onOpenRental={openRentalCard} onOpenArchive={openReviewedRentalArchive} canHold={canUsePermission('deposit.resolve')} />}
         {activeTab === 'documents' && <DocumentHistory client={supabase} revision={historyRevision} Panel={Panel} docLabel={docLabel}
@@ -6389,7 +6396,7 @@ function DepositReleaseStatus({ rental }) {
   return <small className="deposit-release-status">Deposit: {prettyStatus(rental.deposit_status)}</small>;
 }
 
-function ContactCenterTab({ revision, canSend, profiles, rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply, adminEmail, notify, onTemplatesChanged }) {
+function ContactCenterTab({ onMessagesRead, revision, canSend, profiles, rentals, messages, selectedRental, onSelectThread, replyText, setReplyText, sendReply, adminEmail, notify, onTemplatesChanged }) {
   const [section, setSection] = useState('inbox');
   const [templateChannel, setTemplateChannel] = useState('email');
   const [templates, setTemplates] = useState([]);
@@ -6596,7 +6603,7 @@ function ContactCenterTab({ revision, canSend, profiles, rentals, messages, sele
       {[['inbox', 'Inbox'], ['emails', 'Emails'], ['setup', 'Messaging Setup']].map(([key, label]) => <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>{label}</button>)}
     </div>
 
-    {section === 'inbox' && <PortalInbox client={supabase} revision={revision} Panel={Panel} canSend={canSend} notify={notify}/>}
+    {section === 'inbox' && <PortalInbox onMessagesRead={onMessagesRead} client={supabase} revision={revision} Panel={Panel} canSend={canSend} notify={notify}/>}
 
     {section === 'emails' && <>
       <div className="email-section-heading"><div><p className="eyebrow">Customer Lifecycle</p><h3>Automated Rental Emails</h3><span>Booking confirmations, payment notices, document updates, reminders, refunds, and cancellations.</span></div><span className="email-template-count">{automated.length} emails</span></div>

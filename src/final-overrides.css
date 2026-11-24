@@ -10203,3 +10203,18 @@ input[type="radio"] {
 .driving-incident-form input[type="checkbox"] {
   width: auto;
 }
+
+.communications-nav-count {
+  display: inline-block;
+  vertical-align: middle;
+  margin-inline-start: .4em;
+  padding: .12em .45em;
+  border-radius: 1em;
+  background: #c9f4d8;
+  color: #123821;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
