@@ -36,6 +36,9 @@ try{
  await first.getByRole('button',{name:'Show rental details',exact:true}).click();await first.getByRole('button',{name:'Hide rental details',exact:true}).waitFor();
  assert.equal(await page.locator('.rental-card-expanded-content').count(),1);assert.deepEqual(await page.evaluate(()=>window.detailReads),['rental-0']);
  assert.ok(reads.every(r=>!r.body||!r.body.includes('rental-1')),'other cards remain unloaded');
+ assert.ok(!reads.some(r=>/rental_audit_events|rental_operations_staff_name|rental_driving_incidents|balance-preview|object.list/.test(r.url)),'hidden sections issued reads');
+ await Promise.all([page.waitForResponse(response=>response.url().includes('rental_audit_events')),first.getByRole('tab',{name:'Activity'}).click()]);
+ assert.equal(reads.filter(r=>r.url.includes('rental_audit_events')).length,1);
  await first.getByRole('button',{name:'Hide rental details',exact:true}).click();await first.getByRole('button',{name:'Show rental details',exact:true}).waitFor();
  await first.getByRole('button',{name:'Agreement',exact:true}).click();await page.getByRole('dialog').waitFor();
  assert.equal(await page.locator('.rental-card-expanded-content').count(),0,'header action does not expand details');assert.deepEqual(await page.evaluate(()=>window.detailReads),['rental-0','rental-0']);

@@ -3,15 +3,16 @@ import { createPortal } from 'react-dom';
 import { trackTaskDialog } from './lib/taskDraft.js';
 import './rental-ledger.css';
 
-export function RentalLedger({ id, payments, charges, activity, totals }) {
+export function RentalLedger({ id, payments, charges, activity, totals, onTabChange }) {
   const [tab, setTab] = useState('payments');
+  function selectTab(value) { setTab(value); onTabChange?.(value); }
   const tabs = ['payments', 'charges', 'activity'];
   const label = value => value[0].toUpperCase() + value.slice(1);
   return <section className="rental-ledger-workspace" aria-label="Rental ledger">
-    <div className="rental-ledger-tabs" role="tablist" aria-label="Rental records">{tabs.map(value => <button key={value} type="button" role="tab" id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={e => {
+    <div className="rental-ledger-tabs" role="tablist" aria-label="Rental records">{tabs.map(value => <button key={value} type="button" role="tab" id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => selectTab(value)} onKeyDown={e => {
       if (!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
       e.preventDefault(); const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs.at(-1) : tabs[(tabs.indexOf(value) + (e.key === 'ArrowRight' ? 1 : 2)) % 3];
-      setTab(next); document.getElementById(`${id}-${next}-tab`)?.focus();
+      selectTab(next); document.getElementById(`${id}-${next}-tab`)?.focus();
     }}>{label(value)}</button>)}</div>
     {tabs.map(value => <div key={value} className="rental-ledger-scroll" role="tabpanel" id={`${id}-${value}-panel`} aria-labelledby={`${id}-${value}-tab`} hidden={tab !== value} tabIndex={0}>{({ payments, charges, activity })[value]}</div>)}
     <div className="rental-ledger-totals">{totals}</div>

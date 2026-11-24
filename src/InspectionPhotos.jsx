@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useSectionPages } from './useSectionPages.js';
 import './inspection-photos.css';
 
 const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' };
 
-function InspectionPhotoDialog({ client, folder, title, names, initialName, onClose }) {
+function InspectionPhotoDialog({ client, folder, title, names, initialName, page, onClose }) {
   const dialog = useRef(null);
   const [index, setIndex] = useState(() => names.indexOf(initialName));
   const [image, setImage] = useState(null);
@@ -32,7 +33,13 @@ function InspectionPhotoDialog({ client, folder, title, names, initialName, onCl
     return () => { active = false; };
   }, [client, folder, name, attempt]);
 
-  function move(step) {
+  async function move(step) {
+    if (page.loading) return;
+    if (step === 1 && index === names.length - 1 && page.more) {
+      const batch = await page.next();
+      if (batch.length) setIndex(names.length);
+      return;
+    }
     setIndex(current => (current + step + names.length) % names.length);
   }
 
@@ -48,47 +55,37 @@ function InspectionPhotoDialog({ client, folder, title, names, initialName, onCl
     <div className="inspection-photo-canvas">
       {image?.name !== name ? <span role="status">Loading photo…</span>
         : image.error ? <div role="alert">{image.error} <button type="button" onClick={() => { setImage(null); setAttempt(n => n + 1); }}>Retry</button></div>
-        : <img key={name} src={image.url} alt={title + ' · ' + (index + 1) + ' of ' + names.length}
-            onError={() => setImage({ name, error: 'This photo could not be displayed.' })}/>}
+        : <>{!image.loaded && <span className="inspection-image-status" role="status">Loading photo…</span>}<img key={name} src={image.url} alt={title + ' · ' + (index + 1) + ' of ' + names.length}
+            onLoad={() => setImage(current => current?.name === name ? { ...current, loaded: true } : current)}
+            onError={() => setImage({ name, error: 'This photo could not be displayed.' })}/></>}
     </div>
     {names.length > 1 && <footer>
       <button type="button" aria-label="Previous photo" onClick={() => move(-1)}>←</button>
-      <span aria-live="polite">{index + 1} of {names.length}</span>
+      <span aria-live="polite">{page.loading ? 'Loading…' : (index + 1) + ' of ' + names.length + (page.more ? '+' : '')}</span>
       <button type="button" aria-label="Next photo" onClick={() => move(1)}>→</button>
     </footer>}
+    {page.error && <p role="alert">{page.error} <button type="button" onClick={() => move(1)}>Retry</button></p>}
   </dialog>;
 }
 
 function PhotoStage({ client, rentalId, staffName, stage }) {
   const folder = rentalId + '/' + stage;
   const bucket = client.storage.from('rental-inspections');
-  const [photos, setPhotos] = useState([]);
+  const read = useCallback(async (offset, limit, signal) => {
+    const { data, error } = await client.storage.from('rental-inspections').list(folder, {
+      offset, limit, sortBy: { column: 'created_at', order: 'desc' },
+    }, { signal });
+    if (error) throw error;
+    return data;
+  }, [client, folder]);
+  const page = useSectionPages(read, 10, folder);
+  const photos = page.rows;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
   const [preview, setPreview] = useState('');
   const [deleteName, setDeleteName] = useState('');
   const input = useRef(null);
   const viewButton = useRef(null);
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      const items = [];
-      for (let offset = 0; ; offset += 100) {
-        const { data, error } = await client.storage.from('rental-inspections').list(folder, {
-          limit: 100, offset, sortBy: { column: 'name', order: 'asc' },
-        });
-        if (error) throw error;
-        if (!active) return;
-        items.push(...data);
-        if (data.length < 100) break;
-      }
-      setPhotos(items.sort((a, b) => b.created_at.localeCompare(a.created_at)));
-    }
-    load().catch(e => { if (active) setError(e.message); });
-    return () => { active = false; };
-  }, [client, folder, revision]);
-
   async function upload(event) {
     const files = Array.from(event.target.files);
     event.target.value = '';
@@ -104,7 +101,7 @@ function PhotoStage({ client, rentalId, staffName, stage }) {
         if (error) throw Error(file.name + ': ' + error.message);
       }
     } catch (e) { setError(e.message); }
-    finally { setBusy(false); setRevision(n => n + 1); }
+    finally { setBusy(false); page.refresh(); }
   }
 
   async function remove(name) {
@@ -114,10 +111,9 @@ function PhotoStage({ client, rentalId, staffName, stage }) {
       const { data, error } = await bucket.remove([folder + '/' + name]);
       if (error) throw error;
       if (!data?.length) throw Error('Photo could not be deleted. Refresh photos to check its status.');
-      setPhotos(items => items.filter(item => item.name !== name));
       setDeleteName('');
     } catch (e) { setError(e.message); }
-    finally { setBusy(false); setRevision(n => n + 1); }
+    finally { setBusy(false); page.refresh(); }
   }
 
   const title = stage === 'pickup' ? 'Pickup photos' : 'Return photos';
@@ -125,14 +121,14 @@ function PhotoStage({ client, rentalId, staffName, stage }) {
     <div className="inspection-stage-heading">
       <h4>{title}</h4>
       <input ref={input} type="file" multiple accept={Object.keys(extensions).join(',')} hidden onChange={upload}/>
-      <button type="button" className="inspection-add" disabled={busy || !!deleteName} onClick={() => input.current?.click()}>{busy && !deleteName ? 'Uploading…' : 'Add ' + title.toLowerCase()}</button>
+      <button type="button" className="inspection-add" disabled={busy || !!deleteName || !staffName} onClick={() => input.current?.click()}>{busy && !deleteName ? 'Uploading…' : 'Add ' + title.toLowerCase()}</button>
     </div>
     {photos.map(photo => <div className="inspection-photo-row" key={photo.name}>
       <small>Uploaded by {photo.name.split('-')[0]} · {new Date(photo.created_at).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET</small>
       <div className="inspection-photo-actions">
         <button type="button" className="secondary-btn" disabled={busy} onClick={event => {
           viewButton.current = event.currentTarget;
-          setPreview({ initialName: photo.name, names: photos.map(item => item.name) });
+          setPreview(photo.name);
         }}>View photo</button>
         <button type="button" className="inspection-delete" disabled={busy} onClick={() => setDeleteName(photo.name)}>Delete photo</button>
       </div>
@@ -144,8 +140,11 @@ function PhotoStage({ client, rentalId, staffName, stage }) {
         </div>
       </div>}
     </div>)}
-    {preview && <InspectionPhotoDialog {...{ client, folder, title }} {...preview} onClose={() => { setPreview(null); requestAnimationFrame(() => viewButton.current?.focus()); }}/>}
-    {error && <p role="alert">{error} <button type="button" onClick={() => { setError(''); setRevision(n => n + 1); }}>Refresh photos</button></p>}
+    {page.loading && <small role="status">Loading photo list…</small>}
+    {page.error && <p role="alert">{page.error} <button type="button" onClick={page.next}>Retry</button></p>}
+    {page.more && !page.error && <button type="button" className="secondary-btn" disabled={page.loading} onClick={page.next}>Load more {title.toLowerCase()}</button>}
+    {preview && <InspectionPhotoDialog {...{ client, folder, title }} initialName={preview} names={photos.map(item => item.name)} page={page} onClose={() => { setPreview(''); requestAnimationFrame(() => viewButton.current?.focus()); }}/>}
+    {error && <p role="alert">{error} <button type="button" onClick={() => { setError(''); page.refresh(); }}>Refresh photos</button></p>}
   </section>;
 }
 
@@ -154,16 +153,17 @@ export default function InspectionPhotos({ client, rentalId }) {
   const [staffName, setStaffName] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
-    if (!open) return;
+    if (!open || staffName) return;
+    setError('');
     let active = true;
     client.rpc('rental_operations_staff_name').then(({ data, error }) => {
       if (active) { setStaffName(data || ''); setError(error?.message || (data ? '' : 'Rental operations access required.')); }
     }, e => { if (active) setError(e.message); });
     return () => { active = false; };
-  }, [client, open]);
+  }, [client, open, staffName]);
   return <details className="rental-card-supplement" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Vehicle inspection photos</summary>
     {open && error && <p role="alert">{error}</p>}
-    {open && staffName && ['pickup', 'return'].map(stage => <PhotoStage key={rentalId + stage} {...{ client, rentalId, staffName, stage }}/>)}
+    {open && !error && ['pickup', 'return'].map(stage => <PhotoStage key={rentalId + stage} {...{ client, rentalId, staffName, stage }}/>)}
   </details>;
 }
