@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
 
 export default function BalanceEmail({ client, rentalId }) {
-  const [statement, setStatement] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const statement = preview?.statement;
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState(null);
@@ -14,11 +15,12 @@ export default function BalanceEmail({ client, rentalId }) {
         if (error) throw error;
         setMessage('Delivery status: ' + data.status + (data.last_error ? ' · ' + data.last_error : ''));
       } else if (action === 'preview') {
-        setStatement(null);
-        const { data, error } = await client.rpc('rental_balance_statement', { p_rental_id: rentalId });
+        setPreview(null);
+        const { data, error } = await client.functions.invoke('send-emails/balance-preview', { body: { rentalId } });
         if (error) throw error;
+        if (!data?.html || !data.statement) throw Error('The balance email preview could not be loaded.');
         request.current = crypto.randomUUID();
-        setStatement(data); setMessage('');
+        setPreview(data); setMessage('');
       } else {
         const { data, error } = await client.rpc('email_rental_balance_statement', {
           p_rental_id: rentalId, p_request_id: request.current, p_preview: statement,
@@ -33,10 +35,10 @@ export default function BalanceEmail({ client, rentalId }) {
     <button type="button" className="secondary-btn" disabled={busy} onClick={() => run('preview')}>Preview customer balance email</button>
     {statement && <section aria-label="Customer balance email preview">
       <p>To {statement.recipient || 'Missing customer email'}</p>
-      <pre style={{whiteSpace:'pre-wrap', overflowWrap:'anywhere'}}>{statement.statement}</pre>
+      <iframe className="email-preview-frame" title="Customer balance email" sandbox="" referrerPolicy="no-referrer" srcDoc={preview.html}/>
       {!job && <button type="button" className="approve" disabled={busy || !statement.recipient || statement.due <= 0} onClick={() => run('send')}>Send balance to customer</button>}
       {job && <button type="button" className="secondary-btn" disabled={busy} onClick={() => run('status')}>Check delivery</button>}
-      <button type="button" className="secondary-btn" disabled={busy} onClick={() => {setStatement(null); setJob(null); setMessage('');}}>Close preview</button>
+      <button type="button" className="secondary-btn" disabled={busy} onClick={() => {setPreview(null); setJob(null); setMessage('');}}>Close preview</button>
     </section>}
     {message && <p role="status">{message}</p>}
   </div>;

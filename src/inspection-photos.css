@@ -1,0 +1,46 @@
+.inspection-stage { padding: 1rem 0; }
+.inspection-stage + .inspection-stage { border-top: 1px solid #d4ded8; }
+.inspection-stage-heading, .inspection-photo-row, .inspection-photo-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+.inspection-stage-heading, .inspection-photo-row { justify-content: space-between; }
+.inspection-stage-heading h4 { margin: 0; }
+.inspection-photo-row { padding: .75rem 0 0; }
+.inspection-stage button.inspection-add { background: #21563f; color: white; border: 1px solid #21563f; }
+.inspection-stage button.inspection-delete { color: #9a2929; background: transparent; border: 1px solid transparent; }
+.inspection-stage button.inspection-delete-confirm { color: white; background: #962929; border: 1px solid #962929; }
+.inspection-confirm { flex-basis: 100%; display: grid; justify-items: start; gap: .5rem; }
+.inspection-confirm { background: #fff4f2; padding: .75rem; border-radius: .5rem; }
+
+.inspection-photo-dialog {
+  width: min(56rem, 94vw);
+  max-height: 94dvh;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: .75rem;
+  margin: auto;
+  color: #17211c;
+  background: white;
+}
+.inspection-photo-dialog::backdrop { background: rgb(10 18 14 / 78%); }
+.inspection-photo-dialog header, .inspection-photo-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .6rem 1rem;
+}
+.inspection-photo-dialog footer { justify-content: center; }
+.inspection-photo-dialog button { min-height: 44px; min-width: 44px; }
+.inspection-photo-canvas {
+  display: grid;
+  place-items: center;
+  height: min(65dvh, 42rem);
+  background: #111814;
+  color: white;
+}
+.inspection-photo-canvas img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
