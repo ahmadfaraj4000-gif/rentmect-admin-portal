@@ -68,7 +68,7 @@ export default function BalanceEmail({ client, rentalId, rental, rentalReference
   }
   return <div className="rental-card-supplement">
     <div className="balance-preview-controls">
-      <button ref={previewButton} type="button" className="primary-btn" disabled={Boolean(busy)} aria-expanded={Boolean(statement)} onClick={() => run('preview')}>{busy === 'preview' ? 'Loading preview…' : 'Preview customer balance email'}</button>
+      <button ref={previewButton} type="button" className="primary-btn" disabled={Boolean(busy)} aria-expanded={Boolean(statement)} onClick={() => run('preview')}>{busy === 'preview' ? 'Loading preview…' : 'Preview customer balance / invoice'}</button>
       {statement && <button type="button" className="balance-preview-close" disabled={Boolean(busy)} onClick={() => {
         setPreview(null);
         request.current = ''; setPollAt(null); setJob(null);
