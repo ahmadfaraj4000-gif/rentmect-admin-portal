@@ -163,3 +163,27 @@
 .return-outcome p { margin:8px 0 0; line-height:1.5; }
 .return-outcome-due { background:#fff5ed; border-color:#ecd3bf; }
 .return-outcome-due>strong { color:#9a4726; }
+
+.unused-rental-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+.unused-rental-actions button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 650;
+}
+.unused-rental-actions .unused-rental-cancel {
+  background: transparent;
+  color: #42564b;
+  box-shadow: none;
+}
+.unused-rental-cancel:hover { text-decoration: underline; }
+.unused-rental-actions .unused-rental-delete { background: #a82b31; color: white; }
