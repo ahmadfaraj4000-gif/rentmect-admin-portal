@@ -10218,9 +10218,3 @@ input[type="radio"] {
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
-
-@media (max-width: 760px) {
-  .admin-mobile-drawer .mobile-drawer-nav button:has(> .communications-nav-count) {
-    grid-template-columns: 20px minmax(0, 1fr) auto !important;
-  }
-}
