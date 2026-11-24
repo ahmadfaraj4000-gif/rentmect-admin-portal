@@ -16,8 +16,8 @@ import '../src/styles.css';import '../src/vehicle-editor.css';import '../src/adm
 import {MoneyInput} from '../src/MoneyInput.jsx';import {manualDiscountPreviewMatches} from '../src/lib/manualDiscountPreview.js';import {useTaskDraft,DraftOwnerContext} from '../src/useTaskDraft.js';
 const money=v=>'$'+Number(v||0).toFixed(2),MONEY_MAX=100000,limitText=(s,n)=>s.slice(0,n);
 ${focus}\n${modal}
-const rental={id:'synthetic',rental_total:553,tax_amount:35.12,security_deposit:400,profiles:{full_name:'Test Customer'},vehicles:{name:'Test Vehicle'}};
-createRoot(document.getElementById('root')).render(<DraftOwnerContext.Provider value="test"><ManualRentalDiscountModal rental={rental} onCancel={()=>{}} onApply={()=>{throw Error('Must not submit')}} onPreview={async(r,f)=>({rental_id:r.id,mode:f.mode,manual_discount_value:Number(f.value),pre_manual_discount_rental_total:553,manual_discount_amount:317.93,tax_amount:14.93,security_deposit:400,new_total:650,net_paid:0,total_balance_due:650})}/></DraftOwnerContext.Provider>);`);
+const rental={id:'synthetic',manual_discount_amount:0.25,manual_discount_reason:'Previous discount',rental_total:553,tax_amount:35.12,security_deposit:400,profiles:{full_name:'Test Customer'},vehicles:{name:'Test Vehicle'}};
+createRoot(document.getElementById('root')).render(<DraftOwnerContext.Provider value="test"><ManualRentalDiscountModal rental={rental} onCancel={()=>{}} onApply={async(r,f)=>{(window.applied ||= []).push(f);return true}} onPreview={async(r,f)=>({rental_id:r.id,mode:f.mode,manual_discount_value:Number(f.value),pre_manual_discount_rental_total:553,manual_discount_amount:317.93,tax_amount:14.93,security_deposit:400,new_total:650,net_paid:0,total_balance_due:650})}/></DraftOwnerContext.Provider>);`);
 const server = spawn(process.execPath, [root + '/node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5197', '--strictPort'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser;
 try {
@@ -51,6 +51,21 @@ try {
     const bounds=await cancel.boundingBox();
     assert.ok(bounds.y>=0 && bounds.y+bounds.height<=viewport.height,'Bottom action stays reachable');
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow');
+    assert.equal(await cancel.evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
+    const remove=dialog.getByRole('button',{name:'Remove $0.25 discount',exact:true});
+    assert.equal(await remove.evaluate(el=>!!el.closest('.manual-discount-current')),true);
+    await remove.click();
+    await dialog.getByText('Remove manual discount',{exact:true}).waitFor();
+    await dialog.getByText('New reservation total',{exact:true}).waitFor();
+    const confirm=dialog.getByRole('button',{name:'Confirm removal of $0.25',exact:true});
+    assert.ok(await confirm.isDisabled());
+    await dialog.getByRole('textbox').fill('Correcting a duplicate manual discount');
+    assert.ok(await confirm.isEnabled());
+    assert.equal(await confirm.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(168, 43, 49)');
+    assert.equal(await page.evaluate(()=>window.applied?.length||0),0);
+    await confirm.click();
+    await page.waitForFunction(()=>window.applied?.length===1);
+    assert.equal(await page.evaluate(()=>window.applied[0].mode),'remove');
     assert.deepEqual(errors, []);
     await page.close();
   }
