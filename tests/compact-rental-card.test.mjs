@@ -67,10 +67,10 @@ test('clicking a clipped Needs Action warning opens every full warning in an acc
   assert.match(styles, /\.needs-action-warning-modal\s*\{[\s\S]*max-height: min\(720px, calc\(100dvh - 40px\)\) !important/);
 });
 
-test('rare rental actions use a clearly labelled More Actions menu', () => {
-  assert.match(source, /<summary aria-label="More rental actions"><span>More Actions<\/span><ChevronDown/);
-  assert.match(source, /More Actions[\s\S]*Global emergency override[\s\S]*Cancel rental/);
-  assert.doesNotMatch(source, /aria-label="More rental actions">•••/);
+test('rare rental actions use a clearly labelled Quick Actions menu', () => {
+  assert.match(source, /<summary aria-label="Quick Actions"><span>Quick Actions<\/span><ChevronDown/);
+  assert.match(source, /Quick Actions[\s\S]*Global emergency override[\s\S]*Cancel rental/);
+  assert.doesNotMatch(source, /aria-label="Quick Actions">•••/);
   assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*display: flex !important/);
   assert.match(styles, /\.rental-overflow-menu\s*\{[\s\S]*flex: 0 0 auto !important/);
   assert.match(styles, /\.rental-overflow-menu > summary\s*\{[\s\S]*white-space: nowrap !important/);

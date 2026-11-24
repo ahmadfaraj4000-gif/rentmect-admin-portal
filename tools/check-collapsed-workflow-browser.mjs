@@ -14,7 +14,7 @@ const rows=Array.from({length:25},(_,i)=>({id:'rental-'+i,user_id:'customer-'+i,
 window.detailReads=[];
 function App(){const[id,setId]=useState('');const full=rows.filter(r=>r.id===id).map(r=>({...r,...r.card.rental,profiles:{...r.card.rental.profiles,full_name:r.customer_name},vehicles:{name:r.vehicle_name}}));
 const manager={rows,selectedId:id,detailReady:!!id,counts:{},total:25,open:id=>{if(id)window.detailReads.push(id);setId(id)}};
-return <DraftOwnerContext.Provider value="synthetic-staff"><main className="admin-main" style={{padding:8,width:'100%',boxSizing:'border-box'}}><Rentals manager={manager} rentals={full} rentalFilter="all" search="" setSearch={()=>{}} setRentalFilter={()=>{}} documentsByRentalId={Object.fromEntries(rows.map(r=>[r.id,r.card.documents]))} documents={rows.flatMap(r=>r.card.documents)} vehicles={[]} reports={[]} extensionRequests={[]} notify={()=>{}}/></main></DraftOwnerContext.Provider>};createRoot(document.getElementById('root')).render(<App/>);`);
+return <DraftOwnerContext.Provider value="synthetic-staff"><main className="admin-main" style={{padding:8,width:'100%',boxSizing:'border-box'}}><Rentals operationsStaff manager={manager} rentals={full} rentalFilter="all" search="" setSearch={()=>{}} setRentalFilter={()=>{}} documentsByRentalId={Object.fromEntries(rows.map(r=>[r.id,r.card.documents]))} documents={rows.flatMap(r=>r.card.documents)} vehicles={[]} reports={[]} extensionRequests={[]} notify={()=>{}}/></main></DraftOwnerContext.Provider>};createRoot(document.getElementById('root')).render(<App/>);`);
 const server=spawn(process.execPath,[root+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5204','--strictPort'],{env:{...process.env,VITE_SUPABASE_URL:'http://127.0.0.1:5204/fixture',VITE_SUPABASE_ANON_KEY:'synthetic-anon',VITE_FLEXIBLE_PAYMENTS:'true'},stdio:'ignore'});
 let browser;
 try{
@@ -23,13 +23,13 @@ try{
  for(const width of [1440,390]){
  const page=await browser.newPage({viewport:{width,height:900}}),errors=[],reads=[];
  page.on('pageerror',e=>errors.push(e.message));
- await page.route('**/fixture/**',async route=>{const request=route.request();reads.push({url:request.url(),body:request.postData()});let data=[];if(request.url().includes('get_rental_account'))data={invoice_total:784.84,net_paid:0};if(request.url().includes('admin_flexible_payment_state'))data={receipts:[],allocations:[]};await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
+ await page.route('**/fixture/**',async route=>{const request=route.request();reads.push({url:request.url(),body:request.postData()});let data=[];if(request.url().endsWith('/rpc/remove_unused_rental'))data='delete';if(request.url().includes('get_rental_account'))data={invoice_total:784.84,net_paid:0};if(request.url().includes('admin_flexible_payment_state'))data={receipts:[],allocations:[]};await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
  await page.goto('http://127.0.0.1:5204/'+folder.split('/').at(-1)+'/index.html');
  const cards=page.locator('article.rental-operations-card'),first=cards.first();await first.getByRole('button',{name:'Show rental details',exact:true}).waitFor();
  assert.equal(await cards.count(),25);assert.equal(await page.locator('.rental-card-expanded-content').count(),0);
  for(const label of ['Phone','Identity','Vehicle','License','Insurance','Agreement','Payment','Deposit','Ready']) assert.equal(await first.locator('.rental-card-workflow').getByText(label,{exact:true}).count(),1,label);
  for(const name of ['Edit','Agreement','Contact','Manage Identity'])assert.equal(await first.locator('.rental-card-header').getByRole('button',{name,exact:true}).isVisible(),true,name);
- assert.equal(await first.getByText('Payment Due',{exact:true}).isVisible(),true);assert.equal(await first.getByText('More Actions',{exact:true}).isVisible(),true);
+ assert.equal(await first.getByText('Payment Due',{exact:true}).isVisible(),true);assert.equal(await first.getByText('Quick Actions',{exact:true}).isVisible(),true);
  assert.deepEqual(await first.locator('.progress-step').evaluateAll(nodes=>nodes.map(n=>n.className.split(' ').filter(c=>['complete','current','missing','bypassed'].includes(c))[0])),['complete','current','complete','complete','missing','complete','missing','missing','missing']);
  assert.deepEqual(reads,[],'collapsed cards must not issue detail/background requests');assert.deepEqual(await page.evaluate(()=>window.detailReads),[]);
  await first.screenshot({path:'/tmp/restored-workflow-'+width+'.png'});
@@ -39,6 +39,13 @@ try{
  await first.getByRole('button',{name:'Hide rental details',exact:true}).click();await first.getByRole('button',{name:'Show rental details',exact:true}).waitFor();
  await first.getByRole('button',{name:'Agreement',exact:true}).click();await page.getByRole('dialog').waitFor();
  assert.equal(await page.locator('.rental-card-expanded-content').count(),0,'header action does not expand details');assert.deepEqual(await page.evaluate(()=>window.detailReads),['rental-0','rental-0']);
+ await page.reload();
+ await first.getByText('Quick Actions',{exact:true}).click();
+ await first.getByRole('button',{name:'Delete unused rental',exact:true}).click();
+ const removal=page.getByRole('dialog',{name:'Delete unused rental'});
+ await removal.getByRole('button',{name:'Delete draft permanently'}).waitFor();
+ await removal.getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.deepEqual(reads.filter(r=>r.url.endsWith('/rpc/remove_unused_rental')).map(r=>JSON.parse(r.body)),[{p_rental_id:'rental-0',p_confirm:null}]);
  assert.deepEqual(errors,[]);console.log('PASS '+width+': 25 original headers and nine-step rails, no collapsed requests, one selected detail, Agreement action');await page.close();
  }
 }finally{await browser?.close();server.kill();await rm(folder,{recursive:true,force:true});await rm(module,{force:true});}
