@@ -33,6 +33,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   const deposit = pending?.depositAmountCents ?? Math.round(Number(form.depositAmount || 0) * 100);
   const credit = amount - rent - deposit - extras;
   const funding = pending?.funding || form.funding;
+  const insufficientCredit = !pending && funding === 'credit' && state && amount > state.availableCreditCents;
   // Every newly opened payment starts with all outstanding items selected.
   // Keep a submitted attempt intact; its reserved allocations must be recovered.
   useEffect(() => {
@@ -77,7 +78,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
   }
   function allocate(id, value) { const next = { ...allocations }; if (value === null) delete next[id]; else next[id] = value; change('allocationsJson', JSON.stringify(next)); }
   async function submit(event) {
-    event.preventDefault(); if (tab !== 'external' || submitLock.current || !state || !form.confirmed) return;
+    event.preventDefault(); if (tab !== 'external' || submitLock.current || !state || !form.confirmed || insufficientCredit) return;
     submitLock.current = true; setBusy(true); setError('');
     try {
       const request = pending || buildPaymentAllocation({ charges: eligible, rentalDueCents: due, depositDueCents: depositDue, availableCreditCents: state.availableCreditCents,
@@ -125,7 +126,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
           <label>Collection method<select value={funding} aria-describedby={funding === 'credit' && state ? 'available-customer-credit' : undefined} onChange={e => change('funding', e.target.value)}><option value="external">Record external payment</option>{canCollectRent && <option value="credit">Apply customer credit</option>}</select></label>
           {funding === 'credit' && state && <strong id="available-customer-credit" className="available-customer-credit">Available customer credit: {money(state.availableCreditCents)}</strong>}
         </div>
-        <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<MoneyInput type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/></label>
+        <label>{funding === 'credit' ? 'Credit to apply' : 'Payment amount'}<MoneyInput aria-invalid={insufficientCredit || undefined} aria-describedby={insufficientCredit ? 'credit-limit-error' : undefined} type="number" inputMode="decimal" min="0.01" step="0.01" required value={pending ? (amount / 100).toFixed(2) : form.amount} onChange={e => change('amount', e.target.value)}/>{insufficientCredit && <span className="form-error" id="credit-limit-error" role="alert">Not enough customer credit.</span>}</label>
         <p className="allocation-explanation">Enter the amount received. Money goes to the security deposit first, then rental, then additional charges. Changing the amount updates these selections. Any excess stays as customer credit. Existing customer credit can pay rental and charges, but cannot fund a deposit.</p>
         <div className="allocation-table"><div className="allocation-table-heading"><span>Apply to</span><span>Outstanding</span><span>Amount to apply</span></div>
           {canCollectRent && depositDue !== undefined && <div className="allocation-row"><label><input type="checkbox" disabled={!depositDue || funding === 'credit'} checked={deposit > 0} onChange={e => change('depositAmount', e.target.checked ? (depositDue / 100).toFixed(2) : '0')}/>Security deposit</label><span>{money(depositDue)}</span><MoneyInput aria-label="Amount toward security deposit" disabled={!depositDue || funding === 'credit'} min="0" max={depositDue / 100} value={pending ? (deposit / 100).toFixed(2) : form.depositAmount} onChange={e => change('depositAmount', e.target.value)}/></div>}
@@ -142,7 +143,7 @@ export function FlexibleReceivePayment({ client, rental, charges = [], rentalDue
       {credit < 0 && <p role="status">{amount > 0 ? <>You entered {money(amount)}, but selected {money(rent + deposit + extras)} to pay. Reduce the selected amounts by {money(-credit)}, or correct the {funding === 'credit' ? 'credit' : 'payment'} amount.</> : <>You selected {money(rent + deposit + extras)} to pay. Enter the {funding === 'credit' ? 'credit amount to use' : 'amount actually received'}, then choose how much of it goes toward each item.</>} Nothing has been applied yet.</p>}
       {state?.paymentUrl && <p><a href={state.paymentUrl} target="_blank" rel="noopener noreferrer">Open secure Stripe payment link</a></p>}
       <label className="external-payment-confirmation"><input type="checkbox" checked={form.confirmed} disabled={busy || !state} onChange={e => setForm(f => ({ ...f, confirmed: e.target.checked }))}/>{funding === 'external' ? 'I confirm this money was received and cleared, and these allocations are correct.' : funding === 'credit' ? 'I confirm the credit allocations. No new money is being received.' : 'I confirm the amount and allocations for this Stripe payment.'}</label>
-      <div className="modal-actions"><button type="button" disabled={busy} onClick={pending ? cancelPending : onClose}>{pending ? 'Cancel pending payment' : 'Cancel'}</button><button className="approve" disabled={busy || !state || !form.confirmed || credit < 0 || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')}>{busy ? 'Checking payment…' : pending ? 'Resume payment' : funding === 'credit' ? 'Apply credit' : funding === 'external' ? 'Record payment' : funding === 'stripe_link' ? 'Create payment link' : 'Charge saved card'}</button></div>
+      <div className="modal-actions"><button type="button" disabled={busy} onClick={pending ? cancelPending : onClose}>{pending ? 'Cancel pending payment' : 'Cancel'}</button><button className="approve" disabled={busy || !state || !form.confirmed || insufficientCredit || credit < 0 || state.receipts?.some(r=>r.status==='pending'&&r.funding_kind==='stripe')}>{busy ? 'Checking payment…' : pending ? 'Resume payment' : funding === 'credit' ? 'Apply credit' : funding === 'external' ? 'Record payment' : funding === 'stripe_link' ? 'Create payment link' : 'Charge saved card'}</button></div>
     </>}</div>{error && <p className="form-error" role="alert">{error}</p>}
   </div></form></div>, document.body);
 }
