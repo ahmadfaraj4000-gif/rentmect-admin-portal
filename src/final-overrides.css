@@ -10206,8 +10206,8 @@ input[type="radio"] {
 
 .communications-nav-count {
   display: inline-block;
-  vertical-align: middle;
-  margin-inline-start: .4em;
+  flex-shrink: 0;
+  margin-inline-start: auto;
   padding: .12em .45em;
   border-radius: 1em;
   background: #c9f4d8;
@@ -10217,4 +10217,10 @@ input[type="radio"] {
   font-weight: 700;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 760px) {
+  .admin-mobile-drawer .mobile-drawer-nav button:has(> .communications-nav-count) {
+    grid-template-columns: 20px minmax(0, 1fr) auto !important;
+  }
 }

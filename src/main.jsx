@@ -4400,7 +4400,7 @@ function App() {
             </button>}
             {adminTabs.map(({ key, label, icon: Icon }) => (
               <button key={key} type="button" className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} aria-current={activeTab === key ? 'page' : undefined}>
-                <Icon size={20}/><span>{label}{key === 'emails' && <UnreadMessageBadge key={session.user.id} client={supabase} revision={unreadRevision}/>}</span>
+                <Icon size={20}/><span>{label}</span>{key === 'emails' && <UnreadMessageBadge key={session.user.id} client={supabase} revision={unreadRevision}/>}
               </button>
             ))}
           </nav>
@@ -4420,7 +4420,7 @@ function App() {
           <nav className="side-nav" id="admin-primary-navigation">
             {adminTabs.map(({ key, label, icon: Icon }) => (
               <button key={key} className={activeTab === key ? 'active' : ''} onClick={() => selectAdminTab(key)} title={label} aria-current={activeTab === key ? 'page' : undefined}>
-                <Icon size={18}/><span>{label}{key === 'emails' && <UnreadMessageBadge key={session.user.id} client={supabase} revision={unreadRevision}/>}</span>
+                <Icon size={18}/><span>{label}</span>{key === 'emails' && <UnreadMessageBadge key={session.user.id} client={supabase} revision={unreadRevision}/>}
               </button>
             ))}
           </nav>
