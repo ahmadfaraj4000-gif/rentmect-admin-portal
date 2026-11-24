@@ -1,4 +1,4 @@
-export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-23-speed-incidents';
+export const AGREEMENT_VERSION = 'rentmect-master-v2026-11-24-citation-processing';
 
 export const AGREEMENT_TEXT = `RENTMECT
 MASTER VEHICLE RENTAL AGREEMENT
@@ -124,6 +124,7 @@ Renter shall cooperate with all inspection requests. Failure to do so shall cons
 TRAFFIC VIOLATIONS, PARKING CITATIONS, TOLLS
 Renter shall be responsible for all violations, tickets, and toll charges incurred during the Rental Period.
 Company may transfer liability or charge the Renter directly, including administrative fees.
+Rent Me CT charges a $25 processing fee once per official speeding citation that states a speed of 90 mph or more and that Rent Me CT processes for this rental. The fee is separate from the government fine. A GPS or telematics alert alone does not trigger this fee.
 
 ATTORNEYS’ FEES AND COLLECTION COSTS
 Renter agrees to pay all reasonable costs incurred by Company in enforcing this Agreement, including attorneys’ fees, court costs, and collection expenses.
