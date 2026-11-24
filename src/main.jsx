@@ -3029,25 +3029,23 @@ function App() {
     }
   }
 
-  async function createDiscountCode(event, campaignCode) {
+  async function createDiscountCode(event) {
     event.preventDefault();
     if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
-    const form = campaignCode || discountForm;
-    const amount = Number(form.amount);
-    if (!form.code.trim()) return notify('Enter or generate a discount code.');
+    const amount = Number(discountForm.amount);
+    if (!discountForm.code.trim()) return notify('Enter or generate a discount code.');
     if (!amount || amount <= 0) return notify('Discount amount must be greater than zero.');
-    if (form.discount_type === 'percentage' && amount > 100) return notify('Percentage discounts cannot be over 100%.');
+    if (discountForm.discount_type === 'percentage' && amount > 100) return notify('Percentage discounts cannot be over 100%.');
 
     const payload = {
-      ...(campaignCode ? { promotion_only: true } : {}),
-      code: form.code.trim().toUpperCase(),
-      discount_type: form.discount_type,
+      code: discountForm.code.trim().toUpperCase(),
+      discount_type: discountForm.discount_type,
       amount,
-      max_redemptions: form.max_redemptions ? Number(form.max_redemptions) : null,
-      starts_at: form.starts_at || null,
-      expires_at: form.expires_at || null,
-      active: Boolean(form.active),
-      waive_security_deposit: Boolean(form.waive_security_deposit),
+      max_redemptions: discountForm.max_redemptions ? Number(discountForm.max_redemptions) : null,
+      starts_at: discountForm.starts_at || null,
+      expires_at: discountForm.expires_at || null,
+      active: Boolean(discountForm.active),
+      waive_security_deposit: Boolean(discountForm.waive_security_deposit),
     };
 
     const { data, error } = await supabase
@@ -3059,9 +3057,8 @@ function App() {
 
     setDiscountCodes((current) => [data, ...current]);
     setPromotionForm(current => selectPromotionCoupon(current, data));
-    if (!campaignCode) setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true, waive_security_deposit: false });
-    notify('Discount code created and selected for the promotion manager.', 'success');
-    return data;
+    setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true, waive_security_deposit: false });
+    notify('Discount code saved and selected in Website Promotions.', 'success');
   }
 
   async function toggleDiscountCode(id, active) {
@@ -3251,7 +3248,7 @@ function App() {
     if (!promotionForm.name.trim()) return notify('Enter an internal campaign name.');
     if (couponCode.length < 2) return notify('Enter a coupon code.');
     const selectedDiscount = discountCodes.find((code) => code.code === couponCode);
-    if (!selectedDiscount) return notify('Choose a saved discount code or select Create my own code.');
+    if (!selectedDiscount) return notify('Choose a saved code. You can add one under Marketing → Discount Codes.');
     if (!selectedDiscount.active) return notify('Activate this discount code before publishing the promotion.');
     if (!promotionForm.ends_at) return notify('Choose when the promotion ends.');
     if (!promotionForm.popup_enabled && !promotionForm.banner_enabled) return notify('Turn on the popup, the banner, or both.');
@@ -7850,9 +7847,7 @@ function SettingsTab({
   updateAvailabilityType,
 }) {
   const [settingsSection, setSettingsSection] = useState('pricing');
-  const [creatingCoupon, setCreatingCoupon] = useState(false);
-  const [couponBusy, setCouponBusy] = useState(false);
-  const [newCoupon, setNewCoupon] = useState({ code: '', discount_type: 'percentage', amount: '' });
+  const [marketingView, setMarketingView] = useState('codes');
   const [employeeInvite, setEmployeeInvite] = useState({ fullName: '', email: '' });
   const [employeeInviteSaving, setEmployeeInviteSaving] = useState(false);
   const effectiveBookingProvider = 'supabase';
@@ -7965,7 +7960,7 @@ function SettingsTab({
       </form>
     </Panel>}
 
-    {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Hands-Off Operations">
+    {settingsSection === 'pricing' && <Panel title="Billing Automation" eyebrow="Tolls and deposits">
       <p className="muted">TollSpot enrolls every real fleet vehicle, polls for tolls, matches each toll to its vehicle possession history, and adds one idempotent customer charge. Every provider toll remains visible; records that cannot be matched automatically stay in Needs Review for an administrator to verify.</p>
       <form className="portal-form settings-form" onSubmit={saveBillingAutomation}>
         <label className="checkbox-pill">
@@ -8006,30 +8001,31 @@ function SettingsTab({
       </Panel>
     </div>}
 
-    {settingsSection === 'marketing' && <div className="promotion-settings-panel">
-      <Panel title="Website Promotion Manager" eyebrow="Advertising">
-        <p className="muted promotion-manager-intro">Choose a saved checkout code below or create your own. Then set the dates and choose where customers see the offer.</p>
-        <button type="button" className="secondary-btn" aria-expanded={creatingCoupon} onClick={() => setCreatingCoupon(!creatingCoupon)}>{creatingCoupon ? 'Close code form' : 'Create my own code'}</button>
-        {creatingCoupon && <form className="portal-form settings-form" onSubmit={async event => {
-          event.preventDefault();
-          if (couponBusy) return;
-          setCouponBusy(true);
-          try {
-            const saved = await createDiscountCode(event, { ...newCoupon, active: true });
-            if (saved?.id) {
-              setCreatingCoupon(false);
-              setNewCoupon({ code: '', discount_type: 'percentage', amount: '' });
-            }
-          } finally { setCouponBusy(false); }
-        }}>
-          <label>Code customers enter at checkout<input required maxLength="24" autoCapitalize="characters" pattern="[A-Z0-9\x2D]{3,24}" placeholder="e.g. WINTER15" value={newCoupon.code} onChange={e => setNewCoupon({ ...newCoupon, code: normalizeCodeInput(e.target.value) })}/><small>Use 3–24 letters, numbers or hyphens. Spaces are removed.</small></label>
-          <div className="form-row">
-            <label>Discount type<select value={newCoupon.discount_type} onChange={e => setNewCoupon({ ...newCoupon, discount_type: e.target.value })}><option value="percentage">Percentage off</option><option value="fixed">Dollar amount off</option></select></label>
-            <label>{newCoupon.discount_type === 'percentage' ? 'Percent off rental subtotal' : 'Dollars off rental subtotal'}<input required type="number" min="0.01" max={newCoupon.discount_type === 'percentage' ? 100 : MONEY_MAX} step="0.01" value={newCoupon.amount} onChange={e => setNewCoupon({ ...newCoupon, amount: e.target.value })}/></label>
-          </div>
-          <small>This code works at checkout during a published promotion that uses it.</small>
-          <button className="primary-btn" disabled={couponBusy}>{couponBusy ? 'Saving…' : 'Save and use this code'}</button>
-        </form>}
+    {settingsSection === 'marketing' && <div className="filter-pills settings-marketing-switch" role="group" aria-label="Marketing tools">
+      {[['codes', 'Discount Codes'], ['promotions', 'Website Promotions']].map(([key, label]) =>
+        <button type="button" key={key} className={marketingView === key ? 'active' : ''} aria-pressed={marketingView === key} onClick={() => setMarketingView(key)}>{label}</button>)}
+    </div>}
+
+    {settingsSection === 'marketing' && marketingView === 'promotions' && <div className="promotion-settings-panel">
+      <Panel title="Website Promotions" eyebrow="Advertising">
+        <div className="settings-list promotion-list">
+          {sitePromotions.length === 0 && <p className="muted">No website promotions yet.</p>}
+          {sitePromotions.map((promotion) => <div className="data-row settings-row promotion-row" key={promotion.id}>
+            <div>
+              <strong>{promotion.name}</strong>
+              <span>{promotion.coupon_code} • {promotionPlacementLabel(promotion)}</span>
+              <small>{promotionScheduleLabel(promotion)}</small>
+            </div>
+            <div className="row-actions">
+              <em className={promotionDisplayStatus(promotion) === 'Live' ? 'active-status' : 'paused-status'}>{promotionDisplayStatus(promotion)}</em>
+              <button type="button" onClick={() => editSitePromotion(promotion)}><Pencil size={15}/> Edit</button>
+              <button type="button" onClick={() => toggleSitePromotion(promotion.id, !promotion.active)}>{promotion.active ? 'Pause' : 'Activate'}</button>
+              <button type="button" className="reject" onClick={() => deleteSitePromotion(promotion.id)}><XCircle size={16}/> Delete</button>
+            </div>
+          </div>)}
+        </div>
+
+        <h4 className="settings-campaign-heading">{editingPromotionId ? `Edit ${promotionForm.name || "promotion"}` : "New promotion"}</h4>
         <form className="portal-form settings-form promotion-form" onSubmit={saveSitePromotion}>
           <div className="promotion-form-section">
             <h4>Campaign and coupon</h4>
@@ -8097,33 +8093,18 @@ function SettingsTab({
           </div>
         </form>
 
-        <div className="settings-list promotion-list">
-          {sitePromotions.length === 0 && <p className="muted">No promotions yet. Run the site promotions Supabase migration if this is your first time using the manager.</p>}
-          {sitePromotions.map((promotion) => <div className="data-row settings-row promotion-row" key={promotion.id}>
-            <div>
-              <strong>{promotion.name}</strong>
-              <span>{promotion.coupon_code} • {promotionPlacementLabel(promotion)}</span>
-              <small>{promotionScheduleLabel(promotion)}</small>
-            </div>
-            <div className="row-actions">
-              <em className={promotionDisplayStatus(promotion) === 'Live' ? 'active-status' : 'paused-status'}>{promotionDisplayStatus(promotion)}</em>
-              <button type="button" onClick={() => editSitePromotion(promotion)}><Pencil size={15}/> Edit</button>
-              <button type="button" onClick={() => toggleSitePromotion(promotion.id, !promotion.active)}>{promotion.active ? 'Pause' : 'Activate'}</button>
-              <button type="button" className="reject" onClick={() => deleteSitePromotion(promotion.id)}><XCircle size={16}/> Delete</button>
-            </div>
-          </div>)}
-        </div>
       </Panel>
     </div>}
 
-    {settingsSection === 'pricing' && <Panel title="Discount Codes" eyebrow="Pricing">
+    {settingsSection === 'marketing' && marketingView === 'codes' && <Panel title="Discount Codes" eyebrow="Checkout">
+      <p className="muted">Enter your own code or use Generate &amp; Copy. After saving, open Website Promotions to schedule a banner or pop-up with that code.</p>
       <form className="portal-form settings-form" onSubmit={createDiscountCode}>
         <div className="form-row">
-          <input placeholder="Code e.g. SUMMER25" maxLength="24" pattern="[A-Z0-9-]{3,24}" title="Discount code: 3-24 characters, uppercase letters, numbers, and hyphens only." value={discountForm.code} onChange={(event) => updateDiscount('code', event.target.value)} />
+          <input aria-label="Checkout code" placeholder="Code e.g. SUMMER25" maxLength="24" pattern="[A-Z0-9\x2D]{3,24}" title="Discount code: 3-24 characters, uppercase letters, numbers, and hyphens only." value={discountForm.code} onChange={(event) => updateDiscount('code', event.target.value)} />
           <button type="button" className="secondary-btn" onClick={generateDiscountCode}><Tag size={16}/> Generate &amp; Copy</button>
         </div>
         <div className="form-row">
-          <select value={discountForm.discount_type} onChange={(event) => updateDiscount('discount_type', event.target.value)}>
+          <select aria-label="Discount type" value={discountForm.discount_type} onChange={(event) => updateDiscount('discount_type', event.target.value)}>
             <option value="percentage">Percentage off</option>
             <option value="fixed">Dollar amount off</option>
           </select>
@@ -8176,7 +8157,7 @@ function SettingsTab({
       </div>
     </Panel>}
 
-    {settingsSection === 'fleet' && <Panel title="Calendar Status Colors" eyebrow="Source of Truth">
+    {settingsSection === 'fleet' && <Panel title="Calendar Status Colors" eyebrow="Fleet calendar">
       <p className="muted">Colors change presentation only. Reserved, On the Road, and Extension Hold are generated automatically; admins can create only Admin Hold, Unavailable, or Maintenance blocks.</p>
       <div className="identifier-settings">
         {Object.entries(availabilityTypes).map(([key, type]) => (
