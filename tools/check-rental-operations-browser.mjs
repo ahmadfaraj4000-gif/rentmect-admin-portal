@@ -18,7 +18,7 @@ const photos=[]; const incidents=[];
 const client={rpc:async(name,args)=>{
  if(name==='record_rental_driving_incident'){incidents.push({incident_reference:args.p_reference,peak_mph:args.p_peak_mph});return {data:{requires_review:true,count:1}};}
  if(name==='remove_unused_rental')return {data:'delete'};
- if(name==='undo_rental_return')return {data:args.p_code==='test-ok'?{status:'reversed'}:{error:'Incorrect return recovery code.'}};
+ if(name==='undo_rental_return')return {data:args.p_code==='test-ok'?{status:'reversed',origin_tab:window.originTab}:{error:'Incorrect return recovery code.'}};
  if(name==='rental_operations_staff_name')return {data:'Jennifer'};
  if(name==='rental_balance_statement')return {data:{recipient:'renter@example.invalid',due:10,statement:'Additional charge $10.00'}};
  if(name==='email_rental_balance_statement')return {data:'job1'};
@@ -27,7 +27,7 @@ const client={rpc:async(name,args)=>{
  list:async(folder)=>({data:photos.filter(p=>p.folder===folder)}),upload:async(path)=>{const [r,stage,name]=path.split('/');photos.push({folder:r+'/'+stage,name,created_at:new Date().toISOString()});return{};},
  createSignedUrl:async()=>({data:{signedUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9d8AAAAASUVORK5CYII='}})
 })}};
-createRoot(document.querySelector('#root')).render(<main><h1>Fixture rental</h1><div style={{height:'80vh'}}/><UndoReturn client={client} rental={rental} onComplete={()=>window.undo=true}/>
+createRoot(document.querySelector('#root')).render(<main><h1>Fixture rental</h1><div style={{height:'80vh'}}/><UndoReturn client={client} rental={rental} onComplete={tab=>window.undo=tab}/>
 <RemoveUnusedRental client={client} rental={rental} onComplete={value=>window.removed=value}/><BalanceEmail rentalId="r1" client={client}/><InspectionPhotos client={client} rentalId="r1"/><DrivingIncidents client={client} rentalId="r1"/></main>);`);
 const server = spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port),'--strictPort'],{stdio:['ignore','pipe','pipe']});
 let browser;
@@ -40,9 +40,11 @@ try {
     await page.goto('http://127.0.0.1:'+port+'/'+basename(dir)+'/index.html');
     const button=name=>page.getByRole('button',{name,exact:true});
     await button('Undo return').click();await button('Cancel').click();await button('Undo return').click();
-    await page.getByLabel('Recovery code').fill('wrong');await button('Restore to Cars Out').click();
+    await page.getByLabel('Recovery code').fill('wrong');await button('Restore rental').click();
     await page.getByRole('alert').filter({hasText:'Incorrect'}).waitFor();
-    await page.getByLabel('Recovery code').fill('test-ok');await button('Restore to Cars Out').click();await page.waitForFunction(()=>window.undo);
+    const originTab = width === 390 ? 'needs_action' : 'returns_today';
+    await page.evaluate(tab => { window.originTab = tab; }, originTab);
+    await page.getByLabel('Recovery code').fill('test-ok');await button('Restore rental').click();await page.waitForFunction(tab=>window.undo===tab,originTab);
     await button('Review unused rental for removal').click();await button('Delete draft permanently').click();
     await page.waitForFunction(()=>window.removed==='delete');
     await button('Preview customer balance email').click();await page.getByText('To renter@example.invalid').waitFor();

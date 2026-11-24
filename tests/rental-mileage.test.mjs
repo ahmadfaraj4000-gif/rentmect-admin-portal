@@ -27,9 +27,9 @@ const {readFileSync}=await import('node:fs');
 const {default:vm}=await import('node:vm');
 const main=readFileSync(new URL('../src/main.jsx',import.meta.url),'utf8');
 const action=main.slice(main.indexOf('  async function completeRentalReturn('),main.indexOf('  async function releaseSecurityDeposit('));
-function returnFixture({closeError=null}={}) {
+function returnFixture({closeError=null,rentalFilter='needs_action'}={}) {
   const calls=[],notices=[],refreshes=[];
-  const context=vm.createContext({returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport,
+  const context=vm.createContext({rentalFilter,returnCustomerAction,requireStaffPermission:()=>true,needsReturnEvidenceReport,
     parseMileageInput:Number,prettyStatus:String,supabase:{rpc:async(name,args)=>{calls.push({name,args});return {data:closeError?null:{id:'rental',status:'completed'},error:closeError};}},
     setProfiles:()=>{},setRentals:()=>{},setVehicles:()=>{},setEmergencyExceptions:()=>{},refreshAfterSavedTask:domains=>refreshes.push(Array.from(domains)),notify:(...args)=>{notices.push(args);}});
   vm.runInContext(action,context);
@@ -48,4 +48,12 @@ test('damage return sends the requested flag through the same return transaction
  assert.equal(f.calls.length,1);assert.equal(f.calls[0].args.p_return_context.customer_action,'block');
  assert.equal(f.calls[0].name,'admin_inspect_and_complete_rental_return');
  assert.deepEqual(f.refreshes[0],['core','snapshot','workflow','customer-directory']);
+});
+
+test('records the selected rental tab with the return inspection', async () => {
+  for (const rentalFilter of ['needs_action', 'returns_today', 'cars_out', 'extensions', 'all']) {
+    const fixture = returnFixture({ rentalFilter });
+    await fixture.run({ endingMileage: 2000 });
+    assert.equal(fixture.calls[0].args.p_return_context.origin_tab, rentalFilter);
+  }
 });
