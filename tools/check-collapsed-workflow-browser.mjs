@@ -23,7 +23,7 @@ try{
  for(const width of [1440,390]){
  const page=await browser.newPage({viewport:{width,height:900}}),errors=[],reads=[];
  page.on('pageerror',e=>errors.push(e.message));
- await page.route('**/fixture/**',async route=>{const request=route.request();reads.push({url:request.url(),body:request.postData()});let data=[];if(request.url().endsWith('/rpc/remove_unused_rental'))data='delete';if(request.url().includes('get_rental_account'))data={invoice_total:784.84,net_paid:0};if(request.url().includes('admin_flexible_payment_state'))data={receipts:[],allocations:[]};await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
+ await page.route('**/fixture/**',async route=>{const request=route.request();reads.push({url:request.url(),body:request.postData()});let data=[];if(request.url().endsWith('/rpc/delete_unused_rental'))data='delete';if(request.url().includes('get_rental_account'))data={invoice_total:784.84,net_paid:0};if(request.url().includes('admin_flexible_payment_state'))data={receipts:[],allocations:[]};await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
  await page.goto('http://127.0.0.1:5204/'+folder.split('/').at(-1)+'/index.html');
  const cards=page.locator('article.rental-operations-card'),first=cards.first();await first.getByRole('button',{name:'Show rental details',exact:true}).waitFor();
  assert.equal(await cards.count(),25);assert.equal(await page.locator('.rental-card-expanded-content').count(),0);
@@ -46,9 +46,15 @@ try{
  await first.getByText('Quick Actions',{exact:true}).click();
  await first.getByRole('button',{name:'Delete unused rental',exact:true}).click();
  const removal=page.getByRole('dialog',{name:'Delete unused rental'});
- await removal.getByRole('button',{name:'Delete draft permanently'}).waitFor();
+ const destroy=removal.getByRole('button',{name:'Delete rental permanently'});
+ await destroy.waitFor();
+ const cancel=removal.getByRole('button',{name:'Cancel',exact:true});
+ const [back,primary]=await Promise.all([cancel.boundingBox(),destroy.boundingBox()]);
+ assert.ok(primary.x-back.x-back.width>=15 || primary.y-back.y-back.height>=15,'separate the actions');
+ assert.equal(await cancel.evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
+ assert.equal(await destroy.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(168, 43, 49)');
  await removal.getByRole('button',{name:'Cancel',exact:true}).click();
- assert.deepEqual(reads.filter(r=>r.url.endsWith('/rpc/remove_unused_rental')).map(r=>JSON.parse(r.body)),[{p_rental_id:'rental-0',p_confirm:null}]);
+ assert.deepEqual(reads.filter(r=>r.url.endsWith('/rpc/delete_unused_rental')).map(r=>JSON.parse(r.body)),[{p_rental_id:'rental-0',p_confirm:null}]);
  assert.deepEqual(errors,[]);console.log('PASS '+width+': 25 original headers and nine-step rails, no collapsed requests, one selected detail, Agreement action');await page.close();
  }
 }finally{await browser?.close();server.kill();await rm(folder,{recursive:true,force:true});await rm(module,{force:true});}

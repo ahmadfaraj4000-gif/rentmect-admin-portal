@@ -20,7 +20,7 @@ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const client={rpc:async(name,args)=>{
  window.reads.push(name);
  if(name==='record_rental_driving_incident'){incidents.push({incident_reference:args.p_reference,peak_mph:args.p_peak_mph});return {data:{requires_review:true,count:1}};}
- if(name==='remove_unused_rental')return {data:'delete'};
+ if(name==='delete_unused_rental')return {data:'delete'};
  if(name==='undo_rental_return')return {data:args.p_code==='test-ok'?{status:'reversed',origin_tab:window.originTab}:{error:'Incorrect return recovery code.'}};
  if(name==='rental_operations_staff_name')return {data:'Jennifer'};
  if(name==='rental_balance_statement')return {data:{recipient:'renter@example.invalid',due:10,statement:'Additional charge $10.00'}};
@@ -59,7 +59,7 @@ try {
     const originTab = width === 390 ? 'needs_action' : 'returns_today';
     await page.evaluate(tab => { window.originTab = tab; }, originTab);
     await page.getByLabel('Recovery code').fill('test-ok');await button('Restore rental').click();await page.waitForFunction(tab=>window.undo===tab,originTab);
-    await button('Delete unused rental').click();await button('Delete draft permanently').click();
+    await button('Delete unused rental').click();await button('Delete rental permanently').click();
     await page.waitForFunction(()=>window.removed==='delete');
     await button('Preview customer balance email').click();await page.getByText('To renter@example.invalid').waitFor();
     await button('Send balance to customer').click();await button('Check delivery').click();await page.getByText('Delivery status: sent').waitFor();await button('Close preview').click();
