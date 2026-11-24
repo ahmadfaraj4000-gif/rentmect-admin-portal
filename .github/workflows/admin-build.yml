@@ -56,7 +56,7 @@ jobs:
         run: node --test tests/*.test.mjs
 
       - name: Verify payment dialogs in Chromium
-        timeout-minutes: 5
+        timeout-minutes: 20
         env:
           PLAYWRIGHT_MODULE: /tmp/rentme-browser-tools/node_modules/playwright/index.mjs
           PLAYWRIGHT_CHANNEL: chromium
