@@ -41,7 +41,8 @@ import { useVehicleAvailability } from './useVehicleAvailability.js';
 import { useRentalWorkspace } from './useRentalWorkspace.js';
 import { replaceRentalRecords } from './lib/rentalWorkspace.js';
 import { refundableRentalSources, refundDisplayState, rentalPaymentRefunds } from './lib/rentalRefunds.js';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSectionPages } from './useSectionPages.js';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { builtInLateFeeTemplates, isReturnWindowExtended } from './lib/lateFeePolicy.js';
 import { agreementFeeTemplates } from './lib/agreementFeeCatalog.js';
@@ -8264,12 +8265,12 @@ function rentalActivityDescription(event) {
   return labels[event.event_type] || prettyStatus(event.event_type);
 }
 
-function RentalActivityTimeline({ events = [], actorById = new Map() }) {
+function RentalActivityTimeline({ events = [] }) {
   if (!events.length) return null;
   return <div className="rental-activity-timeline" aria-label="Audited rental activity">
     {events.map((event) => {
       const payload = event.event_payload || {};
-      const actor = actorById.get(event.actor_id);
+      const actor = event.actor;
       const actorName = payload.actor_email || actor?.email || actor?.full_name || (event.actor_id === event.user_id ? 'customer' : 'system');
       const amount = Number(payload.amount || 0) || (['admin_saved_card_charge_succeeded', 'stripe_rental_payment_recorded'].includes(event.event_type) ? Number(payload.amount_total || 0) / 100 : 0);
       const detail = event.event_type === 'admin_tollspot_rental_assigned' ? payload.verification_note : '';
@@ -8318,8 +8319,8 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
   const depositReviewRequired = needsDepositReview(rental);
   const [depositSettlementOpen, setDepositSettlementOpen] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(initiallyExpanded);
-  const [activityEvents, setActivityEvents] = useState([]);
-  const [activityActorById, setActivityActorById] = useState(new Map());
+  const [ledgerTab, setLedgerTab] = useState('payments');
+  const [activityOpen, setActivityOpen] = useState(true);
   const [needsActionModalOpen, setNeedsActionModalOpen] = useState(false);
   const [returnPanelOpen, setReturnPanelOpen] = useState(() => !summaryOnly && readActiveReturnRentalId() === rental.id);
   const [externalPaymentModalOpen, setExternalPaymentModalOpen] = useState(false);
@@ -8370,20 +8371,19 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
     });
     return () => { active = false; };
   }, [rental.id, activityRefreshKey, detailsExpanded, swapOpen]);
-  useEffect(() => {
-    if (!detailsExpanded) return undefined;
-    let active = true;
-    (async () => {
-      const { data } = await supabase.from('rental_audit_events').select('*').eq('rental_id', rental.id).order('created_at', { ascending: false }).limit(250);
-      if (!active || !data) return;
-      setActivityEvents(data);
-      const actorIds = [...new Set(data.map((event) => event.actor_id).filter(Boolean))];
-      if (!actorIds.length) return setActivityActorById(new Map());
-      const { data: actors } = await supabase.from('profiles').select('id,email,full_name').in('id', actorIds);
-      if (active) setActivityActorById(new Map((actors || []).map((actor) => [actor.id, actor])));
-    })();
-    return () => { active = false; };
-  }, [detailsExpanded, rental.id, activityRefreshKey]);
+  const readActivity = useCallback(async (offset, limit, signal) => {
+    const { data, error } = await supabase.from('rental_audit_events').select('id,event_type,event_payload,actor_id,user_id,created_at')
+      .eq('rental_id', rental.id).order('created_at', { ascending: false }).order('id').range(offset, offset + limit - 1).abortSignal(signal);
+    if (error) throw error;
+    const ids = [...new Set(data.slice(0, limit - 1).filter(event => !event.event_payload?.actor_email).map(event => event.actor_id).filter(Boolean))];
+    if (!ids.length) return data;
+    const { data: actors, error: actorError } = await supabase.from('profiles').select('id,email,full_name').in('id', ids).abortSignal(signal);
+    if (actorError) throw actorError;
+    const byId = new Map(actors.map(actor => [actor.id, actor]));
+    return data.map(event => ({ ...event, actor: byId.get(event.actor_id) }));
+  }, [rental.id]);
+  const activityPage = useSectionPages(readActivity, 25, activityRefreshKey, detailsExpanded && ledgerTab === 'activity' && activityOpen);
+  const activityEvents = activityPage.rows;
   useEffect(() => { if (detailsExpanded || receivePaymentOpen) void refreshFlexibleState(); }, [detailsExpanded, receivePaymentOpen, rental.id, activityRefreshKey]);
   const reusableLicense = latestCustomerDocument(allDocuments, rental.user_id, 'license');
   const rentalLicense = rentalDocuments.find((d) => d.document_type === 'license');
@@ -8735,19 +8735,22 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
 
     <div className="rental-card-workspace">
       <div className="rental-card-left-column">
-        <RentalLedger id={`ledger-${rental.id}`} payments={<>{flexibleReadError && <p role="alert">Allocated payment history could not load: {flexibleReadError} <button type="button" onClick={refreshFlexibleState}>Retry</button></p>}<RentalPaymentHistory compact payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)} /></>}
-          charges={<RentalChargeManager ledger rental={rental} depositAllocations={depositAllocations} charges={trueAdditionalCharges} onReceivePayment={rental.status === 'completed' && recordExternalTollPayment ? openReceivePayment : null} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} sendPaymentLink={(charge) => setContactModal({ charge })}  notify={notify} />} activity={<details className="rental-card-activity" open>
-      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length + activityEvents.length} items</em><ChevronDown size={16}/></summary>
+        <RentalLedger onTabChange={setLedgerTab} id={`ledger-${rental.id}`} payments={<>{flexibleReadError && <p role="alert">Allocated payment history could not load: {flexibleReadError} <button type="button" onClick={refreshFlexibleState}>Retry</button></p>}<RentalPaymentHistory compact payments={paymentHistory} rental={rental} allocations={depositAllocations} onReceiptAction={recordExternalTollPayment ? async (id, form, action) => { const result = await recordExternalTollPayment(rental.id, id, form, action); await refreshFlexibleState(); return result; } : null} canRefund={Boolean(refundRentalPayment)} /></>}
+          charges={<RentalChargeManager ledger rental={rental} depositAllocations={depositAllocations} charges={trueAdditionalCharges} onReceivePayment={rental.status === 'completed' && recordExternalTollPayment ? openReceivePayment : null} serviceFees={serviceFees} addRentalCharge={addRentalCharge} waiveRentalCharge={waiveRentalCharge} chargeRentalSavedCard={chargeRentalSavedCard} recordExternalRentalCharge={recordExternalRentalCharge} recordExternalTollPayment={recordExternalTollPayment} sendPaymentLink={(charge) => setContactModal({ charge })}  notify={notify} />} activity={<details className="rental-card-activity" open={activityOpen} onToggle={event => setActivityOpen(event.currentTarget.open)}>
+      <summary><span><History size={15}/> Extension &amp; rental activity</span><em>{rentalExtensions.length + rentalReports.length + stepCompletions.length + activityEvents.length}{activityPage.more ? '+' : ''} items</em><ChevronDown size={16}/></summary>
       <div className="rental-card-activity-body"><RentalPricingHistory account={rentalAccount} formatDate={formatEasternDateTime} />
         {(activeEmergencyException || stepCompletions.length > 0) && <div className="admin-completion-badges">
           {stepCompletions.map((completion) => <button type="button" className="admin-completion-badge" key={completion.id} onClick={() => setAdminStepScope(completion.step_key)}><CheckCircle2 size={13}/> {prettyStatus(completion.step_key)} completed by admin</button>)}
           {activeEmergencyException && <span className="admin-completion-badge warning"><AlertTriangle size={13}/> Legacy exception logged</span>}
         </div>}
         {activeEmergencyException && <EmergencyExceptionBanner exception={activeEmergencyException} checklist={releaseChecklist} onResolve={(scope) => resolveEmergencyExceptionScope?.(activeEmergencyException.id, scope)} />}
-        <RentalActivityTimeline events={activityEvents} actorById={activityActorById} />
+        <RentalActivityTimeline events={activityEvents} />
+        {activityPage.loading && <small role="status">Loading activity…</small>}
+        {activityPage.error && <p role="alert">{activityPage.error} <button type="button" onClick={activityPage.next}>Retry</button></p>}
+        {activityPage.more && !activityPage.error && <button className="secondary-btn" type="button" disabled={activityPage.loading} onClick={activityPage.next}>Load more activity</button>}
         <RentalExtensionActions requests={rentalExtensions} documents={rentalDocuments} vehicles={vehicles} decideExtension={decideExtension} recordExtensionPayment={recordExtensionPayment} cancelApprovedExtension={cancelApprovedExtension} sendExtensionPaymentLink={(extension) => setContactModal({ extension })} openDocument={openDocument} markDocument={markDocument} onManageInsurance={uploadAdminBookingDocument ? (request) => setExtensionInsuranceRequestId(request.id) : null} />
         {rentalReports.length > 0 && <DamageReportList reports={rentalReports} />}
-        {!activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && activityEvents.length === 0 && <small>No extension, payment, waiver, incident, or admin-completion activity is attached to this rental.</small>}
+        {!activityPage.loading && !activityPage.error && !activityNeedsAttention && rentalExtensions.length === 0 && rentalReports.length === 0 && stepCompletions.length === 0 && activityEvents.length === 0 && <small>No extension, payment, waiver, incident, or admin-completion activity is attached to this rental.</small>}
       </div>
     </details>}
           totals={<><span>{money(balanceDue)} outstanding</span><span>{paymentHistory.length} payment / refund records</span></>}/>

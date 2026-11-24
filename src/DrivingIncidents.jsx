@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+
+import { useSectionPages } from './useSectionPages.js';
 
 export default function DrivingIncidents({ client, rentalId }) {
   const [reference, setReference] = useState('');
@@ -6,12 +8,15 @@ export default function DrivingIncidents({ client, rentalId }) {
   const [reckless, setReckless] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [incidents, setIncidents] = useState([]);
-  async function load() {
-    const {data, error} = await client.from('rental_driving_incidents').select('incident_reference,peak_mph,reckless').eq('rental_id', rentalId).order('recorded_at');
+  const [open, setOpen] = useState(false);
+  const read = useCallback(async (offset, limit, signal) => {
+    const { data, error } = await client.from('rental_driving_incidents').select('incident_reference,peak_mph,reckless')
+      .eq('rental_id', rentalId).order('recorded_at').order('id').range(offset, offset + limit - 1).abortSignal(signal);
     if (error) throw error;
-    setIncidents(data);
-  }
+    return data;
+  }, [client, rentalId]);
+  const page = useSectionPages(read, 10, rentalId, open);
+  const incidents = page.rows;
   async function record(event) {
     event.preventDefault();
     setBusy(true);
@@ -22,13 +27,16 @@ export default function DrivingIncidents({ client, rentalId }) {
       if (error) throw error;
       setMessage(data.requires_review ? 'Staff recovery review required. Verify the incident evidence and vehicle status.' : 'Incident recorded.');
       setReference(''); setSpeed(''); setReckless(false);
-      await load();
+      page.refresh();
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   }
-  return <details className="rental-card-supplement" onToggle={event => { if (event.currentTarget.open) load().catch(error => setMessage(error.message)); }}>
+  return <details className="rental-card-supplement" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Driving incidents</summary>
     {incidents.length > 0 && <ul>{incidents.map(i => <li key={i.incident_reference}>{i.incident_reference}{i.peak_mph ? ' · ' + i.peak_mph + ' mph' : ''}{i.reckless ? ' · Reckless driving' : ''}</li>)}</ul>}
+    {page.loading && <small role="status">Loading incidents…</small>}
+    {page.error && <p role="alert">{page.error} <button type="button" onClick={page.next}>Retry</button></p>}
+    {page.more && !page.error && <button type="button" disabled={page.loading} onClick={page.next}>Load more incidents</button>}
     {(incidents.length >= 3 || incidents.some(i => i.peak_mph > 100)) && <p>Staff recovery review required.</p>}
     <form className="portal-form driving-incident-form" onSubmit={record}>
       <label>Incident report or trip event ID<input value={reference} maxLength={120} required onChange={e => setReference(e.target.value)}/></label>
