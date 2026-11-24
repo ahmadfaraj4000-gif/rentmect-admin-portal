@@ -13,7 +13,7 @@ export default function BalanceEmail({ client, rentalId, rental, rentalReference
     try {
       if (action === 'download') {
         const { downloadInvoice } = await import('./lib/downloadInvoice.js');
-        await downloadInvoice(statement, rental, rentalReference);
+        await downloadInvoice(statement, rental, rentalReference, preview.breakdown);
         setMessage('Invoice PDF downloaded.');
       } else if (action === 'status') {
         const { data, error } = await client.from('email_outbox').select('status,last_error').eq('id',job).single();
