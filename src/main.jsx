@@ -3029,23 +3029,25 @@ function App() {
     }
   }
 
-  async function createDiscountCode(event) {
+  async function createDiscountCode(event, campaignCode) {
     event.preventDefault();
     if (!requireStaffPermission('settings.operational', 'change operational settings')) return false;
-    const amount = Number(discountForm.amount);
-    if (!discountForm.code.trim()) return notify('Enter or generate a discount code.');
+    const form = campaignCode || discountForm;
+    const amount = Number(form.amount);
+    if (!form.code.trim()) return notify('Enter or generate a discount code.');
     if (!amount || amount <= 0) return notify('Discount amount must be greater than zero.');
-    if (discountForm.discount_type === 'percentage' && amount > 100) return notify('Percentage discounts cannot be over 100%.');
+    if (form.discount_type === 'percentage' && amount > 100) return notify('Percentage discounts cannot be over 100%.');
 
     const payload = {
-      code: discountForm.code.trim().toUpperCase(),
-      discount_type: discountForm.discount_type,
+      ...(campaignCode ? { promotion_only: true } : {}),
+      code: form.code.trim().toUpperCase(),
+      discount_type: form.discount_type,
       amount,
-      max_redemptions: discountForm.max_redemptions ? Number(discountForm.max_redemptions) : null,
-      starts_at: discountForm.starts_at || null,
-      expires_at: discountForm.expires_at || null,
-      active: Boolean(discountForm.active),
-      waive_security_deposit: Boolean(discountForm.waive_security_deposit),
+      max_redemptions: form.max_redemptions ? Number(form.max_redemptions) : null,
+      starts_at: form.starts_at || null,
+      expires_at: form.expires_at || null,
+      active: Boolean(form.active),
+      waive_security_deposit: Boolean(form.waive_security_deposit),
     };
 
     const { data, error } = await supabase
@@ -3056,13 +3058,10 @@ function App() {
     if (error) return notify(error.message);
 
     setDiscountCodes((current) => [data, ...current]);
-    setPromotionForm((current) => ({
-      ...current,
-      coupon_code: data.code,
-      discount_code_id: data.id,
-    }));
-    setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true, waive_security_deposit: false });
+    setPromotionForm(current => selectPromotionCoupon(current, data));
+    if (!campaignCode) setDiscountForm({ code: '', discount_type: 'percentage', amount: '', max_redemptions: '', starts_at: '', expires_at: '', active: true, waive_security_deposit: false });
     notify('Discount code created and selected for the promotion manager.', 'success');
+    return data;
   }
 
   async function toggleDiscountCode(id, active) {
@@ -3252,7 +3251,7 @@ function App() {
     if (!promotionForm.name.trim()) return notify('Enter an internal campaign name.');
     if (couponCode.length < 2) return notify('Enter a coupon code.');
     const selectedDiscount = discountCodes.find((code) => code.code === couponCode);
-    if (!selectedDiscount) return notify('Choose a saved discount code so the advertised offer changes the customer total.');
+    if (!selectedDiscount) return notify('Choose a saved discount code or select Create my own code.');
     if (!selectedDiscount.active) return notify('Activate this discount code before publishing the promotion.');
     if (!promotionForm.ends_at) return notify('Choose when the promotion ends.');
     if (!promotionForm.popup_enabled && !promotionForm.banner_enabled) return notify('Turn on the popup, the banner, or both.');
@@ -7851,6 +7850,9 @@ function SettingsTab({
   updateAvailabilityType,
 }) {
   const [settingsSection, setSettingsSection] = useState('pricing');
+  const [creatingCoupon, setCreatingCoupon] = useState(false);
+  const [couponBusy, setCouponBusy] = useState(false);
+  const [newCoupon, setNewCoupon] = useState({ code: '', discount_type: 'percentage', amount: '' });
   const [employeeInvite, setEmployeeInvite] = useState({ fullName: '', email: '' });
   const [employeeInviteSaving, setEmployeeInviteSaving] = useState(false);
   const effectiveBookingProvider = 'supabase';
@@ -8006,7 +8008,28 @@ function SettingsTab({
 
     {settingsSection === 'marketing' && <div className="promotion-settings-panel">
       <Panel title="Website Promotion Manager" eyebrow="Advertising">
-        <p className="muted promotion-manager-intro">Create one campaign, write the popup and banner messages, choose where each appears, and schedule when both automatically disappear. The coupon buttons keep the same tap-to-copy action used on the current website.</p>
+        <p className="muted promotion-manager-intro">Choose a saved checkout code below or create your own. Then set the dates and choose where customers see the offer.</p>
+        <button type="button" className="secondary-btn" aria-expanded={creatingCoupon} onClick={() => setCreatingCoupon(!creatingCoupon)}>{creatingCoupon ? 'Close code form' : 'Create my own code'}</button>
+        {creatingCoupon && <form className="portal-form settings-form" onSubmit={async event => {
+          event.preventDefault();
+          if (couponBusy) return;
+          setCouponBusy(true);
+          try {
+            const saved = await createDiscountCode(event, { ...newCoupon, active: true });
+            if (saved?.id) {
+              setCreatingCoupon(false);
+              setNewCoupon({ code: '', discount_type: 'percentage', amount: '' });
+            }
+          } finally { setCouponBusy(false); }
+        }}>
+          <label>Code customers enter at checkout<input required maxLength="24" autoCapitalize="characters" pattern="[A-Z0-9\x2D]{3,24}" placeholder="e.g. WINTER15" value={newCoupon.code} onChange={e => setNewCoupon({ ...newCoupon, code: normalizeCodeInput(e.target.value) })}/><small>Use 3–24 letters, numbers or hyphens. Spaces are removed.</small></label>
+          <div className="form-row">
+            <label>Discount type<select value={newCoupon.discount_type} onChange={e => setNewCoupon({ ...newCoupon, discount_type: e.target.value })}><option value="percentage">Percentage off</option><option value="fixed">Dollar amount off</option></select></label>
+            <label>{newCoupon.discount_type === 'percentage' ? 'Percent off rental subtotal' : 'Dollars off rental subtotal'}<input required type="number" min="0.01" max={newCoupon.discount_type === 'percentage' ? 100 : MONEY_MAX} step="0.01" value={newCoupon.amount} onChange={e => setNewCoupon({ ...newCoupon, amount: e.target.value })}/></label>
+          </div>
+          <small>This code works at checkout during a published promotion that uses it.</small>
+          <button className="primary-btn" disabled={couponBusy}>{couponBusy ? 'Saving…' : 'Save and use this code'}</button>
+        </form>}
         <form className="portal-form settings-form promotion-form" onSubmit={saveSitePromotion}>
           <div className="promotion-form-section">
             <h4>Campaign and coupon</h4>
@@ -8014,7 +8037,7 @@ function SettingsTab({
               <label><span>Campaign name (admin only)</span><input required maxLength="80" placeholder="Labor Day Special" value={promotionForm.name} onChange={(event) => updatePromotion('name', limitText(event.target.value, 80))} /></label>
               <label><span>Saved discount code</span><select required value={promotionForm.coupon_code} onChange={(event) => {
                 const code = discountCodes.find((item) => item.code === event.target.value);
-                setPromotionForm((current) => ({ ...current, coupon_code: event.target.value, discount_code_id: code?.id || null }));
+                setPromotionForm(current => selectPromotionCoupon(current, code));
               }}><option value="">Choose a code</option>{discountCodes.map((code) => <option value={code.code} disabled={!code.active} key={code.id}>{code.code} — {discountLabel(code)}{code.active ? '' : ' (paused)'}</option>)}</select></label>
             </div>
             {promotionForm.coupon_code && <button type="button" className="secondary-btn promotion-copy-code" onClick={() => copyDiscountCode(promotionForm.coupon_code)}><Copy size={15}/> Copy code for banner or popup</button>}
@@ -13392,6 +13415,16 @@ function calculateAdminUnder25Deposit(baseDeposit, settings = DEFAULT_UNDER_25_P
 function formatDecimalInput(value) {
   const amount = Number(value || 0);
   return Number.isFinite(amount) ? amount.toFixed(2) : '0.00';
+}
+function selectPromotionCoupon(current, code) {
+  if (!code) return { ...current, coupon_code: '', discount_code_id: null };
+  const value = code.discount_type === 'percentage' ? `${Number(code.amount)}%` : money(code.amount);
+  return { ...current, coupon_code: code.code, discount_code_id: code.id,
+    badge_text: value + ' OFF', offer_value: value, offer_suffix: 'off',
+    popup_title: current.popup_title || 'Save on your rental',
+    popup_body: current.popup_body || 'Use the code below at checkout to save on your rental subtotal.',
+    banner_title: current.banner_title || 'Rental special',
+  };
 }
 function discountLabel(code) {
   if (code?.discount_type === 'percentage') return `${Number(code.amount || 0)}% off`;
