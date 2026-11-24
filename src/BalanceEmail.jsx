@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 
-export default function BalanceEmail({ client, rentalId }) {
+export default function BalanceEmail({ client, rentalId, rental, rentalReference }) {
   const [preview, setPreview] = useState(null);
   const statement = preview?.statement;
   const [message, setMessage] = useState('');
@@ -11,7 +11,11 @@ export default function BalanceEmail({ client, rentalId }) {
   async function run(action) {
     setBusy(action);
     try {
-      if (action === 'status') {
+      if (action === 'download') {
+        const { downloadInvoice } = await import('./lib/downloadInvoice.js');
+        await downloadInvoice(statement, rental, rentalReference);
+        setMessage('Invoice PDF downloaded.');
+      } else if (action === 'status') {
         const { data, error } = await client.from('email_outbox').select('status,last_error').eq('id',job).single();
         if (error) throw error;
         setMessage('Delivery status: ' + data.status + (data.last_error ? ' · ' + data.last_error : ''));
@@ -45,8 +49,11 @@ export default function BalanceEmail({ client, rentalId }) {
     {statement && <section aria-label="Customer balance email preview">
       <p>To {statement.recipient || 'Missing customer email'}</p>
       <iframe className="email-preview-frame" title="Customer balance email" sandbox="" referrerPolicy="no-referrer" srcDoc={preview.html}/>
-      {!job && <button type="button" className="approve" disabled={busy || !statement.recipient || statement.due <= 0} onClick={() => run('send')}>Send balance to customer</button>}
-      {job && <button type="button" className="secondary-btn" disabled={Boolean(busy)} onClick={() => run('status')}>Check delivery</button>}
+      <div className="balance-preview-controls balance-invoice-actions">
+        {!job && <button type="button" className="approve" disabled={busy || !statement.recipient || statement.due <= 0} onClick={() => run('send')}>Send balance to customer</button>}
+        {job && <button type="button" className="secondary-btn" disabled={Boolean(busy)} onClick={() => run('status')}>Check delivery</button>}
+        <button type="button" className="balance-preview-close" disabled={Boolean(busy)} onClick={() => run('download')}>{busy === 'download' ? 'Preparing PDF…' : 'Download invoice'}</button>
+      </div>
     </section>}
     {message && <p role="status">{message}</p>}
   </div>;

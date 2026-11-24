@@ -8756,7 +8756,7 @@ function RentalRow({ operationsStaff, onReturnUndone, onRentalRemoved, summaryOn
           totals={<><span>{money(balanceDue)} outstanding</span><span>{paymentHistory.length} payment / refund records</span></>}/>
 
         {operationsStaff && rental.status === 'completed' && <UndoReturn client={supabase} rental={rental} onComplete={onReturnUndone}/>}
-        {operationsStaff && <BalanceEmail client={supabase} rentalId={rental.id} />}
+        {operationsStaff && <BalanceEmail client={supabase} rentalId={rental.id} rental={rental} rentalReference={rentalReference} />}
         {operationsStaff && ['active','rented','overdue','return_initiated'].includes(rental.status) && <DrivingIncidents client={supabase} rentalId={rental.id} />}
         {operationsStaff && <InspectionPhotos client={supabase} rentalId={rental.id} />}
         <details className="rental-card-supplement"><summary>Rental details</summary><section className="rental-card-section rental-card-details" aria-labelledby={`rental-details-${rental.id}`}>

@@ -151,3 +151,9 @@
   cursor: pointer;
 }
 .balance-preview-close:hover { text-decoration: underline; }
+
+.balance-invoice-actions {
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-top: .75rem;
+}
